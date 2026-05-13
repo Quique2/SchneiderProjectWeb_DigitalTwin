@@ -30,3 +30,14 @@ if (!html.includes('background:#06101c')) {
 
 fs.writeFileSync(indexPath, html, 'utf-8');
 console.log('✓ dist/index.html patched successfully.');
+
+// Copy public/meshes → dist/meshes (STL files for the 3D viewer)
+const meshSrc = path.join(__dirname, '..', 'public', 'meshes');
+const meshDst = path.join(__dirname, '..', 'dist', 'meshes');
+if (fs.existsSync(meshSrc)) {
+  fs.mkdirSync(meshDst, { recursive: true });
+  for (const file of fs.readdirSync(meshSrc)) {
+    fs.copyFileSync(path.join(meshSrc, file), path.join(meshDst, file));
+  }
+  console.log(`✓ STL meshes copied to dist/meshes/ (${fs.readdirSync(meshDst).length} files).`);
+}

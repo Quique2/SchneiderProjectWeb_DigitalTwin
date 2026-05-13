@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse \"c:\\\\Users\\\\kiki7\\\\Downloads\\\\Schneider Project\")",
+      "Bash(Select-Object FullName, Length)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(find \"/mnt/c/Users/kiki7/Downloads/Schneider Project\" -type f | sort)",
+      "Read(//mnt/c/Users/kiki7/Downloads/**)",
+      "Bash(gh repo *)",
+      "WebFetch(domain:github.com)",
+      "PowerShell(git clone https://github.com/Quique2/SchneiderProjectWeb_DigitalTwin.git \"c:\\\\Users\\\\kiki7\\\\Downloads\\\\SchneiderProjectWeb_DigitalTwin\" 2>&1)"
+    ]
+  }
+}

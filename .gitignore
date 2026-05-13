@@ -2,3 +2,10 @@ node_modules/
 .expo/
 *.log
 .DS_Store
+
+# Source files (PDFs, PPTX, ZIP, extracted assets — no subir al repo)
+*.pdf
+*.pptx
+*.zip
+extracted/
+schneider_cafi_architecture*.jsx

@@ -8,13 +8,15 @@
     "deploy": "npm run build && git add -f dist/ && git commit -m \"deploy: build $(date +%Y-%m-%d)\" && git push origin main"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~4.0.1",
+    "@react-three/drei": "^9.117.3",
+    "@react-three/fiber": "^8.17.10",
     "expo": "~52.0.46",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-native": "0.76.9",
-    "@react-three/fiber": "^8.17.10",
-    "@react-three/drei": "^9.117.3",
+    "react-native-web": "~0.19.13",
     "three": "^0.170.0"
   },
   "devDependencies": {

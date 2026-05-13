@@ -1,0 +1,26 @@
+{
+  "name": "schneider-web-digital-twin",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --web",
+    "build": "expo export --platform web && node scripts/patch-dist.js",
+    "deploy": "npm run build && git add -f dist/ && git commit -m \"deploy: build $(date +%Y-%m-%d)\" && git push origin main"
+  },
+  "dependencies": {
+    "expo": "~52.0.46",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.9",
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/drei": "^9.117.3",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "@types/three": "^0.170.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Schneider Digital Twin",
+    "slug": "schneider-digital-twin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "platforms": ["web"]
+  }
+}

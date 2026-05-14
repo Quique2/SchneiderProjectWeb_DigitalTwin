@@ -1,4 +1,4 @@
 FROM caddy:2-alpine
 COPY dist/ /srv/
 COPY Caddyfile /etc/caddy/Caddyfile
-EXPOSE 80
+# PORT is injected by Railway at runtime; no fixed EXPOSE needed

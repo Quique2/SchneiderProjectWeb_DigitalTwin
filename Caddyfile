@@ -1,4 +1,4 @@
-:{$PORT:80} {
+:{$PORT} {
     root * /srv
     encode gzip
     try_files {path} /index.html

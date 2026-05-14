@@ -3,10 +3,9 @@ import React, { useEffect, useRef, useState } from 'react';
 const WIRE_GROUPS = [
   { hex: '#22D3EE', label: 'GND',                count: 40 },
   { hex: '#A953A0', label: 'Motores aux.',        count: 20 },
-  { hex: '#CD2027', label: '+24 V',              count: 19 },
+  { hex: '#CD2027', label: '+24 V',              count: 30 },
   { hex: '#58BA48', label: 'Switch',             count: 18 },
   { hex: '#F26722', label: 'Señales (naranja)',  count: 13 },
-  { hex: '#ED1F24', label: '+24 V',              count: 11 },
   { hex: '#2776BB', label: 'Comunicación',       count:  6 },
   { hex: '#F8991E', label: 'Señales (ámbar)',    count:  3 },
 ];

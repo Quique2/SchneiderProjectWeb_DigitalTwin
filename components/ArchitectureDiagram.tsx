@@ -105,7 +105,7 @@ export default function ArchitectureDiagram() {
           <svg viewBox="-5 0 225 210" style={{ width: '100%', maxHeight: '65vh' }}>
             <defs>
               <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#1a3550" />
+                <path d="M0,0 L6,3 L0,6 Z" fill="#1e3d60" />
               </marker>
               <marker id="arr-on" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
                 <path d="M0,0 L6,3 L0,6 Z" fill={stepColor} />
@@ -124,24 +124,24 @@ export default function ArchitectureDiagram() {
               return (
                 <g key={i}>
                   <line x1={f.x} y1={f.y} x2={t.x} y2={t.y}
-                    stroke={on ? stepColor : '#152335'}
-                    strokeWidth={on ? 1.2 : 0.5}
-                    strokeDasharray={on ? 'none' : '2 2'}
+                    stroke={on ? stepColor : '#1e3d60'}
+                    strokeWidth={on ? 1.4 : 0.8}
+                    strokeDasharray={on ? 'none' : '3 2'}
                     markerEnd={on ? 'url(#arr-on)' : 'url(#arr)'}
                     filter={on ? 'url(#glow)' : 'none'}
                     style={{ transition: 'all 0.3s' }} />
                   {c.bi && (
                     <line x1={t.x} y1={t.y} x2={f.x} y2={f.y}
-                      stroke={on ? '#0ea5e9' : '#152335'}
-                      strokeWidth={on ? 1.2 : 0.5}
-                      strokeDasharray={on ? 'none' : '2 2'}
+                      stroke={on ? '#0ea5e9' : '#1e3d60'}
+                      strokeWidth={on ? 1.4 : 0.8}
+                      strokeDasharray={on ? 'none' : '3 2'}
                       markerEnd={on ? 'url(#arr-on)' : 'url(#arr)'}
                       filter={on ? 'url(#glow)' : 'none'}
                       style={{ transition: 'all 0.3s' }} />
                   )}
                   {c.label && (
                     <text x={lx} y={ly} textAnchor="middle" fontSize="3"
-                      fill={on ? '#86efac' : '#1e3a5f'}
+                      fill={on ? '#86efac' : '#2a4f78'}
                       style={{ transition: 'all 0.3s', fontFamily: 'monospace' }}>
                       {c.label}
                     </text>

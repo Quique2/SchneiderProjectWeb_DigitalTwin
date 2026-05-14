@@ -41,3 +41,12 @@ if (fs.existsSync(meshSrc)) {
   }
   console.log(`✓ STL meshes copied to dist/meshes/ (${fs.readdirSync(meshDst).length} files).`);
 }
+
+// Copy public/diagram.svg → dist/diagram.svg (wiring diagram)
+const diagSrc = path.join(__dirname, '..', 'public', 'diagram.svg');
+const diagDst = path.join(__dirname, '..', 'dist', 'diagram.svg');
+if (fs.existsSync(diagSrc)) {
+  fs.copyFileSync(diagSrc, diagDst);
+  const kb = Math.round(fs.statSync(diagDst).size / 1024);
+  console.log(`✓ diagram.svg copied to dist/ (${kb} KB).`);
+}

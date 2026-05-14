@@ -1,171 +1,199 @@
-import React, { Suspense, useRef } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { Canvas, useLoader } from '@react-three/fiber';
-import { OrbitControls, Html, Environment } from '@react-three/drei';
+import { OrbitControls, Html, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { STLLoader } from 'three-stdlib';
 
-// ─── Coordinate mapping ──────────────────────────────────────────────────────
-// ROS world frame: X=east, Y=north, Z=up
-// Three.js frame:  X=right, Y=up, Z=toward viewer
-// ros(x,y,z) → three [x-CX, z, -(y-CY)]
-const CX = 1.252, CY = 1.049;
-function ros(x: number, y: number, z: number): [number, number, number] {
-  return [x - CX, z, -(y - CY)];
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const VISUALS: Visual[] = require('../assets/cell_visuals_world.json');
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface Visual {
+  name: string;
+  kind: 'box' | 'cyl' | 'sphere' | 'stl';
+  world_xyz: [number, number, number];
+  world_rot: number[][];
+  sx?: number; sy?: number; sz?: number;
+  radius?: number; height?: number;
+  rot_axis?: string;
+  mesh?: string;
+  visual_xyz?: [number, number, number];
+  visual_rpy?: [number, number, number];
+  scale?: number;
+  rgba?: [number, number, number, number];
 }
 
-// ─── Primitive helpers ────────────────────────────────────────────────────────
-function Box({ pos, size, color, opacity = 1, wireframe = false }: {
-  pos: [number,number,number]; size: [number,number,number];
-  color: string; opacity?: number; wireframe?: boolean;
-}) {
-  return (
-    <mesh position={pos} castShadow receiveShadow>
-      <boxGeometry args={size} />
-      <meshStandardMaterial color={color} transparent={opacity < 1} opacity={opacity} wireframe={wireframe} />
-    </mesh>
+// ── Coordinate transform helpers ──────────────────────────────────────────────
+// ROS world: X=east, Y=north, Z=up
+// Three.js:  X=east, Y=up,   Z=south
+const CX = 1.252205, CY = 1.049061;
+
+function tPos(wx: number, wy: number, wz: number): [number, number, number] {
+  return [wx - CX, wz, -(wy - CY)];
+}
+
+// T = [[1,0,0],[0,0,1],[0,-1,0]]  (ROS→Three.js axis mapping)
+// R_3js = T @ R_ros @ T^T
+// Closed-form: R_3js = [[m00,m02,-m01],[m20,m22,-m21],[-m10,-m12,m11]]
+function rosMatToThree(R: number[][]): THREE.Matrix4 {
+  const [r0, r1, r2] = R;
+  return new THREE.Matrix4().set(
+     r0[0],  r0[2], -r0[1], 0,
+     r2[0],  r2[2], -r2[1], 0,
+    -r1[0], -r1[2],  r1[1], 0,
+         0,      0,       0, 1
   );
 }
 
-function Cyl({ pos, r, h, color, rot }: {
-  pos: [number,number,number]; r: number; h: number;
-  color: string; rot?: [number,number,number];
-}) {
-  return (
-    <mesh position={pos} rotation={rot ?? [0,0,0]} castShadow>
-      <cylinderGeometry args={[r, r, h, 20]} />
-      <meshStandardMaterial color={color} />
-    </mesh>
-  );
+// Cylinders with rot_axis store their FK orientation with the cylinder's long
+// axis along local X of the link frame.  Three.js CylinderGeometry is along Y,
+// so we right-multiply by Rz(-90°) to re-align.
+const _RZ_NEG90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
+
+function rosRotToQuat(R: number[][], rotAxis?: string): THREE.Quaternion {
+  const q = new THREE.Quaternion().setFromRotationMatrix(rosMatToThree(R));
+  if (rotAxis) q.multiply(_RZ_NEG90);
+  return q;
 }
 
-// ─── STL mesh loader ─────────────────────────────────────────────────────────
-function STLMesh({ url, pos, rot, color, scale = 0.001 }: {
-  url: string; pos: [number,number,number]; rot: [number,number,number];
-  color: string; scale?: number;
-}) {
-  const geometry = useLoader(STLLoader, url);
-  return (
-    <mesh geometry={geometry} position={pos} rotation={rot}
-      scale={[scale, scale, scale]} castShadow>
-      <meshStandardMaterial color={color} />
-    </mesh>
-  );
-}
-
-function STLMeshSafe(props: Parameters<typeof STLMesh>[0]) {
-  return (
-    <Suspense fallback={null}>
-      <STLMesh {...props} />
-    </Suspense>
-  );
-}
-
-// ─── Reach circle (cobot workspace) ──────────────────────────────────────────
-function ReachCircle() {
-  const points: THREE.Vector3[] = [];
-  const cx = 1.671 - CX, cz = -(0.920 - CY), r = 0.626, y = 1.205;
-  for (let i = 0; i <= 64; i++) {
-    const a = (i / 64) * Math.PI * 2;
-    points.push(new THREE.Vector3(cx + Math.cos(a) * r, y, cz + Math.sin(a) * r));
+// For STL: apply visual_xyz offset (rotated by link frame) for position.
+// Fixture/CAFI STLs are Y-up → skip visual_rpy (Three.js is already Y-up).
+// Gripper STLs are Z-up → apply visual_rpy Rx(-π/2) so Z maps to Three.js Y.
+function stlTransform(v: Visual) {
+  const R = v.world_rot;
+  const vx = v.visual_xyz ?? [0, 0, 0];
+  // For grippers: tool0 local-Z points west (-ROS X), so vx[2]=0.083 adds
+  // -0.083 m in world X.  Zero that component to keep gripper aligned east-west.
+  const vx2 = v.name.startsWith('new_gripper') ? 0 : vx[2];
+  const wx = v.world_xyz[0] + R[0][0]*vx[0] + R[0][1]*vx[1] + R[0][2]*vx2;
+  const wy = v.world_xyz[1] + R[1][0]*vx[0] + R[1][1]*vx[1] + R[1][2]*vx2;
+  const wz = v.world_xyz[2] + R[2][0]*vx[0] + R[2][1]*vx[1] + R[2][2]*vx2;
+  const pos = tPos(wx, wy, wz);
+  if (v.name.startsWith('new_gripper')) pos[0] += 0.0675;
+  const quat = rosRotToQuat(R);
+  // Grippers are Z-up → apply visual_rpy Rx(-π/2) so Z maps to Three.js Y.
+  // Position offset (visual_xyz) is kept for both cases.
+  if (v.name.startsWith('new_gripper') && v.visual_rpy) {
+    quat.multiply(new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0), v.visual_rpy[0]
+    ));
   }
-  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  return { pos, quat };
+}
+
+// ── Primitive components ───────────────────────────────────────────────────────
+function VisMat({ rgba }: { rgba?: [number,number,number,number] }) {
+  const [r, g, b, a] = rgba ?? [0.65, 0.67, 0.70, 1.0];
   return (
-    <line geometry={geo}>
-      <lineBasicMaterial color="#22c55e" transparent opacity={0.25} />
-    </line>
+    <meshStandardMaterial
+      color={new THREE.Color(r, g, b)}
+      transparent={a < 1}
+      opacity={a}
+      roughness={0.55}
+      metalness={0.08}
+      polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}
+    />
   );
 }
 
-// ─── Hollow bin (4 walls + bottom) ───────────────────────────────────────────
-function HollowBin({ pos, size, color }: { pos: [number,number,number]; size: [number,number,number]; color: string }) {
-  const [w, h, d] = size;
-  const t = 0.005;
+function BoxMesh({ v }: { v: Visual }) {
+  const pos = tPos(...v.world_xyz);
+  const quat = rosRotToQuat(v.world_rot);
+  // In Three.js local frame: width=sx (ROS X), height=sz (ROS Z→Y), depth=sy (ROS Y→Z)
   return (
-    <group position={pos}>
-      {/* bottom */}
-      <Box pos={[0, -h/2 + t/2, 0]} size={[w, t, d]} color={color} opacity={0.5} />
-      {/* front */}
-      <Box pos={[0, 0, d/2 - t/2]} size={[w, h, t]} color={color} opacity={0.5} />
-      {/* back */}
-      <Box pos={[0, 0, -d/2 + t/2]} size={[w, h, t]} color={color} opacity={0.5} />
-      {/* left */}
-      <Box pos={[-w/2 + t/2, 0, 0]} size={[t, h, d]} color={color} opacity={0.5} />
-      {/* right */}
-      <Box pos={[w/2 - t/2, 0, 0]} size={[t, h, d]} color={color} opacity={0.5} />
-    </group>
+    <mesh position={pos} quaternion={quat} castShadow receiveShadow>
+      <boxGeometry args={[v.sx!, v.sz!, v.sy!]} />
+      <VisMat rgba={v.rgba} />
+    </mesh>
   );
 }
 
-// ─── Riveting cabin ───────────────────────────────────────────────────────────
-function RivetingCabin() {
-  const cx = 1.671 - CX, cy = 1.625 - CY, h = 0.500, cy3 = 1.200;
-  const sw = 0.700, sd = 0.400;
-  const postR = 0.015;
-  // 4 posts at cabin corners
-  const corners: [number,number][] = [
-    [-sw/2, -sd/2], [sw/2, -sd/2], [sw/2, sd/2], [-sw/2, sd/2]
-  ];
+function CylMesh({ v }: { v: Visual }) {
+  const pos = tPos(...v.world_xyz);
+  const quat = rosRotToQuat(v.world_rot, v.rot_axis);
   return (
-    <group>
-      {corners.map(([dx, dz], i) => (
-        <Cyl key={i} pos={[cx + dx, cy3 + h/2, -cy + dz]} r={postR} h={h} color="#5a6070" />
-      ))}
-      {/* back wall (north face, transparent) */}
-      <Box pos={[cx, cy3 + h/2, -cy - sd/2]} size={[sw, h, 0.004]} color="#3a4555" opacity={0.25} />
-      {/* canopy */}
-      <Box pos={[cx, cy3 + h, -cy]} size={[sw, 0.040, sd]} color="#4a5565" opacity={0.5} />
-      {/* press pillar */}
-      <Cyl pos={[cx, cy3 + h * 0.6, -(1.475 - CY)]} r={0.020} h={0.260} color="#383d47" />
-      {/* press head */}
-      <Box pos={[cx, cy3 + 0.148, -(1.475 - CY)]} size={[0.120, 0.036, 0.060]} color="#303540" />
-    </group>
+    <mesh position={pos} quaternion={quat} castShadow>
+      <cylinderGeometry args={[v.radius!, v.radius!, v.height!, 28]} />
+      <VisMat rgba={v.rgba} />
+    </mesh>
   );
 }
 
-// ─── Simplified Lexium Cobot ──────────────────────────────────────────────────
-function CobotArm() {
-  const bx = 1.671 - CX, bz = -(0.920 - CY);
-  const baseZ = 1.200;
-  // Pedestal
-  const pedH = 0.250, pedZ = baseZ + pedH / 2;
-  // Simplified arm: 3 segments from pedestal to tool0
-  // tool0 at Three.js: [0.419, 1.6685, -0.226]
-  // We'll place 3 cylinders roughly following the arm path
-  const GREEN = '#66c733';
-  const WHITE = '#f2f2f2';
-  const DARK = '#2a2d35';
+function SphereMesh({ v }: { v: Visual }) {
+  const pos = tPos(...v.world_xyz);
   return (
-    <group>
-      {/* Pedestal */}
-      <Cyl pos={[bx, pedZ, bz]} r={0.055} h={pedH} color={DARK} />
-      <Cyl pos={[bx, baseZ + pedH, bz]} r={0.062} h={0.020} color={GREEN} />
-      {/* Base rotation joint */}
-      <Cyl pos={[bx, baseZ + pedH + 0.030, bz]} r={0.055} h={0.060} color={WHITE} />
-      {/* Link 1: slight tilt north-up */}
-      <Box pos={[bx, baseZ + pedH + 0.180, bz - 0.060]} size={[0.075, 0.260, 0.075]} color={WHITE} />
-      {/* Joint 2 */}
-      <Cyl pos={[bx, baseZ + pedH + 0.310, bz - 0.120]} r={0.048} h={0.052} color={GREEN} rot={[0,0,Math.PI/2]} />
-      {/* Link 2: going toward fixture */}
-      <Box pos={[bx, baseZ + pedH + 0.380, bz - 0.185]} size={[0.065, 0.200, 0.065]} color={WHITE} />
-      {/* Joint 3 */}
-      <Cyl pos={[bx, baseZ + pedH + 0.450, bz - 0.220]} r={0.040} h={0.040} color={GREEN} rot={[0,0,Math.PI/2]} />
-      {/* End effector stub */}
-      <Cyl pos={[bx, baseZ + pedH + 0.480, bz - 0.226]} r={0.030} h={0.040} color={DARK} />
-      {/* Gripper (simplified box) */}
-      <Box pos={[bx, baseZ + pedH + 0.430, bz - 0.226]} size={[0.130, 0.080, 0.070]} color="#b0b2bb" />
-    </group>
+    <mesh position={pos} castShadow>
+      <sphereGeometry args={[v.radius!, 20, 20]} />
+      <VisMat rgba={v.rgba} />
+    </mesh>
   );
 }
 
-// ─── Label ────────────────────────────────────────────────────────────────────
-function Label({ pos, text, color = '#e2e8f0' }: { pos: [number,number,number]; text: string; color?: string }) {
+function STLMeshInner({ v }: { v: Visual }) {
+  const geometry = useLoader(STLLoader, v.mesh!);
+  const { pos, quat } = useMemo(() => stlTransform(v), [v]);
+  const sc = v.scale ?? 0.001;
+  const [r, g, b] = v.rgba ?? [0.65, 0.68, 0.72];
   return (
-    <Html position={pos} center>
+    <mesh geometry={geometry} position={pos} quaternion={quat} scale={[sc, sc, sc]} castShadow>
+      <meshStandardMaterial color={new THREE.Color(r, g, b)} roughness={0.45} metalness={0.12} />
+    </mesh>
+  );
+}
+
+function STLMeshSafe({ v }: { v: Visual }) {
+  return <Suspense fallback={null}><STLMeshInner v={v} /></Suspense>;
+}
+
+function VisualElement({ v }: { v: Visual }) {
+  if (v.kind === 'box')    return <BoxMesh v={v} />;
+  if (v.kind === 'cyl')    return <CylMesh v={v} />;
+  if (v.kind === 'sphere') return <SphereMesh v={v} />;
+  if (v.kind === 'stl')    return <STLMeshSafe v={v} />;
+  return null;
+}
+
+// ── Floor grid (ROS world origin offset) ─────────────────────────────────────
+function FloorGrid() {
+  return (
+    <Grid
+      args={[6, 6]}
+      position={[0, 0.002, 0]}
+      cellSize={0.25} cellThickness={0.4} cellColor="#0f1e30"
+      sectionSize={1} sectionThickness={0.8} sectionColor="#162840"
+      fadeDistance={8} infiniteGrid={false}
+    />
+  );
+}
+
+// ── Reach circle around cobot base ────────────────────────────────────────────
+function ReachCircle() {
+  const lineLoop = useMemo(() => {
+    const pts: THREE.Vector3[] = [];
+    const [cx, cy, cz] = tPos(1.670548, 0.920, 1.210);
+    const R = 0.626;
+    for (let i = 0; i <= 80; i++) {
+      const a = (i / 80) * Math.PI * 2;
+      pts.push(new THREE.Vector3(cx + Math.cos(a) * R, cy, cz + Math.sin(a) * R));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({ color: '#22c55e', transparent: true, opacity: 0.4 });
+    return new THREE.LineLoop(geo, mat);
+  }, []);
+  return <primitive object={lineLoop} />;
+}
+
+// ── HTML label ────────────────────────────────────────────────────────────────
+function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
+  wx: number; wy: number; wz: number; text: string; color?: string;
+}) {
+  return (
+    <Html position={tPos(wx, wy, wz)} center>
       <div style={{
         fontSize: 9, color, background: 'rgba(6,16,28,0.82)',
-        border: `1px solid ${color}33`, padding: '2px 6px', borderRadius: 4,
+        border: `1px solid ${color}44`, padding: '2px 7px', borderRadius: 4,
         whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
-        letterSpacing: 0.5,
+        letterSpacing: 0.4,
       }}>
         {text}
       </div>
@@ -173,118 +201,32 @@ function Label({ pos, text, color = '#e2e8f0' }: { pos: [number,number,number]; 
   );
 }
 
-// ─── Full cell scene ──────────────────────────────────────────────────────────
+// ── Full cell scene ───────────────────────────────────────────────────────────
 function CellScene() {
   return (
     <group>
-      {/* Floor */}
-      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[5, 5]} />
-        <meshStandardMaterial color="#1a1d24" />
-      </mesh>
-
-      {/* Plant table */}
-      <Box pos={ros(1.265, 1.150, 1.180)} size={[2.000, 0.040, 1.600]} color="#d0d3d9" />
-      {/* Table legs */}
-      {([[0.265,0.350],[2.265,0.350],[0.265,1.950],[2.265,1.950]] as [number,number][]).map(([lx,ly],i) => (
-        <Box key={i} pos={ros(lx, ly, 0.600)} size={[0.060, 1.200, 0.060]} color="#6a6d75" />
-      ))}
-
-      {/* Cobot reach circle */}
+      <FloorGrid />
       <ReachCircle />
 
-      {/* Cobot arm */}
-      <CobotArm />
-      <Label pos={ros(1.671, 0.780, 1.310)} text="Lexium Cobot" color="#60a5fa" />
+      {VISUALS.map((v, i) => <VisualElement key={i} v={v} />)}
 
-      {/* Conveyor 1 */}
-      <Box pos={ros(1.069, 0.861, 1.2325)} size={[0.700, 0.065, 0.150]} color="#8a8d96" />
-      <Label pos={ros(1.069, 0.750, 1.290)} text="Conveyor" color="#fbbf24" />
-
-      {/* CAFI supply pallet */}
-      <Box pos={ros(0.539, 0.861, 1.2075)} size={[0.360, 0.015, 0.685]} color="#aab0bb" />
-      <Label pos={ros(0.539, 0.780, 1.260)} text="Suministro CAFI" color="#fbbf24" />
-
-      {/* Reject bin */}
-      <HollowBin pos={ros(1.486, 0.496, 1.275)} size={[0.227, 0.150, 0.211]} color="#c0392b" />
-      <Label pos={ros(1.486, 0.496, 1.380)} text="Bin Rechazo" color="#f87171" />
-
-      {/* Accept bin */}
-      <HollowBin pos={ros(1.786, 0.496, 1.275)} size={[0.227, 0.150, 0.211]} color="#27ae60" />
-      <Label pos={ros(1.786, 0.496, 1.380)} text="Bin Aceptado" color="#4ade80" />
-
-      {/* Riveting cabin */}
-      <RivetingCabin />
-
-      {/* Rotary disc */}
-      <Cyl pos={ros(1.671, 1.375, 1.210)} r={0.100} h={0.020} color="#7a8090" />
-      <Label pos={ros(1.671, 1.375, 1.250)} text="Disco Rotatorio" color="#a78bfa" />
-
-      {/* Load fixture (STL) */}
-      <STLMeshSafe
-        url="/meshes/Fixture_para_remache_1.STL"
-        pos={ros(1.671, 1.275, 1.220)}
-        rot={[Math.PI/2, 0, 0]}
-        color="#9aa0b0"
-      />
-
-      {/* Rivet position fixture (STL - same geometry, inside cabin) */}
-      <STLMeshSafe
-        url="/meshes/Fixture_para_remache_1.STL"
-        pos={ros(1.671, 1.475, 1.220)}
-        rot={[Math.PI/2, 0, 0]}
-        color="#9aa0b0"
-      />
-
-      {/* CAFI on load fixture (STL) */}
-      <STLMeshSafe
-        url="/meshes/cafi.STL"
-        pos={ros(1.671, 1.275, 1.225)}
-        rot={[Math.PI/2, 0, 0]}
-        color="#d97340"
-      />
-
-      {/* Vision fixture (STL) */}
-      <STLMeshSafe
-        url="/meshes/Fixture_para_camara_final.STL"
-        pos={ros(2.050, 1.200, 1.215)}
-        rot={[Math.PI/2, 0, 0]}
-        color="#9aa0b0"
-      />
-      <Label pos={ros(2.050, 1.050, 1.270)} text="Fixture Visión" color="#e879f9" />
-
-      {/* CAFI on vision fixture (STL) */}
-      <STLMeshSafe
-        url="/meshes/cafi.STL"
-        pos={ros(2.050, 1.200, 1.215)}
-        rot={[Math.PI/2, 0, 0]}
-        color="#d97340"
-      />
-
-      {/* Cognex camera column (floor-mounted) */}
-      <Cyl pos={ros(2.330, 1.200, 0.900)} r={0.018} h={1.800} color="#7a8090" />
-      {/* Camera arm */}
-      <Box pos={ros(2.270, 1.200, 1.750)} size={[0.120, 0.018, 0.018]} color="#6a7080" />
-      {/* Camera body */}
-      <Box pos={ros(2.210, 1.200, 1.750)} size={[0.060, 0.045, 0.045]} color="#18191f" />
-      <Cyl pos={ros(2.210, 1.200, 1.730)} r={0.014} h={0.028} color="#3a5568" rot={[Math.PI/2, 0, 0]} />
-      <Label pos={ros(2.210, 1.050, 1.790)} text="Cognex 2800" color="#e879f9" />
-
-      {/* Control station */}
-      <Box pos={ros(0.450, 0.180, 0.600)} size={[0.500, 1.200, 0.300]} color="#353a45" />
-      {/* Desk surface */}
-      <Box pos={ros(0.450, 0.180, 0.722)} size={[0.500, 0.012, 0.300]} color="#4a5060" />
-      {/* HMI screen */}
-      <Box pos={ros(0.450, 0.040, 0.960)} size={[0.180, 0.120, 0.010]} color="#1a3050" />
-      <Label pos={ros(0.450, 0.040, 1.080)} text="Control Station" color="#38bdf8" />
-
-      {/* Cabin label */}
-      <Label pos={ros(1.671, 1.750, 1.720)} text="Cabina Remachado" color="#fb923c" />
+      {/* Labels */}
+      <Label wx={1.671} wy={0.78}  wz={1.26}  text="Lexium Cobot"      color="#60a5fa" />
+      <Label wx={1.671} wy={1.50}  wz={1.75}  text="Zona Remachado"    color="#fb923c" />
+      <Label wx={1.069} wy={0.76}  wz={1.30}  text="Conveyor 1"        color="#fbbf24" />
+      <Label wx={0.539} wy={0.76}  wz={1.27}  text="Suministro CAFI"   color="#fbbf24" />
+      <Label wx={1.786} wy={0.49}  wz={1.38}  text="Aceptado"          color="#4ade80" />
+      <Label wx={1.486} wy={0.49}  wz={1.38}  text="Rechazado"         color="#f87171" />
+      <Label wx={2.28}  wy={1.06}  wz={1.82}  text="Cognex 2800"       color="#e879f9" />
+      <Label wx={0.45}  wy={-0.02} wz={0.82}  text="Control Station"   color="#38bdf8" />
+      <Label wx={0.345} wy={-0.26} wz={0.46}  text="Site Operator"     color="#38bdf8" />
+      <Label wx={1.671} wy={1.28}  wz={1.27}  text="Fixture LOAD"      color="#a78bfa" />
+      <Label wx={1.671} wy={1.48}  wz={1.27}  text="Fixture RIVET"     color="#a78bfa" />
     </group>
   );
 }
 
-// ─── Main exported component ──────────────────────────────────────────────────
+// ── Exported component ────────────────────────────────────────────────────────
 export default function CellViewer3D() {
   return (
     <div style={{ background: '#07111e', borderTop: '1px solid #1a3550', borderBottom: '1px solid #1a3550' }}>
@@ -297,32 +239,34 @@ export default function CellViewer3D() {
           Layout Físico de la Celda · V13
         </div>
         <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
-          Arrastra para rotar · Scroll para zoom · Modelos STL reales del workspace ROS
+          Arrastra para rotar · Scroll para zoom · Posiciones exactas del workspace ROS/FK
         </div>
       </div>
 
       {/* 3D Canvas */}
-      <div style={{ height: '70vh', position: 'relative', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ height: '72vh', position: 'relative', maxWidth: 1300, margin: '0 auto' }}>
         <Canvas
           shadows
-          camera={{ position: [1.6, 2.2, 3.0], fov: 42 }}
+          camera={{ position: [-0.8, 1.9, 3.4], fov: 40 }}
           style={{ background: '#07111e' }}
-          gl={{ antialias: true }}
+          gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
         >
           <ambientLight intensity={0.55} />
           <directionalLight
-            position={[2, 4, 3]} intensity={1.2}
-            castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+            position={[1, 5, 3]} intensity={1.3} castShadow
+            shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+            shadow-camera-near={0.1} shadow-camera-far={20}
+            shadow-camera-left={-3} shadow-camera-right={3}
+            shadow-camera-top={3} shadow-camera-bottom={-3}
           />
-          <directionalLight position={[-2, 3, -2]} intensity={0.4} color="#b0d0ff" />
+          <directionalLight position={[-2, 3, -2]} intensity={0.30} color="#a0c0ff" />
+          <directionalLight position={[2, 2, 2]}  intensity={0.18} color="#ffe8c0" />
 
           <OrbitControls
-            target={[0.42, 1.25, -0.18]}
-            minPolarAngle={0.2}
-            maxPolarAngle={Math.PI / 2.1}
-            minDistance={1.5}
-            maxDistance={7}
-            enableDamping dampingFactor={0.08}
+            target={[0.15, 1.20, -0.25]}
+            minPolarAngle={0.12} maxPolarAngle={Math.PI / 2.05}
+            minDistance={1.5} maxDistance={9}
+            enableDamping dampingFactor={0.07}
           />
 
           <Suspense fallback={null}>
@@ -334,18 +278,19 @@ export default function CellViewer3D() {
       {/* Legend */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center',
-        padding: '16px 24px 28px', borderTop: '1px solid #0d1e30',
+        padding: '14px 24px 26px', borderTop: '1px solid #0d1e30',
       }}>
         {[
-          { color: '#66c733', label: 'Cobot reach — 0.626 m' },
-          { color: '#d97340', label: 'CAFI breaker (STL real)' },
-          { color: '#9aa0b0', label: 'Fixtures (STL real)' },
-          { color: '#27ae60', label: 'Bin aceptado' },
-          { color: '#c0392b', label: 'Bin rechazo' },
-          { color: '#18191f', label: 'Cognex In-Sight 2800' },
+          { color: '#22c55e', label: 'Reach cobot 626 mm' },
+          { color: '#d97340', label: 'CAFI breaker (STL)' },
+          { color: '#8a9090', label: 'Fixtures (STL real)' },
+          { color: '#4ade80', label: 'Bin aceptado' },
+          { color: '#f87171', label: 'Bin rechazado' },
+          { color: '#60a5fa', label: 'Lexium Cobot' },
+          { color: '#e879f9', label: 'Cognex 2800' },
         ].map(({ color, label }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#4a6a88' }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
             {label}
           </div>
         ))}

@@ -59,6 +59,7 @@ function rosRotToQuat(R: number[][], rotAxis?: string): THREE.Quaternion {
 // For STL: apply visual_xyz offset (rotated by link frame) for position.
 // Fixture/CAFI STLs are Y-up → skip visual_rpy (Three.js is already Y-up).
 // Gripper STLs are Z-up → apply visual_rpy Rx(-π/2) so Z maps to Three.js Y.
+// Cobot link STLs are SolidWorks Y-up → visual_rpy Rx(+π/2) swaps SW Y → link Z.
 function stlTransform(v: Visual) {
   const R = v.world_rot;
   const vx = v.visual_xyz ?? [0, 0, 0];
@@ -71,9 +72,10 @@ function stlTransform(v: Visual) {
   const pos = tPos(wx, wy, wz);
   if (v.name.startsWith('new_gripper')) pos[0] += 0.0675;
   const quat = rosRotToQuat(R);
-  // Grippers are Z-up → apply visual_rpy Rx(-π/2) so Z maps to Three.js Y.
-  // Position offset (visual_xyz) is kept for both cases.
-  if (v.name.startsWith('new_gripper') && v.visual_rpy) {
+  // Apply visual_rpy X-rotation (Rx) for STLs whose native axis convention
+  // differs from the link frame: gripper (Z-up→Y-up) and cobot links (SW Y-up→ROS Z-up).
+  const needsRpy = v.name.startsWith('new_gripper') || v.name.startsWith('cobot_link');
+  if (needsRpy && v.visual_rpy && v.visual_rpy[0]) {
     quat.multiply(new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(1, 0, 0), v.visual_rpy[0]
     ));

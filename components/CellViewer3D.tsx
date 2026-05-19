@@ -218,48 +218,52 @@ function CobotChain({
   const baseColor    = useMemo(() => new THREE.Color(0.25, 0.25, 0.28), []);
   const gripperColor = useMemo(() => new THREE.Color(0.70, 0.70, 0.74), []);
 
-  // Cumulative joint Y offsets (used to "undo" the joint translations so each
-  // SW-coord mesh lands at its assembled position when joints are at zero).
-  const Y1 = 0.128;                       // base → j1
-  const Y2 = Y1 + 0.112;                  // base → j2 (= 0.240)
-  const Y3 = Y2 + 0.200;                  // base → j3 (= 0.440)
-  const Y4 = Y3 + 0.187;                  // base → j4 (= 0.627)
-  const Y5 = Y4 + 0.087;                  // base → j5 (= 0.714)
-  const Y6 = Y5 + 0.065;                  // base → j6 (= 0.779)
+  // Joint Y positions in the SW global frame, MEASURED from the actual STL
+  // bounding-box tops (not the URDF datasheet approximations).
+  // The robot vertical axis in SW is at X=64.5mm, Z=64.5mm, so every mesh
+  // also needs an X/Z offset of -64.5mm to center it on the joint chain axis.
+  const Y1 = 0.0860; // base top                    (link0 max Y)
+  const Y2 = 0.2095; // top of link1 = shoulder     (link1 max Y)
+  const Y3 = 0.3527; // top of link2 = elbow        (link2 max Y)
+  const Y4 = 0.5462; // top of link3 = wrist 1      (link3 max Y)
+  const Y5 = 0.5884; // top of link4 = wrist 2      (link4 max Y)
+  const Y6 = 0.6214; // top of link6 = wrist 3      (link6 max Y)
+  const OX = -0.0645; // robot axis X centering offset
+  const OZ = -0.0645; // robot axis Z centering offset
 
   return (
     <group position={basePos} rotation={[0, baseYaw, 0]}>
       {/* link0 — base (no joint above it) */}
-      <CobotLink geometry={cobotStls[0]} position={[0, 0, 0]} color={baseColor} />
+      <CobotLink geometry={cobotStls[0]} position={[OX, 0, OZ]} color={baseColor} />
 
       {/* joint 1 (Y axis = azimuth) */}
       <group position={[0, Y1, 0]} rotation={[0, j1, 0]}>
-        <CobotLink geometry={cobotStls[1]} position={[0, -Y1, 0]} color={linkColor} />
+        <CobotLink geometry={cobotStls[1]} position={[OX, -Y1, OZ]} color={linkColor} />
 
         {/* joint 2 (Z axis = shoulder elevation) */}
-        <group position={[0, 0.112, 0]} rotation={[0, 0, j2]}>
-          <CobotLink geometry={cobotStls[2]} position={[0, -Y2, 0]} color={linkColor} />
-          <CobotLink geometry={cobotStls[3]} position={[0, -Y2, 0]} color={linkColor} />
+        <group position={[0, Y2 - Y1, 0]} rotation={[0, 0, j2]}>
+          <CobotLink geometry={cobotStls[2]} position={[OX, -Y2, OZ]} color={linkColor} />
+          <CobotLink geometry={cobotStls[3]} position={[OX, -Y2, OZ]} color={linkColor} />
 
           {/* joint 3 (Z axis = elbow) */}
-          <group position={[0, 0.200, 0]} rotation={[0, 0, j3]}>
-            <CobotLink geometry={cobotStls[4]} position={[0, -Y3, 0]} color={linkColor} />
-            <CobotLink geometry={cobotStls[5]} position={[0, -Y3, 0]} color={linkColor} />
+          <group position={[0, Y3 - Y2, 0]} rotation={[0, 0, j3]}>
+            <CobotLink geometry={cobotStls[4]} position={[OX, -Y3, OZ]} color={linkColor} />
+            <CobotLink geometry={cobotStls[5]} position={[OX, -Y3, OZ]} color={linkColor} />
 
             {/* joint 4 (Y axis = wrist roll) */}
-            <group position={[0, 0.187, 0]} rotation={[0, j4, 0]}>
-              <CobotLink geometry={cobotStls[6]} position={[0, -Y4, 0]} color={linkColor} />
+            <group position={[0, Y4 - Y3, 0]} rotation={[0, j4, 0]}>
+              <CobotLink geometry={cobotStls[6]} position={[OX, -Y4, OZ]} color={linkColor} />
 
               {/* joint 5 (Z axis = wrist pitch) */}
-              <group position={[0, 0.087, 0]} rotation={[0, 0, j5]}>
-                <CobotLink geometry={cobotStls[7]} position={[0, -Y5, 0]} color={linkColor} />
-                <CobotLink geometry={cobotStls[8]} position={[0, -Y5, 0]} color={linkColor} />
+              <group position={[0, Y5 - Y4, 0]} rotation={[0, 0, j5]}>
+                <CobotLink geometry={cobotStls[7]} position={[OX, -Y5, OZ]} color={linkColor} />
+                <CobotLink geometry={cobotStls[8]} position={[OX, -Y5, OZ]} color={linkColor} />
 
                 {/* joint 6 (Y axis = tool spin) */}
-                <group position={[0, 0.065, 0]} rotation={[0, j6, 0]}>
-                  <CobotLink geometry={cobotStls[9]}  position={[0, -Y6, 0]} color={linkColor} />
-                  <CobotLink geometry={cobotStls[10]} position={[0, -Y6, 0]} color={linkColor} />
-                  <CobotLink geometry={cobotStls[11]} position={[0, -Y6, 0]} color={baseColor} />
+                <group position={[0, Y6 - Y5, 0]} rotation={[0, j6, 0]}>
+                  <CobotLink geometry={cobotStls[9]}  position={[OX, -Y6, OZ]} color={linkColor} />
+                  <CobotLink geometry={cobotStls[10]} position={[OX, -Y6, OZ]} color={linkColor} />
+                  <CobotLink geometry={cobotStls[11]} position={[OX, -Y6, OZ]} color={baseColor} />
 
                   {/* tool0 (TCP) — gripper attaches here */}
                   <group position={[0, 0.065, 0]}>
@@ -341,13 +345,16 @@ function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
 // ── Full cell scene ───────────────────────────────────────────────────────────
 function CellScene() {
   // Cobot joint angles for "about to grab a CAFI from the riveting station".
-  // IK solved analytically: with baseYaw=PI/2 (so local +X points world -Z=north),
-  // j1=0, j2=+13.7°, j3=-98.9° places tool0 exactly at the legacy gripper position
-  // (1.670548, 1.275, 1.668) in world ROS coords. Wrist joints at zero.
+  // 2-link analytical IK using MEASURED joint Y positions:
+  //   L1 (upper arm)        = Y3-Y2 = 0.1432m
+  //   L2 (forearm + wrists) = (Y6+0.065)-Y3 = 0.3337m
+  // With baseYaw=PI/2 (local +X points world -Z=north toward riveting),
+  // j1=0, j2=-18.1°, j3=-50.3° lands tool0 exactly at the legacy gripper
+  // world position (1.670548, 1.275, 1.668). Wrist joints at zero.
   const cobotJoints: JointAngles = {
     j1: 0,
-    j2:  13.7 * Math.PI / 180,
-    j3: -98.9 * Math.PI / 180,
+    j2: -18.1 * Math.PI / 180,
+    j3: -50.3 * Math.PI / 180,
     j4: 0,
     j5: 0,
     j6: 0,

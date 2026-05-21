@@ -7,25 +7,25 @@ import { STLLoader } from 'three-stdlib';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const VISUALS: Visual[] = require('../assets/cell_visuals_world.json');
 
-// ── Lexium Cobot kinematic chain (real STLs + hierarchical FK) ────────────────
-// Joint params: offsets in meters, axes per the URDF/datasheet.
-// All STLs were exported from SolidWorks with shared global coordinates and
-// Y-up convention (same as Three.js), so each mesh is offset within its joint
-// group by the negative cumulative joint offset, which puts the mesh's SW
-// geometry exactly at its assembled position when all joints are at zero.
+// ── Lexium Cobot kinematic chain (built from the user's URDF) ────────────────
+// Source: C:\Users\kiki7\Downloads\Cobot_URDFBUENO\lexium_cobot_l03s.urdf
+// The URDF uses SW global coordinates throughout: each link's visual origin
+// is the NEGATIVE of the cumulative joint position in base_link, so all mesh
+// vertices end up at their SW global positions when joints are at zero.
+// File order matches the URDF mesh references (link1_connector is unused).
 const COBOT_STL_FILES = [
-  '/meshes/link0_base.STL',
-  '/meshes/link1_shoulder_rotation.STL',
-  '/meshes/link2_shoulder_connector.STL',
-  '/meshes/link2_elbow_joint.STL',
-  '/meshes/link3_forearm.STL',
-  '/meshes/link3_elbow_connector.STL',
-  '/meshes/link4_wrist1_cylinder.STL',
-  '/meshes/link5_wrist2_body.STL',
-  '/meshes/link5_wrist2_cylinder.STL',
-  '/meshes/link6_wrist3_cylinder.STL',
-  '/meshes/link6_wrist3_upper_body.STL',
-  '/meshes/link6_tool_flange.STL',
+  '/meshes/link0_base.STL',              // [0]  base_link
+  '/meshes/link1_shoulder_rotation.STL', // [1]  link1_shoulder
+  '/meshes/link2_shoulder_connector.STL',// [2]  link2_upper_arm (part 1)
+  '/meshes/link2_elbow_joint.STL',       // [3]  link2_upper_arm (part 2)
+  '/meshes/link3_elbow_connector.STL',   // [4]  link2_upper_arm (part 3)
+  '/meshes/link3_forearm.STL',           // [5]  link3_forearm (part 1)
+  '/meshes/link6_wrist3_cylinder.STL',   // [6]  link3_forearm (part 2)
+  '/meshes/link5_wrist2_body.STL',       // [7]  link3_forearm (part 3)
+  '/meshes/link4_wrist1_cylinder.STL',   // [8]  link4_wrist1 (part 1)
+  '/meshes/link5_wrist2_cylinder.STL',   // [9]  link4_wrist1 (part 2)
+  '/meshes/link6_wrist3_upper_body.STL', // [10] link5_wrist2
+  '/meshes/link6_tool_flange.STL',       // [11] link6_wrist3
 ];
 const GRIPPER_STL_FILES = [
   '/meshes/new_gripper_stump.STL',
@@ -206,8 +206,8 @@ function CobotLink({
 function CobotChain({
   basePos, baseYaw, jointAngles,
 }: {
-  basePos: [number, number, number];
-  baseYaw: number;
+  basePos: [number, number, number];   // world position of the j1 axis (mount + 87mm Y)
+  baseYaw: number;                       // rotation around the j1 axis (Y)
   jointAngles: JointAngles;
 }) {
   const cobotStls = useLoader(STLLoader, COBOT_STL_FILES);
@@ -218,87 +218,89 @@ function CobotChain({
   const baseColor    = useMemo(() => new THREE.Color(0.25, 0.25, 0.28), []);
   const gripperColor = useMemo(() => new THREE.Color(0.70, 0.70, 0.74), []);
 
-  // Mesh placements derived directly from each STL's bbox center in the
-  // shared SolidWorks global frame (Y-up). For every mesh:
-  //   position = [ -bbox_center.X/1000, -joint_absolute_Y/1000, -bbox_center.Z/1000 ]
-  // The -joint_Y term undoes the cumulative joint-group translation so the
-  // SW-coord vertices land at the assembled position; the per-mesh X/Z values
-  // center each mesh on its own geometric axis (which differs per mesh because
-  // the links are asymmetric).
+  // Joint chain straight from the URDF (lexium_cobot_l03s.urdf):
+  //   joint   origin in parent frame                rpy                axis
+  //   j1      ( 0.1623,  0.0867,  0.0645)           (0, 0, 0)          Y  azimuth
+  //   j2      (-0.0115,  0.0639,  0.0000)           (0, 0, 0.05)       Z  shoulder
+  //   j3      (-0.0015,  0.2450,  0.2258)           (0, 0, 0)          Z  elbow
+  //   j4      (-0.0060,  0.2295,  0.1244)           (0, 0, 0)          Z  wrist1
+  //   j5      (-0.0010,  0.0465, -0.2300)           (0, 0, 0)          Y  wrist2
+  //   j6      (-0.0040,  0.0720,  0.0898)           (0, 0, 0)          Z  wrist3
+  //   tool0   ( 0.0000,  0.0680,  0.0000)           (0, 0, 0)          fixed
   //
-  // IMPORTANT bug found analyzing bboxes directly:
-  //   cobotStls[5] (link3_elbow_connector) and cobotStls[10] (link6_wrist3_upper_body)
-  //   have IDENTICAL bboxes (X[0.4,153.7] Y[503.8,621.4] Z[3.2,84.3]) — both are
-  //   wrist housing pieces despite their names. They belong to the j4 group, not
-  //   j3 or j6 as their filenames suggest.
+  // Each link's visual origin is the negative of the cumulative joint position
+  // (so the SW-global mesh vertices end up at their assembled location).
   //
-  // Joint chain Y positions (absolute, in SW assembly): J1=0.086 J2=0.2095
-  //   J3=0.3527 J4=0.5462 J5=0.5620 J6=0.5900 TCP=0.6214.
+  // basePos is the world position of the j1 axis. Inside the outer group an
+  // extra offset of (-0.1623, -0.0867, -0.0645) puts base_link's frame so the
+  // j1 axis coincides with the outer group's origin -> baseYaw rotates the
+  // whole cobot around the actual mounting axis.
 
   return (
     <group position={basePos} rotation={[0, baseYaw, 0]}>
-      {/* link0 — fixed base */}
-      <CobotLink geometry={cobotStls[0]}
-        position={[-0.0645, 0.0000, -0.0645]} color={baseColor} />
+      <group position={[-0.1623, -0.0867, -0.0645]}>
+        {/* base_link (mesh at the link origin = SW global origin) */}
+        <CobotLink geometry={cobotStls[0]} position={[0, 0, 0]} color={baseColor} />
 
-      {/* joint 1 (Y axis = azimuth) */}
-      <group position={[0, 0.0860, 0]} rotation={[0, j1, 0]}>
-        <CobotLink geometry={cobotStls[1]}
-          position={[-0.0488, -0.0860, -0.0497]} color={linkColor} />
+        {/* joint 1 — Y axis (azimuth) */}
+        <group position={[0.1623, 0.0867, 0.0645]} rotation={[0, j1, 0]}>
+          <CobotLink geometry={cobotStls[1]}
+            position={[-0.1623, -0.0867, -0.0645]} color={linkColor} />
 
-        {/* joint 2 (Z axis = shoulder elevation) */}
-        <group position={[0, 0.1235, 0]} rotation={[0, 0, j2]}>
-          <CobotLink geometry={cobotStls[2]}
-            position={[-0.0658, -0.2095, -0.0655]} color={linkColor} />
-          <CobotLink geometry={cobotStls[3]}
-            position={[-0.0455, -0.2095, -0.0660]} color={linkColor} />
-
-          {/* joint 3 (Z axis = elbow) */}
-          <group position={[0, 0.1432, 0]} rotation={[0, 0, j3]}>
+          {/* joint 2 — Z axis (shoulder elevation), static yaw 0.05 + j2 */}
+          <group position={[-0.0115, 0.0639, 0]} rotation={[0, 0, 0.05 + j2]}>
+            <CobotLink geometry={cobotStls[2]}
+              position={[-0.1508, -0.1506, -0.0645]} color={linkColor} />
+            <CobotLink geometry={cobotStls[3]}
+              position={[-0.1508, -0.1506, -0.0645]} color={linkColor} />
             <CobotLink geometry={cobotStls[4]}
-              position={[-0.0428, -0.3527, -0.0932]} color={linkColor} />
+              position={[-0.1508, -0.1506, -0.0645]} color={linkColor} />
 
-            {/* joint 4 (Y axis = wrist roll) — all 4 wrist housing parts */}
-            <group position={[0, 0.1935, 0]} rotation={[0, j4, 0]}>
+            {/* joint 3 — Z axis (elbow) */}
+            <group position={[-0.0015, 0.2450, 0.2258]} rotation={[0, 0, j3]}>
               <CobotLink geometry={cobotStls[5]}
-                position={[-0.0771, -0.5462, -0.0438]} color={linkColor} />
+                position={[-0.1493, -0.3956, -0.2903]} color={linkColor} />
               <CobotLink geometry={cobotStls[6]}
-                position={[-0.0394, -0.5462, -0.0222]} color={linkColor} />
+                position={[-0.1493, -0.3956, -0.2903]} color={linkColor} />
               <CobotLink geometry={cobotStls[7]}
-                position={[-0.0550, -0.5462, -0.0443]} color={linkColor} />
-              <CobotLink geometry={cobotStls[10]}
-                position={[-0.0771, -0.5462, -0.0438]} color={linkColor} />
+                position={[-0.1493, -0.3956, -0.2903]} color={linkColor} />
 
-              {/* joint 5 (Z axis = wrist pitch) — wrist2/3 cylinders */}
-              <group position={[0, 0.0158, 0]} rotation={[0, 0, j5]}>
+              {/* joint 4 — Z axis (wrist1) */}
+              <group position={[-0.0060, 0.2295, 0.1244]} rotation={[0, 0, j4]}>
                 <CobotLink geometry={cobotStls[8]}
-                  position={[-0.0386, -0.5620, -0.0564]} color={linkColor} />
+                  position={[-0.1433, -0.6251, -0.4147]} color={linkColor} />
                 <CobotLink geometry={cobotStls[9]}
-                  position={[-0.0316, -0.5620, -0.0479]} color={linkColor} />
+                  position={[-0.1433, -0.6251, -0.4147]} color={linkColor} />
 
-                {/* joint 6 (Y axis = tool spin) — tool flange */}
-                <group position={[0, 0.0280, 0]} rotation={[0, j6, 0]}>
-                  <CobotLink geometry={cobotStls[11]}
-                    position={[-0.0270, -0.5900, -0.0345]} color={baseColor} />
+                {/* joint 5 — Y axis (wrist2) */}
+                <group position={[-0.0010, 0.0465, -0.2300]} rotation={[0, j5, 0]}>
+                  <CobotLink geometry={cobotStls[10]}
+                    position={[-0.1423, -0.6716, -0.1847]} color={linkColor} />
 
-                  {/* tool0 (TCP) — gripper attaches here */}
-                  <group position={[0, 0.0314, 0]}>
-                    {gripperStls.map((g, i) => (
-                      <mesh
-                        key={i}
-                        geometry={g}
-                        scale={[0.001, 0.001, 0.001]}
-                        position={[-0.172, -0.085, 0.083]}
-                        rotation={[-Math.PI / 2, 0, 0]}
-                        castShadow
-                      >
-                        <meshStandardMaterial
-                          color={gripperColor}
-                          metalness={0.3}
-                          roughness={0.4}
-                        />
-                      </mesh>
-                    ))}
+                  {/* joint 6 — Z axis (wrist3) */}
+                  <group position={[-0.0040, 0.0720, 0.0898]} rotation={[0, 0, j6]}>
+                    <CobotLink geometry={cobotStls[11]}
+                      position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
+
+                    {/* tool0 — fixed offset, gripper attaches here */}
+                    <group position={[0, 0.068, 0]}>
+                      {gripperStls.map((g, i) => (
+                        <mesh
+                          key={i}
+                          geometry={g}
+                          scale={[0.001, 0.001, 0.001]}
+                          position={[-0.172, -0.085, 0.083]}
+                          rotation={[-Math.PI / 2, 0, 0]}
+                          castShadow
+                        >
+                          <meshStandardMaterial
+                            color={gripperColor}
+                            metalness={0.3}
+                            roughness={0.4}
+                          />
+                        </mesh>
+                      ))}
+                    </group>
                   </group>
                 </group>
               </group>
@@ -361,22 +363,19 @@ function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
 // ── Full cell scene ───────────────────────────────────────────────────────────
 function CellScene() {
   // Cobot joint angles for "about to grab a CAFI from the riveting station".
-  // With the corrected joint chain (using STL-measured positions), the actual
-  // arm reach from shoulder is only 0.412m (L1=0.143, L2=0.269), which is 27mm
-  // SHORT of the legacy gripper distance of 0.439m from shoulder. The arm
-  // CANNOT exactly reach the OLD tool0 pose without moving the base.
-  //
-  // Compromise: extend the arm fully toward the riveting fixture direction.
-  // j2=-50°, j3=-5° puts tool0 at world ≈ (0.418, 1.655, -0.205) in Three.js,
-  // which is 13mm below and 21mm south of the legacy gripper at (0.418,1.668,-0.226).
+  // Initial pose; tune visually after deploying.
   const cobotJoints: JointAngles = {
     j1: 0,
-    j2: -50 * Math.PI / 180,
-    j3:  -5 * Math.PI / 180,
+    j2: -1.2,                    // shoulder elevation
+    j3:  1.5,                    // elbow
     j4: 0,
-    j5: 0,
+    j5:  0.8,                    // wrist pitch toward fixture
     j6: 0,
   };
+
+  // basePos = world position of the j1 axis = cobot mount + 87mm Y (top of base).
+  // Cobot mount at ROS (1.670548, 0.920, 1.200); +87mm in ROS Z = top of base.
+  const cobotBasePos = tPos(1.670548, 0.920, 1.200 + 0.0867);
 
   return (
     <group>
@@ -389,8 +388,8 @@ function CellScene() {
 
       <Suspense fallback={null}>
         <CobotChain
-          basePos={tPos(1.670548, 0.920, 1.200)}
-          baseYaw={Math.PI / 2}
+          basePos={cobotBasePos}
+          baseYaw={Math.PI}
           jointAngles={cobotJoints}
         />
       </Suspense>

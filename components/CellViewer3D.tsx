@@ -94,9 +94,7 @@ function rosRotToQuat(R: number[][], rotAxis?: string): THREE.Quaternion {
 }
 
 // For STL: apply visual_xyz offset (rotated by link frame) for position.
-// Fixture/CAFI STLs are Y-up → skip visual_rpy (Three.js is already Y-up).
-// Gripper STLs are Z-up → apply visual_rpy Rx(-π/2) so Z maps to Three.js Y.
-// Cobot link STLs are SolidWorks Y-up → visual_rpy Rx(+π/2) swaps SW Y → link Z.
+// V51: any STL with a visual_rpy gets that rotation applied (Z→Y / X swaps).
 function stlTransform(v: Visual) {
   const R = v.world_rot;
   const vx = v.visual_xyz ?? [0, 0, 0];
@@ -109,10 +107,9 @@ function stlTransform(v: Visual) {
   const pos = tPos(wx, wy, wz);
   if (v.name.startsWith('new_gripper')) pos[0] += 0.0675;
   const quat = rosRotToQuat(R);
-  // Apply visual_rpy X-rotation (Rx) for STLs whose native axis convention
-  // differs from the link frame: gripper (Z-up→Y-up) and cobot links (SW Y-up→ROS Z-up).
-  const needsRpy = v.name.startsWith('new_gripper') || v.name.startsWith('cobot_link');
-  if (needsRpy && v.visual_rpy && v.visual_rpy[0]) {
+  // Apply visual_rpy X-rotation (Rx) if specified. V51 fixture/CAFI STLs
+  // use rpy=(π/2,0,0) to swap Y/Z axes.
+  if (v.visual_rpy && v.visual_rpy[0]) {
     quat.multiply(new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(1, 0, 0), v.visual_rpy[0]
     ));
@@ -303,7 +300,7 @@ function CobotChain({
                       Rx(-π/2) maps gripper local (X, Y, Z) -> (X, Z, -Y).
                       position.z = 0.07795 (COM-aligned) + 0.020 = 0.09795
                     */}
-                    <group ref={gripperRef}>
+                    <group>
                       {gripperStls.map((g, i) => (
                         <mesh
                           key={i}
@@ -321,6 +318,16 @@ function CobotChain({
                         </mesh>
                       ))}
                     </group>
+                    {/*
+                      Grasp-center marker. The CAFI in_gripper is attached here.
+                      In gripper local frame the grasp center is around
+                      (160, 40, 85)mm (middle of the fingers, X centered).
+                      After Rx(-π/2) [gripper Y→ -Z, Z→ Y] and offset:
+                        (160, 85, -40)mm = (0.160, 0.085, -0.040) m
+                        + position(-0.1722, -0.0712, 0.09795)
+                        = (-0.012, 0.014, 0.058)m in joint6Group
+                    */}
+                    <group ref={gripperRef} position={[-0.012, 0.014, 0.058]} />
 
                     {/* tool0 URDF frame (kept for reference, not used for gripper) */}
                     <group position={[0, 0.068, 0]} />
@@ -385,22 +392,25 @@ function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
 }
 
 // ── Full cell scene ───────────────────────────────────────────────────────────
-// CAFI block (renders once per CAFI; position/yaw updates live via useFrame)
+// CAFI rendered with real cafi.STL mesh (V51).
+// STL bbox: X[0,122.9] Y[0,25.1] Z[0,87.3] mm.
+// Rotation Rx(π/2) makes mesh-Y (thickness) align with world Z; centring
+// offset (-0.0615, 0, -0.0437) so the CAFI is centred on its world position.
 function CafiBox({ cafiId }: { cafiId: string }) {
   const store = useSimStore();
   const meshRef = useRef<THREE.Mesh>(null);
+  const geom = useLoader(STLLoader, '/meshes/sim/cafi.STL');
   useFrame(() => {
     const c = store.get().cafis.find((x) => x.id === cafiId);
     if (!c || !meshRef.current) return;
     const [tx, ty, tz] = tPos(c.position[0], c.position[1], c.position[2]);
     meshRef.current.position.set(tx, ty, tz);
-    meshRef.current.rotation.y = -c.yaw; // ROS yaw → Three.js -Y rotation
-    meshRef.current.visible =
-      c.location !== 'in_bin_accept' || true; // always visible
+    meshRef.current.rotation.y = -c.yaw;
+    meshRef.current.visible = true;
   });
   return (
     <mesh ref={meshRef} castShadow>
-      <boxGeometry args={[CAFI_LX, CAFI_LZ, CAFI_LY]} />
+      <primitive object={geom} attach="geometry" />
       <meshStandardMaterial color="#d97340" metalness={0.2} roughness={0.55} />
     </mesh>
   );
@@ -430,25 +440,27 @@ function RotatingFixtures() {
     if (!groupRef.current) return;
     groupRef.current.rotation.y = -store.get().rotary.angle; // ROS Z rot -> Three.js -Y
   });
-  // Pivot at disc centre (X, Y) on the disc's TOP surface
+  // Pivot at disc centre (X, Y) on the mesa surface (the V51 disc top is z=1.081)
   const [px, py, pz] = tPos(DISC_CENTER_X, DISC_CENTER_Y, DISC_TOP_Z);
-  const rotaryNames = ['fixture_load', 'fixture_rivet'];
+  const rotaryNames = [
+    'fixture_load', 'fixture_rivet',
+    'disco_rotating_disco_1', 'disco_rotating_bearingsprocket_1',
+  ];
   return (
     <group ref={groupRef} position={[px, py, pz]}>
       {VISUALS.filter((v) => rotaryNames.includes(v.name)).map((v, i) => {
-        // Convert each visual's world_xyz to LOCAL position relative to the pivot
         const [vx, vy, vz] = tPos(v.world_xyz[0], v.world_xyz[1], v.world_xyz[2]);
         const local: [number, number, number] = [vx - px, vy - py, vz - pz];
+        // Build a per-mesh visual that respects visual_rpy + visual_xyz
+        const shifted = {
+          ...v,
+          world_xyz: [0, 0, 0] as [number, number, number],
+          world_rot: [[1,0,0],[0,1,0],[0,0,1]],
+        } as Visual;
         return (
-          <mesh key={i} position={local} castShadow>
-            <boxGeometry args={[v.sx!, v.sz!, v.sy!]} />
-            <meshStandardMaterial
-              color={
-                v.rgba ? new THREE.Color(v.rgba[0], v.rgba[1], v.rgba[2]) : 0x888888
-              }
-              roughness={0.55} metalness={0.1}
-            />
-          </mesh>
+          <group key={i} position={local}>
+            <VisualElement v={shifted} />
+          </group>
         );
       })}
     </group>
@@ -493,7 +505,8 @@ function CellScene({ gripperRef }: {
         .filter((v) => !v.name.startsWith('cobot_')
                     && !v.name.startsWith('new_gripper')
                     && v.name !== 'fixture_load'
-                    && v.name !== 'fixture_rivet')
+                    && v.name !== 'fixture_rivet'
+                    && !v.name.startsWith('disco_rotating_'))
         .map((v, i) => <VisualElement key={i} v={v} />)}
 
       <RotatingFixtures />

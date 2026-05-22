@@ -31,15 +31,23 @@ if (!html.includes('background:#06101c')) {
 fs.writeFileSync(indexPath, html, 'utf-8');
 console.log('✓ dist/index.html patched successfully.');
 
-// Copy public/meshes → dist/meshes (STL files for the 3D viewer)
+// Copy public/meshes → dist/meshes (recursively, includes sim/ subdir)
+function copyDirRec(srcDir, dstDir) {
+  fs.mkdirSync(dstDir, { recursive: true });
+  let count = 0;
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const sp = path.join(srcDir, entry.name);
+    const dp = path.join(dstDir, entry.name);
+    if (entry.isDirectory()) count += copyDirRec(sp, dp);
+    else { fs.copyFileSync(sp, dp); count++; }
+  }
+  return count;
+}
 const meshSrc = path.join(__dirname, '..', 'public', 'meshes');
 const meshDst = path.join(__dirname, '..', 'dist', 'meshes');
 if (fs.existsSync(meshSrc)) {
-  fs.mkdirSync(meshDst, { recursive: true });
-  for (const file of fs.readdirSync(meshSrc)) {
-    fs.copyFileSync(path.join(meshSrc, file), path.join(meshDst, file));
-  }
-  console.log(`✓ STL meshes copied to dist/meshes/ (${fs.readdirSync(meshDst).length} files).`);
+  const n = copyDirRec(meshSrc, meshDst);
+  console.log(`✓ STL meshes copied to dist/meshes/ (${n} files, recursive).`);
 }
 
 // Copy public/diagram.svg → dist/diagram.svg (wiring diagram)

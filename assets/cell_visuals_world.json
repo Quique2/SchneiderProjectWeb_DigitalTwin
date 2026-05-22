@@ -449,12 +449,12 @@
     ]
   },
   {
-    "name": "sensor_conveyor_end",
-    "kind": "box",
+    "name": "disco_static_gearbase_1",
+    "kind": "stl",
     "world_xyz": [
-      1.235,
-      1.25,
-      1.11
+      0.692,
+      1.259,
+      1.0
     ],
     "world_rot": [
       [
@@ -473,23 +473,32 @@
         1.0
       ]
     ],
-    "sx": 0.025,
-    "sy": 0.025,
-    "sz": 0.08,
+    "mesh": "/meshes/sim/gearbase_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
-      0.85,
-      0.25,
-      0.25,
+      0.55,
+      0.57,
+      0.6,
       1.0
     ]
   },
   {
-    "name": "rotary_disc",
-    "kind": "cyl",
+    "name": "disco_static_bearingbase_1",
+    "kind": "stl",
     "world_xyz": [
       0.692,
       1.259,
-      1.0405
+      1.0
     ],
     "world_rot": [
       [
@@ -508,8 +517,238 @@
         1.0
       ]
     ],
-    "radius": 0.2,
-    "height": 0.081,
+    "mesh": "/meshes/sim/bearingbase_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.4,
+      0.42,
+      0.46,
+      1.0
+    ]
+  },
+  {
+    "name": "disco_static_nemabase_1",
+    "kind": "stl",
+    "world_xyz": [
+      0.692,
+      1.259,
+      1.0
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/nemabase_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.45,
+      0.47,
+      0.5,
+      1.0
+    ]
+  },
+  {
+    "name": "disco_static_bearingstand_1",
+    "kind": "stl",
+    "world_xyz": [
+      0.692,
+      1.259,
+      1.0
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/bearingstand_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.45,
+      0.47,
+      0.5,
+      1.0
+    ]
+  },
+  {
+    "name": "disco_static_bearingstand_2",
+    "kind": "stl",
+    "world_xyz": [
+      0.692,
+      1.259,
+      1.0
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/bearingstand_2.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.45,
+      0.47,
+      0.5,
+      1.0
+    ]
+  },
+  {
+    "name": "disco_static_bearingstand_3",
+    "kind": "stl",
+    "world_xyz": [
+      0.692,
+      1.259,
+      1.0
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/bearingstand_3.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.45,
+      0.47,
+      0.5,
+      1.0
+    ]
+  },
+  {
+    "name": "disco_rotating_disco_1",
+    "kind": "stl",
+    "world_xyz": [
+      0.692,
+      1.259,
+      1.0
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/disco_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
       0.62,
       0.64,
@@ -518,12 +757,12 @@
     ]
   },
   {
-    "name": "rotary_hub",
-    "kind": "cyl",
+    "name": "disco_rotating_bearingsprocket_1",
+    "kind": "stl",
     "world_xyz": [
       0.692,
       1.259,
-      1.106
+      1.0
     ],
     "world_rot": [
       [
@@ -542,22 +781,76 @@
         1.0
       ]
     ],
-    "radius": 0.03,
-    "height": 0.05,
+    "mesh": "/meshes/sim/bearingsprocket_1.STL",
+    "visual_xyz": [
+      -0.253972,
+      -0.252455,
+      0.0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
-      0.3,
-      0.32,
-      0.36,
+      0.4,
+      0.42,
+      0.46,
+      1.0
+    ]
+  },
+  {
+    "name": "rotary_nema17",
+    "kind": "stl",
+    "world_xyz": [
+      0.492,
+      1.259,
+      1.05
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/nema17.STL",
+    "visual_xyz": [
+      -0.021,
+      -0.021,
+      0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.25,
+      0.25,
+      0.28,
       1.0
     ]
   },
   {
     "name": "fixture_load",
-    "kind": "box",
+    "kind": "stl",
     "world_xyz": [
       0.692,
       1.109,
-      1.096
+      1.081
     ],
     "world_rot": [
       [
@@ -576,33 +869,42 @@
         1.0
       ]
     ],
-    "sx": 0.14,
-    "sy": 0.11,
-    "sz": 0.03,
+    "mesh": "/meshes/sim/Fixture_para_remache_1.STL",
+    "visual_xyz": [
+      -0.165,
+      0.0875,
+      0.0
+    ],
+    "visual_rpy": [
+      1.5707963267948966,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
-      0.45,
-      0.46,
-      0.48,
+      0.55,
+      0.57,
+      0.6,
       1.0
     ]
   },
   {
     "name": "fixture_rivet",
-    "kind": "box",
+    "kind": "stl",
     "world_xyz": [
       0.692,
       1.409,
-      1.096
+      1.081
     ],
     "world_rot": [
       [
-        1.0,
-        0.0,
+        -1.0,
+        -0.0,
         0.0
       ],
       [
         0.0,
-        1.0,
+        -1.0,
         0.0
       ],
       [
@@ -611,13 +913,22 @@
         1.0
       ]
     ],
-    "sx": 0.14,
-    "sy": 0.11,
-    "sz": 0.03,
+    "mesh": "/meshes/sim/Fixture_para_remache_1.STL",
+    "visual_xyz": [
+      -0.165,
+      0.0875,
+      0.0
+    ],
+    "visual_rpy": [
+      1.5707963267948966,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
-      0.45,
-      0.46,
-      0.48,
+      0.55,
+      0.57,
+      0.6,
       1.0
     ]
   },
@@ -1068,11 +1379,11 @@
   },
   {
     "name": "fixture_vision",
-    "kind": "box",
+    "kind": "stl",
     "world_xyz": [
       0.75,
       0.804,
-      1.0075
+      1.0
     ],
     "world_rot": [
       [
@@ -1091,13 +1402,66 @@
         1.0
       ]
     ],
-    "sx": 0.14,
-    "sy": 0.11,
-    "sz": 0.015,
+    "mesh": "/meshes/sim/Fixture_para_camara_final.STL",
+    "visual_xyz": [
+      -0.0794,
+      0.0,
+      -0.059
+    ],
+    "visual_rpy": [
+      1.5707963267948966,
+      0,
+      0
+    ],
+    "scale": 0.001,
     "rgba": [
-      0.78,
-      0.78,
-      0.8,
+      0.55,
+      0.57,
+      0.6,
+      1.0
+    ]
+  },
+  {
+    "name": "sensor_sick_conv",
+    "kind": "stl",
+    "world_xyz": [
+      1.235,
+      1.25,
+      1.03
+    ],
+    "world_rot": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "mesh": "/meshes/sim/sick_grte18s_p2312.STL",
+    "visual_xyz": [
+      0,
+      0,
+      0
+    ],
+    "visual_rpy": [
+      0,
+      0,
+      0
+    ],
+    "scale": 0.001,
+    "rgba": [
+      0.85,
+      0.25,
+      0.25,
       1.0
     ]
   },

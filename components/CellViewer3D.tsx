@@ -392,27 +392,34 @@ function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
 }
 
 // ── Full cell scene ───────────────────────────────────────────────────────────
-// CAFI rendered with real cafi.STL mesh (V51).
-// STL bbox: X[0,122.9] Y[0,25.1] Z[0,87.3] mm.
-// Rotation Rx(π/2) makes mesh-Y (thickness) align with world Z; centring
-// offset (-0.0615, 0, -0.0437) so the CAFI is centred on its world position.
+// CAFI rendered with the real cafi.STL mesh (V51).
+// STL bbox in mm: X[0, 122.9] Y[0, 25.1] Z[0, 87.3]
+//   X=123 → length along belt; Y=25 → thickness (vertical); Z=87 → depth on belt
+// Three.js is already +Y up so no rotation needed. We just centre the mesh
+// inside a wrapper group: the wrapper holds the world position+yaw, the
+// inner mesh is offset by half-bbox so its centre coincides with the wrapper.
 function CafiBox({ cafiId }: { cafiId: string }) {
   const store = useSimStore();
-  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const geom = useLoader(STLLoader, '/meshes/sim/cafi.STL');
   useFrame(() => {
     const c = store.get().cafis.find((x) => x.id === cafiId);
-    if (!c || !meshRef.current) return;
+    if (!c || !groupRef.current) return;
     const [tx, ty, tz] = tPos(c.position[0], c.position[1], c.position[2]);
-    meshRef.current.position.set(tx, ty, tz);
-    meshRef.current.rotation.y = -c.yaw;
-    meshRef.current.visible = true;
+    groupRef.current.position.set(tx, ty, tz);
+    groupRef.current.rotation.y = -c.yaw;
   });
   return (
-    <mesh ref={meshRef} castShadow>
-      <primitive object={geom} attach="geometry" />
-      <meshStandardMaterial color="#d97340" metalness={0.2} roughness={0.55} />
-    </mesh>
+    <group ref={groupRef}>
+      <mesh
+        geometry={geom}
+        scale={[0.001, 0.001, 0.001]}
+        position={[-0.0615, -0.0125, -0.0435]}
+        castShadow
+      >
+        <meshStandardMaterial color="#d97340" metalness={0.2} roughness={0.55} />
+      </mesh>
+    </group>
   );
 }
 

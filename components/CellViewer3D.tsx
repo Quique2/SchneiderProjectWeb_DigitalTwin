@@ -1,8 +1,17 @@
-import React, { Suspense, useMemo } from 'react';
-import { Canvas, useLoader } from '@react-three/fiber';
+import React, { Suspense, useMemo, useRef, useCallback } from 'react';
+import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { OrbitControls, Html, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { STLLoader } from 'three-stdlib';
+
+import { SimStoreProvider, useSimStore } from './cell/store';
+import { useSimulation } from './cell/useSimulation';
+import HMIPanel from './cell/HMIPanel';
+import {
+  CAFI_LX, CAFI_LY, CAFI_LZ,
+  DISC_CENTER_X, DISC_CENTER_Y, MESA_TOP_Z, DISC_TOP_Z,
+} from './cell/constants';
+import type { JointAngles6 } from './cell/poses';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const VISUALS: Visual[] = require('../assets/cell_visuals_world.json');
@@ -204,11 +213,12 @@ function CobotLink({
 }
 
 function CobotChain({
-  basePos, baseYaw, jointAngles,
+  basePos, baseYaw, jointAngles, gripperRef,
 }: {
   basePos: [number, number, number];   // world position of the j1 axis (mount + 87mm Y)
   baseYaw: number;                       // rotation around the j1 axis (Y)
   jointAngles: JointAngles;
+  gripperRef?: React.MutableRefObject<THREE.Group | null>;
 }) {
   const cobotStls = useLoader(STLLoader, COBOT_STL_FILES);
   const gripperStls = useLoader(STLLoader, GRIPPER_STL_FILES);
@@ -293,22 +303,24 @@ function CobotChain({
                       Rx(-π/2) maps gripper local (X, Y, Z) -> (X, Z, -Y).
                       position.z = 0.07795 (COM-aligned) + 0.020 = 0.09795
                     */}
-                    {gripperStls.map((g, i) => (
-                      <mesh
-                        key={i}
-                        geometry={g}
-                        scale={[0.001, 0.001, 0.001]}
-                        position={[-0.1722, -0.0712, 0.09795]}
-                        rotation={[-Math.PI / 2, 0, 0]}
-                        castShadow
-                      >
-                        <meshStandardMaterial
-                          color={gripperColor}
-                          metalness={0.3}
-                          roughness={0.4}
-                        />
-                      </mesh>
-                    ))}
+                    <group ref={gripperRef}>
+                      {gripperStls.map((g, i) => (
+                        <mesh
+                          key={i}
+                          geometry={g}
+                          scale={[0.001, 0.001, 0.001]}
+                          position={[-0.1722, -0.0712, 0.09795]}
+                          rotation={[-Math.PI / 2, 0, 0]}
+                          castShadow
+                        >
+                          <meshStandardMaterial
+                            color={gripperColor}
+                            metalness={0.3}
+                            roughness={0.4}
+                          />
+                        </mesh>
+                      ))}
+                    </group>
 
                     {/* tool0 URDF frame (kept for reference, not used for gripper) */}
                     <group position={[0, 0.068, 0]} />
@@ -337,10 +349,11 @@ function FloorGrid() {
 }
 
 // ── Reach circle around cobot base ────────────────────────────────────────────
+// V51: cobot mounted at (1.152, 1.049, 1.000) per schneider_cell.urdf.xacro
 function ReachCircle() {
   const lineLoop = useMemo(() => {
     const pts: THREE.Vector3[] = [];
-    const [cx, cy, cz] = tPos(1.670548, 0.920, 1.210);
+    const [cx, cy, cz] = tPos(1.152, 1.049, 1.010);
     const R = 0.626;
     for (let i = 0; i <= 80; i++) {
       const a = (i / 80) * Math.PI * 2;
@@ -372,21 +385,104 @@ function Label({ wx, wy, wz, text, color = '#e2e8f0' }: {
 }
 
 // ── Full cell scene ───────────────────────────────────────────────────────────
-function CellScene() {
-  // Cobot joint angles for "about to grab a CAFI from the riveting station".
-  // Initial pose; tune visually after deploying.
-  const cobotJoints: JointAngles = {
-    j1: 0,
-    j2: -1.2,                    // shoulder elevation
-    j3:  1.5,                    // elbow
-    j4: 0,
-    j5:  0.8,                    // wrist pitch toward fixture
-    j6: 0,
-  };
+// CAFI block (renders once per CAFI; position/yaw updates live via useFrame)
+function CafiBox({ cafiId }: { cafiId: string }) {
+  const store = useSimStore();
+  const meshRef = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    const c = store.get().cafis.find((x) => x.id === cafiId);
+    if (!c || !meshRef.current) return;
+    const [tx, ty, tz] = tPos(c.position[0], c.position[1], c.position[2]);
+    meshRef.current.position.set(tx, ty, tz);
+    meshRef.current.rotation.y = -c.yaw; // ROS yaw → Three.js -Y rotation
+    meshRef.current.visible =
+      c.location !== 'in_bin_accept' || true; // always visible
+  });
+  return (
+    <mesh ref={meshRef} castShadow>
+      <boxGeometry args={[CAFI_LX, CAFI_LZ, CAFI_LY]} />
+      <meshStandardMaterial color="#d97340" metalness={0.2} roughness={0.55} />
+    </mesh>
+  );
+}
 
-  // basePos = world position of the j1 axis = cobot mount + 87mm Y (top of base).
-  // Cobot mount at ROS (1.670548, 0.920, 1.200); +87mm in ROS Z = top of base.
-  const cobotBasePos = tPos(1.670548, 0.920, 1.200 + 0.0867);
+function CafiCollection() {
+  const store = useSimStore();
+  const [ids, setIds] = React.useState<string[]>([]);
+  useFrame(() => {
+    const next = store.get().cafis.map((c) => c.id);
+    if (next.length !== ids.length || !next.every((id, i) => id === ids[i])) {
+      setIds(next);
+    }
+  });
+  return (
+    <>
+      {ids.map((id) => <CafiBox key={id} cafiId={id} />)}
+    </>
+  );
+}
+
+// Rotating disc + fixtures group (rotates around vertical at disc center).
+function RotatingFixtures() {
+  const store = useSimStore();
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (!groupRef.current) return;
+    groupRef.current.rotation.y = -store.get().rotary.angle; // ROS Z rot -> Three.js -Y
+  });
+  // Pivot at disc centre (X, Y) on the disc's TOP surface
+  const [px, py, pz] = tPos(DISC_CENTER_X, DISC_CENTER_Y, DISC_TOP_Z);
+  const rotaryNames = ['fixture_load', 'fixture_rivet'];
+  return (
+    <group ref={groupRef} position={[px, py, pz]}>
+      {VISUALS.filter((v) => rotaryNames.includes(v.name)).map((v, i) => {
+        // Convert each visual's world_xyz to LOCAL position relative to the pivot
+        const [vx, vy, vz] = tPos(v.world_xyz[0], v.world_xyz[1], v.world_xyz[2]);
+        const local: [number, number, number] = [vx - px, vy - py, vz - pz];
+        return (
+          <mesh key={i} position={local} castShadow>
+            <boxGeometry args={[v.sx!, v.sz!, v.sy!]} />
+            <meshStandardMaterial
+              color={
+                v.rgba ? new THREE.Color(v.rgba[0], v.rgba[1], v.rgba[2]) : 0x888888
+              }
+              roughness={0.55} metalness={0.1}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+// Live cobot — reads joint angles from store on each frame.
+function LiveCobot({ basePos, gripperRef }: {
+  basePos: [number, number, number];
+  gripperRef: React.MutableRefObject<THREE.Group | null>;
+}) {
+  const store = useSimStore();
+  // Use state + useFrame to push fresh joints to CobotChain.
+  const [joints, setJoints] = React.useState<JointAngles>({
+    j1: 0, j2: 0, j3: 0, j4: Math.PI / 2, j5: -Math.PI / 2, j6: 0,
+  });
+  useFrame(() => {
+    const j = store.get().robot.joints;
+    setJoints({ j1: j[0], j2: j[1], j3: j[2], j4: j[3], j5: j[4], j6: j[5] });
+  });
+  return (
+    <CobotChain
+      basePos={basePos}
+      baseYaw={0}
+      jointAngles={joints}
+      gripperRef={gripperRef}
+    />
+  );
+}
+
+function CellScene({ gripperRef }: {
+  gripperRef: React.MutableRefObject<THREE.Group | null>;
+}) {
+  const cobotBasePos = tPos(1.152, 1.049, 1.000 + 0.0867);
 
   return (
     <group>
@@ -394,55 +490,74 @@ function CellScene() {
       <ReachCircle />
 
       {VISUALS
-        .filter((v) => !v.name.startsWith('cobot_') && !v.name.startsWith('new_gripper'))
+        .filter((v) => !v.name.startsWith('cobot_')
+                    && !v.name.startsWith('new_gripper')
+                    && v.name !== 'fixture_load'
+                    && v.name !== 'fixture_rivet')
         .map((v, i) => <VisualElement key={i} v={v} />)}
 
+      <RotatingFixtures />
+
       <Suspense fallback={null}>
-        <CobotChain
-          basePos={cobotBasePos}
-          baseYaw={Math.PI}
-          jointAngles={cobotJoints}
-        />
+        <LiveCobot basePos={cobotBasePos} gripperRef={gripperRef} />
       </Suspense>
 
-      {/* Labels */}
-      <Label wx={1.671} wy={0.78}  wz={1.26}  text="Lexium Cobot"      color="#60a5fa" />
-      <Label wx={1.671} wy={1.50}  wz={1.75}  text="Zona Remachado"    color="#fb923c" />
-      <Label wx={1.069} wy={0.76}  wz={1.30}  text="Conveyor 1"        color="#fbbf24" />
-      <Label wx={0.539} wy={0.76}  wz={1.27}  text="Suministro CAFI"   color="#fbbf24" />
-      <Label wx={1.786} wy={0.49}  wz={1.38}  text="Aceptado"          color="#4ade80" />
-      <Label wx={1.486} wy={0.49}  wz={1.38}  text="Rechazado"         color="#f87171" />
-      <Label wx={2.28}  wy={1.06}  wz={1.82}  text="Cognex 2800"       color="#e879f9" />
-      <Label wx={0.45}  wy={-0.02} wz={0.82}  text="Control Station"   color="#38bdf8" />
-      <Label wx={0.345} wy={-0.26} wz={0.46}  text="Site Operator"     color="#38bdf8" />
-      <Label wx={1.671} wy={1.28}  wz={1.27}  text="Fixture LOAD"      color="#a78bfa" />
-      <Label wx={1.671} wy={1.48}  wz={1.27}  text="Fixture RIVET"     color="#a78bfa" />
+      <CafiCollection />
+
+      {/* V51 layout labels */}
+      <Label wx={1.152} wy={0.940} wz={1.10}  text="Lexium Cobot"    color="#60a5fa" />
+      <Label wx={1.370} wy={1.420} wz={1.18}  text="Conveyor 1"      color="#fbbf24" />
+      <Label wx={1.620} wy={1.420} wz={1.14}  text="Suministro CAFI" color="#fbbf24" />
+      <Label wx={0.692} wy={1.030} wz={1.16}  text="Fixture LOAD"    color="#a78bfa" />
+      <Label wx={0.692} wy={1.470} wz={1.16}  text="Fixture RIVET"   color="#a78bfa" />
+      <Label wx={0.692} wy={1.409} wz={1.40}  text="Zona Remachado"  color="#fb923c" />
+      <Label wx={0.750} wy={0.730} wz={1.06}  text="Fixture Vision"  color="#a78bfa" />
+      <Label wx={0.750} wy={0.804} wz={1.62}  text="Cognex 2800"     color="#e879f9" />
+      <Label wx={1.650} wy={0.640} wz={1.18}  text="Aceptado"        color="#4ade80" />
+      <Label wx={1.330} wy={0.620} wz={1.18}  text="Rechazado"       color="#f87171" />
+      <Label wx={0.684} wy={0.390} wz={0.82}  text="Control Station" color="#38bdf8" />
+      <Label wx={0.704} wy={-0.05} wz={0.46}  text="Operador"        color="#38bdf8" />
     </group>
   );
 }
 
-// ── Exported component ────────────────────────────────────────────────────────
-export default function CellViewer3D() {
+// ── Inner component that uses simulation hooks ───────────────────────────────
+function CellViewer3DInner() {
+  // Shared ref captured inside Canvas (CobotChain) and read by sim hook outside.
+  const gripperRef = useRef<THREE.Group | null>(null);
+
+  // Convert Three.js world position back to ROS coords for the object_manager.
+  // Inverse of tPos: ROS_X = three.X + CX, ROS_Y = -three.Z + CY, ROS_Z = three.Y
+  const getGripperWorldXYZ = useCallback((): [number, number, number] | null => {
+    const g = gripperRef.current;
+    if (!g) return null;
+    const v = new THREE.Vector3();
+    g.getWorldPosition(v);
+    return [v.x + CX, -v.z + CY, v.y];
+  }, []);
+
+  useSimulation(getGripperWorldXYZ);
+
   return (
     <div style={{ background: '#07111e', borderTop: '1px solid #1a3550', borderBottom: '1px solid #1a3550' }}>
       {/* Header */}
       <div style={{ padding: '32px 24px 16px', textAlign: 'center' }}>
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
-          Gemelo Digital
+          Gemelo Digital · Simulación Interactiva
         </div>
         <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: '#f1f5f9' }}>
-          Layout Físico de la Celda · V13
+          Layout Físico de la Celda · V51
         </div>
         <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
-          Arrastra para rotar · Scroll para zoom · Posiciones exactas del workspace ROS/FK
+          Pulsa "Colocar CAFI" para arrancar el ciclo · Replica fiel del Schneider Project Simulation
         </div>
       </div>
 
-      {/* 3D Canvas */}
-      <div style={{ height: '72vh', position: 'relative', maxWidth: 1300, margin: '0 auto' }}>
+      {/* 3D Canvas + HMI panel */}
+      <div style={{ height: '78vh', position: 'relative', maxWidth: 1500, margin: '0 auto' }}>
         <Canvas
           shadows
-          camera={{ position: [-0.8, 1.9, 3.4], fov: 40 }}
+          camera={{ position: [-1.3, 1.9, 3.4], fov: 42 }}
           style={{ background: '#07111e' }}
           gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
         >
@@ -458,16 +573,18 @@ export default function CellViewer3D() {
           <directionalLight position={[2, 2, 2]}  intensity={0.18} color="#ffe8c0" />
 
           <OrbitControls
-            target={[0.15, 1.20, -0.25]}
+            target={[0, 1.00, -0.15]}
             minPolarAngle={0.12} maxPolarAngle={Math.PI / 2.05}
             minDistance={1.5} maxDistance={9}
             enableDamping dampingFactor={0.07}
           />
 
           <Suspense fallback={null}>
-            <CellScene />
+            <CellScene gripperRef={gripperRef} />
           </Suspense>
         </Canvas>
+
+        <HMIPanel />
       </div>
 
       {/* Legend */}
@@ -477,11 +594,11 @@ export default function CellViewer3D() {
       }}>
         {[
           { color: '#22c55e', label: 'Reach cobot 626 mm' },
-          { color: '#d97340', label: 'CAFI breaker (STL)' },
-          { color: '#8a9090', label: 'Fixtures (STL real)' },
+          { color: '#d97340', label: 'CAFI breaker' },
+          { color: '#a78bfa', label: 'Fixtures' },
           { color: '#4ade80', label: 'Bin aceptado' },
           { color: '#f87171', label: 'Bin rechazado' },
-          { color: '#60a5fa', label: 'Lexium Cobot' },
+          { color: '#60a5fa', label: 'Lexium Cobot L03S' },
           { color: '#e879f9', label: 'Cognex 2800' },
         ].map(({ color, label }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#4a6a88' }}>
@@ -491,5 +608,14 @@ export default function CellViewer3D() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ── Exported component (wraps inner with the simulation store provider) ──────
+export default function CellViewer3D() {
+  return (
+    <SimStoreProvider>
+      <CellViewer3DInner />
+    </SimStoreProvider>
   );
 }

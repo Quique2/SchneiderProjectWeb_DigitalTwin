@@ -283,7 +283,7 @@ function CobotChain({
                       position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
 
                     {/*
-                      Gripper attached at joint6Group origin (the j6 axis).
+                      Gripper attached at the EoAT adapter surface (tool0).
 
                       Gripper SW bboxes (mm):
                         stump   X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
@@ -291,17 +291,22 @@ function CobotChain({
 
                       Rx(-π/2) maps local +Z (finger length) to joint6Group +Y
                       so the fingers extend OUT from the wrist along the tool
-                      axis. Position keeps the stump center at joint6 origin:
+                      axis.
+
+                      Position places the stump center at tool0 (the EoAT
+                      adapter face), which is 0.068m in +Y from joint 6 per
+                      URDF joint_tool0:
                         stump_center * scale  = (0.1722, 0.0803, 0.0712)
                         after Rx(-π/2)        = (0.1722, 0.0712, -0.0803)
-                        position = -above     = (-0.1722, -0.0712, 0.0803)
+                        position = -above + (0, 0.068, 0)
+                                 = (-0.1722, -0.0032, 0.0803)
                     */}
                     {gripperStls.map((g, i) => (
                       <mesh
                         key={i}
                         geometry={g}
                         scale={[0.001, 0.001, 0.001]}
-                        position={[-0.1722, -0.0712, 0.0803]}
+                        position={[-0.1722, -0.0032, 0.0803]}
                         rotation={[-Math.PI / 2, 0, 0]}
                         castShadow
                       >

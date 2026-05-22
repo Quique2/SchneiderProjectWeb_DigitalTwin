@@ -283,25 +283,22 @@ function CobotChain({
                       position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
 
                     {/*
-                      Gripper aligned with the flange COM in Z (theoretical offset).
+                      Gripper aligned with the flange COM in Z, then nudged
+                      +20mm further in +Z to clear the flange surface.
 
                       Volume-weighted COMs:
                         link6_tool_flange COM (joint6Group):  (-0.91, -1.06, -2.30) mm
                         new_gripper_stump COM (gripper local): (172.21, 80.25, 71.15) mm
 
                       Rx(-π/2) maps gripper local (X, Y, Z) -> (X, Z, -Y).
-                      After rotation, stump COM in joint6Group at zero offset:
-                        (0.17221, 0.07115, -0.08025) m
-                      Position chosen so stump COM Z = flange COM Z = -0.00230 m
-                      (X and Y kept at their previous values per request):
-                        position.z = -(-0.08025) + (-0.00230) = 0.07795
+                      position.z = 0.07795 (COM-aligned) + 0.020 = 0.09795
                     */}
                     {gripperStls.map((g, i) => (
                       <mesh
                         key={i}
                         geometry={g}
                         scale={[0.001, 0.001, 0.001]}
-                        position={[-0.1722, -0.0712, 0.07795]}
+                        position={[-0.1722, -0.0712, 0.09795]}
                         rotation={[-Math.PI / 2, 0, 0]}
                         castShadow
                       >

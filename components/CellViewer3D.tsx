@@ -283,29 +283,25 @@ function CobotChain({
                       position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
 
                     {/*
-                      Gripper attached at the EoAT adapter surface.
+                      Gripper aligned with the flange COM in Z (theoretical offset).
 
-                      Gripper SW bboxes (mm):
-                        stump   X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
-                        fixtures Z[0.7,170.7] — finger length is along local Z
+                      Volume-weighted COMs:
+                        link6_tool_flange COM (joint6Group):  (-0.91, -1.06, -2.30) mm
+                        new_gripper_stump COM (gripper local): (172.21, 80.25, 71.15) mm
 
-                      Rx(-π/2) maps local +Z (finger length) to joint6Group +Y
-                      so the fingers extend OUT from the wrist along the tool
-                      axis.
-
-                      Position places the stump center at the EoAT adapter
-                      face — 68mm offset in joint6Group +Z direction:
-                        stump_center * scale  = (0.1722, 0.0803, 0.0712)
-                        after Rx(-π/2)        = (0.1722, 0.0712, -0.0803)
-                        position = -above + (0, 0, 0.068)
-                                 = (-0.1722, -0.0712, 0.1483)
+                      Rx(-π/2) maps gripper local (X, Y, Z) -> (X, Z, -Y).
+                      After rotation, stump COM in joint6Group at zero offset:
+                        (0.17221, 0.07115, -0.08025) m
+                      Position chosen so stump COM Z = flange COM Z = -0.00230 m
+                      (X and Y kept at their previous values per request):
+                        position.z = -(-0.08025) + (-0.00230) = 0.07795
                     */}
                     {gripperStls.map((g, i) => (
                       <mesh
                         key={i}
                         geometry={g}
                         scale={[0.001, 0.001, 0.001]}
-                        position={[-0.1722, -0.0712, 0.1483]}
+                        position={[-0.1722, -0.0712, 0.07795]}
                         rotation={[-Math.PI / 2, 0, 0]}
                         castShadow
                       >

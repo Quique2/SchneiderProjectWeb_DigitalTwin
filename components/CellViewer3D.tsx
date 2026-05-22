@@ -282,35 +282,41 @@ function CobotChain({
                     <CobotLink geometry={cobotStls[11]}
                       position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
 
-                    {/* tool0 — fixed offset, gripper attaches here */}
-                    <group position={[0, 0.068, 0]}>
-                      {/*
-                        Gripper SW bboxes (mm):
-                          stump      X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
-                          fixtures   Y[0.3,77.3] (extend DOWN from stump in -Y)
-                        The gripper's natural "extension direction" is -Y (stump
-                        at top, fingers below). To align with tool0's +Y "out
-                        from wrist" direction we apply Rx(π), which flips local
-                        Y → -Y and Z → -Z. The position offset puts the stump
-                        center at the tool0 mounting face.
-                      */}
-                      {gripperStls.map((g, i) => (
-                        <mesh
-                          key={i}
-                          geometry={g}
-                          scale={[0.001, 0.001, 0.001]}
-                          position={[-0.172, 0.080, 0.071]}
-                          rotation={[Math.PI, 0, 0]}
-                          castShadow
-                        >
-                          <meshStandardMaterial
-                            color={gripperColor}
-                            metalness={0.3}
-                            roughness={0.4}
-                          />
-                        </mesh>
-                      ))}
-                    </group>
+                    {/*
+                      Gripper attached directly at joint6Group origin (the j6
+                      rotation axis). The stump center is aligned exactly with
+                      joint 6 per user request.
+
+                      Gripper SW bboxes (mm):
+                        stump  X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
+                        fixtures extend from stump in -Y local direction.
+
+                      Rx(π) flips local Y → -Y and Z → -Z so the gripper
+                      extends away from the wrist. Position is computed so the
+                      stump center lands at (0,0,0) in joint6Group:
+                        stump_center * scale = (0.1722, 0.0803, 0.0712)
+                        after Rx(π)         = (0.1722, -0.0803, -0.0712)
+                        position = -above   = (-0.1722, 0.0803, 0.0712)
+                    */}
+                    {gripperStls.map((g, i) => (
+                      <mesh
+                        key={i}
+                        geometry={g}
+                        scale={[0.001, 0.001, 0.001]}
+                        position={[-0.1722, 0.0803, 0.0712]}
+                        rotation={[Math.PI, 0, 0]}
+                        castShadow
+                      >
+                        <meshStandardMaterial
+                          color={gripperColor}
+                          metalness={0.3}
+                          roughness={0.4}
+                        />
+                      </mesh>
+                    ))}
+
+                    {/* tool0 URDF frame (kept for reference, not used for gripper) */}
+                    <group position={[0, 0.068, 0]} />
                   </group>
                 </group>
               </group>

@@ -283,28 +283,26 @@ function CobotChain({
                       position={[-0.1383, -0.7436, -0.2745]} color={baseColor} />
 
                     {/*
-                      Gripper attached directly at joint6Group origin (the j6
-                      rotation axis). The stump center is aligned exactly with
-                      joint 6 per user request.
+                      Gripper attached at joint6Group origin (the j6 axis).
 
                       Gripper SW bboxes (mm):
-                        stump  X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
-                        fixtures extend from stump in -Y local direction.
+                        stump   X[140,204] Y[77.3,83.3] Z[39,103]  center (172.2, 80.3, 71.2)
+                        fixtures Z[0.7,170.7] — finger length is along local Z
 
-                      Rx(π) flips local Y → -Y and Z → -Z so the gripper
-                      extends away from the wrist. Position is computed so the
-                      stump center lands at (0,0,0) in joint6Group:
-                        stump_center * scale = (0.1722, 0.0803, 0.0712)
-                        after Rx(π)         = (0.1722, -0.0803, -0.0712)
-                        position = -above   = (-0.1722, 0.0803, 0.0712)
+                      Rx(-π/2) maps local +Z (finger length) to joint6Group +Y
+                      so the fingers extend OUT from the wrist along the tool
+                      axis. Position keeps the stump center at joint6 origin:
+                        stump_center * scale  = (0.1722, 0.0803, 0.0712)
+                        after Rx(-π/2)        = (0.1722, 0.0712, -0.0803)
+                        position = -above     = (-0.1722, -0.0712, 0.0803)
                     */}
                     {gripperStls.map((g, i) => (
                       <mesh
                         key={i}
                         geometry={g}
                         scale={[0.001, 0.001, 0.001]}
-                        position={[-0.1722, 0.0803, 0.0712]}
-                        rotation={[Math.PI, 0, 0]}
+                        position={[-0.1722, -0.0712, 0.0803]}
+                        rotation={[-Math.PI / 2, 0, 0]}
                         castShadow
                       >
                         <meshStandardMaterial

@@ -432,37 +432,29 @@ function CafiCollection() {
   );
 }
 
-// Rotating disc + fixtures group (rotates around vertical at disc center).
+// Rotating disc + fixtures group. Uses the "rotate around pivot" trick:
+// outer group at disc-centre in Three.js coords applies the rotation,
+// inner group with the inverse translation puts children back at their
+// natural world positions so VisualElement renders them with tPos as usual.
 function RotatingFixtures() {
   const store = useSimStore();
   const groupRef = useRef<THREE.Group>(null);
   useFrame(() => {
     if (!groupRef.current) return;
-    groupRef.current.rotation.y = -store.get().rotary.angle; // ROS Z rot -> Three.js -Y
+    groupRef.current.rotation.y = -store.get().rotary.angle;
   });
-  // Pivot at disc centre (X, Y) on the mesa surface (the V51 disc top is z=1.081)
   const [px, py, pz] = tPos(DISC_CENTER_X, DISC_CENTER_Y, DISC_TOP_Z);
-  const rotaryNames = [
+  const rotaryNames = new Set([
     'fixture_load', 'fixture_rivet',
     'disco_rotating_disco_1', 'disco_rotating_bearingsprocket_1',
-  ];
+  ]);
   return (
     <group ref={groupRef} position={[px, py, pz]}>
-      {VISUALS.filter((v) => rotaryNames.includes(v.name)).map((v, i) => {
-        const [vx, vy, vz] = tPos(v.world_xyz[0], v.world_xyz[1], v.world_xyz[2]);
-        const local: [number, number, number] = [vx - px, vy - py, vz - pz];
-        // Build a per-mesh visual that respects visual_rpy + visual_xyz
-        const shifted = {
-          ...v,
-          world_xyz: [0, 0, 0] as [number, number, number],
-          world_rot: [[1,0,0],[0,1,0],[0,0,1]],
-        } as Visual;
-        return (
-          <group key={i} position={local}>
-            <VisualElement v={shifted} />
-          </group>
-        );
-      })}
+      <group position={[-px, -py, -pz]}>
+        {VISUALS.filter((v) => rotaryNames.has(v.name)).map((v, i) =>
+          <VisualElement key={i} v={v} />
+        )}
+      </group>
     </group>
   );
 }

@@ -5,6 +5,8 @@ import { useEffect, useRef } from 'react';
 import { useSimStore, spawnCafi } from './store';
 import { conveyorTick, robotTick, gripperTick, rotaryTick, visionTick, objectManagerTick } from './subsystems';
 import { fsmTick } from './fsm';
+import { POSE_LIB } from './poses';
+import { PICK_X, BELT_Y, BELT_TOP_Z, CAFI_LZ } from './constants';
 
 const TICK_HZ = 50;
 const TICK_DT = 1.0 / TICK_HZ;
@@ -90,6 +92,41 @@ export function useSimActions() {
     toggleCollapsed: () => {
       const s = store.get();
       s.hmi.collapsed = !s.hmi.collapsed;
+      store.notify();
+    },
+    // DEBUG: snap robot to POSE_PICK_CONVEYOR (no trajectory), spawn a CAFI at
+    // the conveyor pick window, and PAUSE the FSM so nothing advances. Use
+    // this to compare the gripper world readout against the expected CAFI
+    // pick position (1.235, 1.365, 1.083).
+    debugSnapPickConveyor: () => {
+      // Reset to a clean state first
+      store.reset();
+      const s = store.get();
+      // Pause the FSM so no auto-cycling
+      s.fsm.cell = 'PAUSED';
+      s.fsm.stage = 'STOPPED';
+      s.fsm.stage_t0 = s.sim_t;
+      s.hmi.stopped = true;
+      // Snap robot joints to POSE_PICK_CONVEYOR — no trajectory, no motion
+      const pose = POSE_LIB.POSE_PICK_CONVEYOR;
+      s.robot.joints = [pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]] as
+        [number, number, number, number, number, number];
+      s.robot.seg_start_joints = [...s.robot.joints] as typeof s.robot.seg_start_joints;
+      s.robot.seg_target_joints = [...s.robot.joints] as typeof s.robot.seg_target_joints;
+      s.robot.traj_queue = [];
+      s.robot.seg_active = false;
+      s.robot.waiting_for = null;
+      s.robot.motion_done = true;
+      s.robot.busy = false;
+      s.robot.current_task = 'idle';
+      // Spawn a CAFI directly at the conveyor pick position (so it sits there
+      // immediately, not far away at SPAWN_X). Mark it ready_for_pick.
+      const cafi = spawnCafi(store);
+      if (cafi) {
+        cafi.position = [PICK_X, BELT_Y, BELT_TOP_Z + CAFI_LZ / 2];
+        cafi.at_sensor = true;
+        cafi.ready_for_pick = true;
+      }
       store.notify();
     },
   };

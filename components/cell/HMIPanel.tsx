@@ -64,7 +64,7 @@ function StatusPill({ text, color, bg = 'transparent', mono = true }: {
 
 export default function HMIPanel() {
   const s = useSimSnapshot();
-  const { spawnCafi, toggleStop, reset, toggleCollapsed } = useSimActions();
+  const { spawnCafi, toggleStop, reset, toggleCollapsed, debugSnapPickConveyor } = useSimActions();
 
   const cell = s.fsm.cell;
   const stage = s.fsm.stage;
@@ -238,6 +238,27 @@ export default function HMIPanel() {
         </div>
       </div>
 
+      {/* Debug: snap to PICK_CONVEYOR pose + spawn CAFI at pick window */}
+      <div style={{
+        padding: 8, border: '1px dashed #2a4060', borderRadius: 4,
+        background: 'rgba(40,30,10,0.4)',
+      }}>
+        <div style={{
+          fontSize: 9, letterSpacing: 2, color: '#a88040',
+          textTransform: 'uppercase', marginBottom: 6, fontWeight: 600,
+        }}>
+          🔧 Debug
+        </div>
+        <button onClick={debugSnapPickConveyor} style={debugBtnStyle}>
+          Set to PICK_CONVEYOR
+        </button>
+        <div style={{ fontSize: 9, color: '#7a8090', marginTop: 6, lineHeight: 1.4 }}>
+          Snaps robot to POSE_PICK_CONVEYOR (no motion) + spawns a CAFI at the
+          pick window. Expected gripper world: (1.235, 1.365, 1.083). Compare
+          with the Telemetría readout to see the offset.
+        </div>
+      </div>
+
       {/* Reset */}
       <button onClick={reset} style={resetBtnStyle}>↻ Reset Cell</button>
 
@@ -300,6 +321,14 @@ const resetBtnStyle: React.CSSProperties = {
   border: '1px solid #2a4060', borderRadius: 4,
   padding: '8px', fontSize: 11, fontFamily: 'monospace',
   cursor: 'pointer', letterSpacing: 0.5,
+};
+
+const debugBtnStyle: React.CSSProperties = {
+  background: 'linear-gradient(180deg, #b87333 0%, #8b5a25 100%)',
+  color: '#fff', border: 'none', borderRadius: 4,
+  padding: '8px 10px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer', letterSpacing: 0.5, width: '100%',
+  boxShadow: '0 2px 6px rgba(184,115,51,0.3)',
 };
 
 const iconBtnStyle: React.CSSProperties = {

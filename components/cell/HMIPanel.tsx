@@ -227,6 +227,15 @@ export default function HMIPanel() {
             <span>{(30 - (s.sim_t - s.rotary.rivet_t0)).toFixed(1)} s</span>
           </div>
         )}
+        <div style={{ ...statRowStyle, marginTop: 6, paddingTop: 4, borderTop: '1px solid #1a2434' }}>
+          <span>gripper X</span><span>{s.gripper_world[0].toFixed(3)} m</span>
+        </div>
+        <div style={statRowStyle}>
+          <span>gripper Y</span><span>{s.gripper_world[1].toFixed(3)} m</span>
+        </div>
+        <div style={statRowStyle}>
+          <span>gripper Z</span><span>{s.gripper_world[2].toFixed(3)} m</span>
+        </div>
       </div>
 
       {/* Reset */}

@@ -34,7 +34,10 @@ export function useSimulation(getGripperWorldXYZ: () => [number, number, number]
         rotaryTick(s);
         visionTick(s);
         const grip = getGripperWorldXYZ();
-        if (grip) objectManagerTick(s, grip, TICK_DT);
+        if (grip) {
+          s.gripper_world = grip;
+          objectManagerTick(s, grip);
+        }
         // FSM last (it reads everything)
         fsmTick(s);
       }

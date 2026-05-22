@@ -147,4 +147,6 @@ export interface SimState {
   hmi: HmiState;
   cafis: CAFI[];
   next_cafi_id: number;
+  // Debug: last-known gripper world position in ROS coords (live FK readout)
+  gripper_world: [number, number, number];
 }

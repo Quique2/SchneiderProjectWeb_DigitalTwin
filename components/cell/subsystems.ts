@@ -367,49 +367,12 @@ export function visionTick(s: SimState): void {
 }
 
 // =============================================================================
-// OBJECT MANAGER — position CAFI while in_gripper
-//
-// The cobot's FK has a small consistent offset (URDF axes are Z-up vs
-// Three.js Y-up). Rather than chase that, we snap the in_gripper CAFI to
-// the EXPECTED stage target position, interpolating smoothly from the
-// previous source. The user never sees the cobot's gripper FK error.
+// OBJECT MANAGER — attach CAFI position to gripper while in_gripper
 // =============================================================================
-function stageTargetForCafi(s: SimState, c: CAFI): [number, number, number] | null {
-  const stage = s.fsm.stage;
-  // PICK_CONV — the gripper is closing on a CAFI sitting at the conveyor pick
-  if (stage === 'PICK_CONV') return [PICK_X, BELT_Y, BELT_TOP_Z + CAFI_LZ / 2 + 0.030];
-  // PLACE_LOAD / SEAT — heading to LOAD fixture; final CAFI position
-  if (stage === 'PLACE_LOAD' || stage === 'SEAT') return [LOAD_X, LOAD_Y, CAFI_REST_Z];
-  // PICK_RIVETED — lifting the riveted CAFI from LOAD
-  if (stage === 'PICK_RIVETED') return [LOAD_X, LOAD_Y, CAFI_REST_Z + 0.080];
-  // PLACE_VISION / INSPECT — heading to vision station
-  if (stage === 'PLACE_VISION' || stage === 'INSPECT') return [VISION_X, VISION_Y, VISION_TOP_Z + CAFI_LZ / 2];
-  // PICK_VISION — lifting from vision
-  if (stage === 'PICK_VISION') return [VISION_X, VISION_Y, VISION_TOP_Z + CAFI_LZ / 2 + 0.080];
-  // PLACE_BIN — drop to accept or reject bin
-  if (stage === 'PLACE_BIN') {
-    if (c.verdict === 'PASS') return [ACCEPT_X, ACCEPT_Y, BIN_FLOOR_Z + 0.100];
-    return [REJECT_X, REJECT_Y, BIN_FLOOR_Z + 0.100];
-  }
-  return null;
-}
-
-// Smoothly interpolate position from the CAFI's current spot to the target
-// (5 m/s, capped). This gives a visible "lift + carry + drop" motion that
-// follows the cobot's trajectory even though we don't trust the FK.
-function lerpCafiTo(c: CAFI, target: [number, number, number], dt: number): void {
-  const SPEED = 1.5; // m/s
-  for (let i = 0; i < 3; i++) {
-    const d = target[i] - c.position[i];
-    const step = Math.sign(d) * Math.min(Math.abs(d), SPEED * dt);
-    c.position[i] += step;
-  }
-}
-
-export function objectManagerTick(s: SimState, _gripperWorldXYZ: [number, number, number], dt = 0.02): void {
+export function objectManagerTick(s: SimState, gripperWorldXYZ: [number, number, number]): void {
   for (const c of s.cafis) {
-    if (c.location !== 'in_gripper') continue;
-    const target = stageTargetForCafi(s, c);
-    if (target) lerpCafiTo(c, target, dt);
+    if (c.location === 'in_gripper') {
+      c.position = [...gripperWorldXYZ];
+    }
   }
 }

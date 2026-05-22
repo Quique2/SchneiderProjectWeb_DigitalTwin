@@ -74,6 +74,7 @@ function initSimState(): SimState {
     },
     cafis: [],
     next_cafi_id: 1,
+    gripper_world: [0, 0, 0],
   };
 }
 

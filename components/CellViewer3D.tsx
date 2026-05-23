@@ -593,6 +593,10 @@ function CellViewer3DInner() {
         <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
           Pulsa "Colocar CAFI" para arrancar el ciclo · Replica fiel del Schneider Project Simulation
         </div>
+        {/* DIAGNOSTIC MARKER — confirms which build is loaded in the browser */}
+        <div style={{ fontSize: 11, color: '#ff5566', marginTop: 6, fontFamily: 'monospace', fontWeight: 700 }}>
+          BUILD f9842ab · SHIFT X=0.000 Y=0.000
+        </div>
       </div>
 
       {/* 3D Canvas + HMI panel */}

@@ -70,7 +70,9 @@
       "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/lexium_cobot_with_final_gripper/meshes/gripper/'*.stl 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/gripper/')",
       "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/turntable_rivet_cell_description/meshes/'*.stl 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/turntable/')",
       "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/fixtures/Fixture_para_camara_final.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')",
-      "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/cafi/cafi.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')"
+      "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/cafi/cafi.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')",
+      "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/sensors/sick_grte18s_p2312/sick_grte18s_p2312.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')",
+      "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/actuators/nema17/nema17.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')"
     ],
     "additionalDirectories": [
       "C:\\Users\\kiki7\\Downloads\\Cobot_URDFBUENO\\meshes"

@@ -4,9 +4,10 @@
 // hand-rolled CobotChain.  All meshes/poses come from V53.
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { STLLoader } from 'three-stdlib';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 
@@ -200,11 +201,19 @@ function CellPrimitives() {
       <HollowBin x={1.650} y={0.720} sx={0.226837} sy={0.172} h={0.150} color="#22dd55" />
       <HollowBin x={1.330} y={0.700} sx={0.226837} sy={0.182} h={0.150} color="#ff5566" />
 
-      {/* Vision fixture plate (V53: 150 x 151 mm @ (0.750, 0.804) on mesa top) */}
-      <mesh position={[0.750, 0.804, 1.0075]} receiveShadow castShadow>
-        <boxGeometry args={[0.150, 0.151, 0.015]} />
-        <meshStandardMaterial color="#a78bfa" metalness={0.3} roughness={0.6} />
-      </mesh>
+      {/* Vision fixture — real V53 STL (Fixture_para_camara_final). */}
+      <VisionFixture x={0.750} y={0.804} z={1.000} />
+
+      {/* Cell-level photoelectric sensors (V53 sick_grte18s_p2312) */}
+      {/* sensor_conveyor_end: faces N across belt at the west pick */}
+      <SickPhotoelectric faceX={1.235} faceY={1.290} faceZ={1.100}
+        beamYaw={Math.PI / 2} mesaZ={1.000} beamLen={0.150} />
+      {/* sensor_vision_piece_present: west of cradle, beam yaw=0 (east) */}
+      <SickPhotoelectric faceX={0.586} faceY={0.804} faceZ={1.040}
+        beamYaw={0} mesaZ={1.000} beamLen={0.130} />
+
+      {/* Conveyor drive motor: NEMA17 STL under east end of belt */}
+      <Nema17Motor x={1.550} y={1.365} z={1.036} axisYaw={Math.PI / 2} />
 
       {/* Cognex 2800 camera hanging from cabin top at (0.750, 0.804, 1.520) */}
       <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
@@ -224,6 +233,95 @@ function CellPrimitives() {
       {/* Aluminum cabin (4 corner posts + top frame, decorative) */}
       <AluminumCabin xMin={0.30} xMax={2.20} yMin={0.30} yMax={1.80} topZ={2.070} />
     </>
+  );
+}
+
+// ── V53 STL-based scene parts ────────────────────────────────────────────────
+
+// Vision fixture: real V53 STL plate.  The xacro applies Rx(+π/2) so the
+// mesh's Y axis (15 mm thickness) becomes link Z, then centres the bbox via
+// xyz (-0.079329, 0.058950, 0).  We replicate both in three.js (Z-up scene).
+function VisionFixture({ x, y, z }: { x: number; y: number; z: number }) {
+  const geom = useLoader(STLLoader, '/meshes/v53/cell/Fixture_para_camara_final.STL');
+  return (
+    <group position={[x, y, z]}>
+      <mesh
+        geometry={geom}
+        scale={[0.001, 0.001, 0.001]}
+        position={[-0.079329, 0.058950, 0]}
+        rotation={[Math.PI / 2, 0, 0]}
+        castShadow receiveShadow
+      >
+        <meshStandardMaterial color="#7e6bd4" metalness={0.35} roughness={0.55} />
+      </mesh>
+    </group>
+  );
+}
+
+// SICK GRTE18S-P2312 photoelectric sensor assembly (V53 xacro:sick_photoelectric).
+// Convention: sensor LINK's local +X = beam direction; optical face at link origin.
+// Body STL has Rz(+π/2) so mesh -Y (beam) maps to link +X.  The parent transform
+// rotates the whole link by Rz(beam_yaw) around the world Z axis.
+// Sub-parts: clamp, arm, vertical post down to mesa, foot plate.
+function SickPhotoelectric({
+  faceX, faceY, faceZ, beamYaw, mesaZ, beamLen,
+}: {
+  faceX: number; faceY: number; faceZ: number;
+  beamYaw: number; mesaZ: number; beamLen: number;
+}) {
+  const geom = useLoader(STLLoader, '/meshes/v53/cell/sick_grte18s_p2312.STL');
+  const postLen = faceZ - mesaZ;
+  return (
+    <group position={[faceX, faceY, faceZ]} rotation={[0, 0, beamYaw]}>
+      {/* Body */}
+      <mesh
+        geometry={geom}
+        scale={[0.001, 0.001, 0.001]}
+        rotation={[0, 0, Math.PI / 2]}
+        castShadow
+      >
+        <meshStandardMaterial color="#101212" metalness={0.5} roughness={0.45} />
+      </mesh>
+      {/* Aim beam — translucent cylinder along link +X */}
+      <mesh position={[beamLen / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <cylinderGeometry args={[0.0015, 0.0015, beamLen, 12]} />
+        <meshStandardMaterial color="#33dffe" transparent opacity={0.55} />
+      </mesh>
+      {/* Clamp */}
+      <mesh position={[-0.020, 0, 0]} castShadow>
+        <boxGeometry args={[0.026, 0.034, 0.034]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
+      </mesh>
+      {/* Arm */}
+      <mesh position={[-0.050, 0, 0]} castShadow>
+        <boxGeometry args={[0.062, 0.016, 0.016]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
+      </mesh>
+      {/* Vertical post */}
+      <mesh position={[-0.078, 0, -postLen / 2]} castShadow>
+        <cylinderGeometry args={[0.011, 0.011, postLen, 12]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
+      </mesh>
+      {/* Foot */}
+      <mesh position={[-0.078, 0, -postLen + 0.004]} castShadow>
+        <boxGeometry args={[0.060, 0.060, 0.008]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+// NEMA17 stepper motor mesh.  Mesh axis along its own Z (typical NEMA17 STL
+// is a 42x42 mm body extruded along Z).  axisYaw rotates the motor around
+// the world Z so the shaft pokes in the desired direction.
+function Nema17Motor({ x, y, z, axisYaw }: { x: number; y: number; z: number; axisYaw: number }) {
+  const geom = useLoader(STLLoader, '/meshes/v53/cell/nema17.STL');
+  return (
+    <group position={[x, y, z]} rotation={[0, 0, axisYaw]}>
+      <mesh geometry={geom} scale={[0.001, 0.001, 0.001]} castShadow>
+        <meshStandardMaterial color="#1a1a1c" metalness={0.55} roughness={0.4} />
+      </mesh>
+    </group>
   );
 }
 

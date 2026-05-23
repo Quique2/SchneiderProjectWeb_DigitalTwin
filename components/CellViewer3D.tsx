@@ -1257,6 +1257,11 @@ function HMIPanel({
   deleteSavedPosition,
   exportSavedPositions,
   clearSavedPositions,
+  playerRef,
+  cafiStateRef,
+  playerPlay,
+  playerPause,
+  playerReset,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;

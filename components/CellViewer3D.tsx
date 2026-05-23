@@ -153,13 +153,46 @@ interface CobotProps {
   gripperRef: React.MutableRefObject<number>; // target prismatic value in metres
   gripperLiveRef: React.MutableRefObject<number>; // current animated value
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
+  collisionsRef: React.MutableRefObject<string[]>;
 }
 
 const GRIPPER_SPEED = 0.04; // m/s (URDF velocity limit is 0.08)
 
-function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef }: CobotProps) {
+function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisionsRef }: CobotProps) {
   const robot = useUrdf('/urdf/lexium_cobot.urdf');
   const groupRef = useRef<THREE.Group>(null);
+  const obstacles = useMemo(() => collisionAABBs(), []);
+
+  // Bulk-check every pose once the URDF is loaded — logs which poses collide
+  // with which boxes (and at which links).  Restores HOME after the sweep.
+  useEffect(() => {
+    if (!robot || !groupRef.current) return;
+    const report: Record<string, string[]> = {};
+    for (const [poseName, j] of Object.entries(POSE_LIB)) {
+      robot.setJointValue('joint_1', j[0]);
+      robot.setJointValue('joint_2', j[1]);
+      robot.setJointValue('joint_3', j[2]);
+      robot.setJointValue('joint_4', j[3]);
+      robot.setJointValue('joint_5', j[4]);
+      robot.setJointValue('joint_6', j[5]);
+      groupRef.current!.updateMatrixWorld(true);
+      const hits = checkCobotCollisions(robot, obstacles);
+      if (hits.length > 0) report[poseName] = hits;
+    }
+    // Restore HOME
+    const home = POSE_LIB.POSE_HOME;
+    for (let i = 0; i < 6; i++) robot.setJointValue(`joint_${i + 1}`, home[i]);
+    groupRef.current!.updateMatrixWorld(true);
+
+    const colliding = Object.keys(report).length;
+    // eslint-disable-next-line no-console
+    console.log(`%c[Collision sweep] ${colliding}/${Object.keys(POSE_LIB).length} poses collide`,
+      colliding ? 'color:#ff5566;font-weight:700' : 'color:#22dd55;font-weight:700');
+    for (const [pose, boxes] of Object.entries(report)) {
+      // eslint-disable-next-line no-console
+      console.log(`  ${pose} → ${boxes.join(', ')}`);
+    }
+  }, [robot, obstacles]);
 
   useFrame((_, dt) => {
     if (!robot) return;
@@ -181,12 +214,17 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef }: Cobot
     gripperLiveRef.current = next;
     robot.setJointValue('appendage_prismatic_joint', next);
 
+    // Force matrix update so the world AABB check sees the new pose.
+    if (groupRef.current) groupRef.current.updateMatrixWorld(true);
+
     const tcp = robot.frames['tcp_link'];
     if (tcp) {
       const v = new THREE.Vector3();
       tcp.getWorldPosition(v);
       gripperWorldRef.current = [v.x, v.y, v.z];
     }
+
+    collisionsRef.current = checkCobotCollisions(robot, obstacles);
   });
 
   if (!robot) return null;
@@ -851,6 +889,45 @@ function AluminumCabin({ xMin, xMax, yMin, yMax, topZ, postSection, cobotMountX,
   );
 }
 
+// ── Runtime collision detection ──────────────────────────────────────────────
+// Conservative AABB-vs-AABB check: every cobot link's world-axis-aligned
+// bounding box is tested against every COLLISION_BOX.  Reports the set of
+// hit box names so the HMI can display them.
+const COBOT_LINK_NAMES = [
+  'base_link', 'link1_shoulder', 'link2_upper_arm', 'link3_forearm',
+  'link4_wrist1', 'link5_wrist2', 'link6_wrist3',
+  'gripper_base', 'stump_link', 'fixture_link', 'fixture1_link',
+  'neck_link', 'appendage_link',
+];
+
+function collisionAABBs(): Array<{ name: string; box: THREE.Box3 }> {
+  return COLLISION_BOXES.map((b) => ({
+    name: b.name,
+    box: new THREE.Box3(
+      new THREE.Vector3(b.x - b.sx / 2, b.y - b.sy / 2, b.z - b.sz / 2),
+      new THREE.Vector3(b.x + b.sx / 2, b.y + b.sy / 2, b.z + b.sz / 2),
+    ),
+  }));
+}
+
+function checkCobotCollisions(
+  robot: URDFRobot,
+  obstacles: Array<{ name: string; box: THREE.Box3 }>,
+): string[] {
+  const hit = new Set<string>();
+  const linkBox = new THREE.Box3();
+  for (const linkName of COBOT_LINK_NAMES) {
+    const link = robot.links[linkName];
+    if (!link) continue;
+    linkBox.setFromObject(link);
+    if (linkBox.isEmpty()) continue;
+    for (const ob of obstacles) {
+      if (linkBox.intersectsBox(ob.box)) hit.add(ob.name);
+    }
+  }
+  return Array.from(hit);
+}
+
 // ── Collision-zone overlay (toggle from HMI) ─────────────────────────────────
 // Renders every COLLISION_BOX as a translucent coloured mesh + thin edge lines
 // so the operator can visually identify the no-go zones the cobot must avoid.
@@ -916,6 +993,7 @@ function HMIPanel({
   gripperLiveRef,
   setGripper,
   gripperWorldRef,
+  collisionsRef,
   showCollisions,
   toggleCollisions,
 }: {
@@ -927,6 +1005,7 @@ function HMIPanel({
   gripperLiveRef: React.MutableRefObject<number>;
   setGripper: (open: boolean) => void;
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
+  collisionsRef: React.MutableRefObject<string[]>;
   showCollisions: boolean;
   toggleCollisions: () => void;
 }) {
@@ -939,6 +1018,7 @@ function HMIPanel({
   const g = gripperWorldRef.current;
   const gripPct = (gripperLiveRef.current / GRIPPER_OPEN_M) * 100;
   const gripIsOpen = gripperRef.current > GRIPPER_OPEN_M / 2;
+  const collisions = collisionsRef.current;
   return (
     <div style={{
       position: 'absolute', top: 0, right: 0, bottom: 0, width: 300,
@@ -975,7 +1055,7 @@ function HMIPanel({
         </div>
       </Section>
 
-      {/* Collision-zone toggle */}
+      {/* Collision-zone toggle + live status */}
       <Section title="Collision Zones">
         <button onClick={toggleCollisions}
           style={{
@@ -987,9 +1067,27 @@ function HMIPanel({
           }}>
           {showCollisions ? '◉ HIDE' : '◯ SHOW'} ({COLLISION_BOXES.length} boxes)
         </button>
-        <div style={{ ...statRow, marginTop: 6, fontSize: 9, color: '#7a8090' }}>
-          Translucent AABBs the cobot must avoid during motion planning.
+        <div style={{ ...statRow, marginTop: 8 }}>
+          <span>status</span>
+          <span style={{
+            color: collisions.length > 0 ? '#ff5566' : '#22dd55',
+            fontWeight: 700,
+          }}>
+            {collisions.length > 0 ? `✗ ${collisions.length} HIT` : '✓ CLEAR'}
+          </span>
         </div>
+        {collisions.length > 0 && (
+          <div style={{
+            marginTop: 4, padding: 6,
+            background: 'rgba(80,20,20,0.4)',
+            border: '1px solid #ff556644',
+            borderRadius: 4,
+            fontSize: 9, color: '#ff8090',
+            fontFamily: 'monospace', lineHeight: 1.4,
+          }}>
+            {collisions.join(', ')}
+          </div>
+        )}
       </Section>
 
       {/* Gripper manual override */}
@@ -1077,6 +1175,7 @@ export default function CellViewer3D() {
   const gripperRef = useRef<number>(GRIPPER_OPEN_M);        // target
   const gripperLiveRef = useRef<number>(GRIPPER_OPEN_M);    // animated
   const gripperWorldRef = useRef<[number, number, number]>([0, 0, 0]);
+  const collisionsRef = useRef<string[]>([]);
   const [showCollisions, setShowCollisions] = useState(false);
 
   const setPose = (p: PoseName) => {
@@ -1140,6 +1239,7 @@ export default function CellViewer3D() {
               gripperRef={gripperRef}
               gripperLiveRef={gripperLiveRef}
               gripperWorldRef={gripperWorldRef}
+              collisionsRef={collisionsRef}
             />
             <Turntable angleRef={discAngleRef} />
           </Suspense>
@@ -1166,6 +1266,7 @@ export default function CellViewer3D() {
           gripperLiveRef={gripperLiveRef}
           setGripper={setGripper}
           gripperWorldRef={gripperWorldRef}
+          collisionsRef={collisionsRef}
           showCollisions={showCollisions}
           toggleCollisions={() => setShowCollisions((s) => !s)}
         />

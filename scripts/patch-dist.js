@@ -50,6 +50,14 @@ if (fs.existsSync(meshSrc)) {
   console.log(`✓ STL meshes copied to dist/meshes/ (${n} files, recursive).`);
 }
 
+// Copy public/urdf → dist/urdf (V53 URDF files loaded at runtime)
+const urdfSrc = path.join(__dirname, '..', 'public', 'urdf');
+const urdfDst = path.join(__dirname, '..', 'dist', 'urdf');
+if (fs.existsSync(urdfSrc)) {
+  const n = copyDirRec(urdfSrc, urdfDst);
+  console.log(`✓ URDF files copied to dist/urdf/ (${n} files).`);
+}
+
 // Copy public/diagram.svg → dist/diagram.svg (wiring diagram)
 const diagSrc = path.join(__dirname, '..', 'public', 'diagram.svg');
 const diagDst = path.join(__dirname, '..', 'dist', 'diagram.svg');

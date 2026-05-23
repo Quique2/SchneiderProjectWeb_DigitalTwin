@@ -34,6 +34,35 @@ const POSE_LIB: Record<string, [number, number, number, number, number, number]>
 };
 type PoseName = keyof typeof POSE_LIB;
 
+// Per-pose gripper state.  Mirrors the V53 pick/place trajectories:
+//   PICK_* / APPROACH_PICK / HOME / RELEASE_* / RETREAT_* / DROP_* → OPEN
+//   LIFT_* / PLACE_* / APPROACH_LOAD / APPROACH_VISION / APPROACH_BIN → CLOSED
+// (the cobot is carrying the CAFI on all "closed" poses).
+const GRIPPER_OPEN_AT_POSE: Record<PoseName, boolean> = {
+  POSE_HOME:                  true,
+  POSE_APPROACH_CONVEYOR:     true,
+  POSE_PICK_CONVEYOR:         true,   // just landed, about to close on the piece
+  POSE_LIFT_CONVEYOR:         false,  // carrying up
+  POSE_APPROACH_LOAD_FIXTURE: false,  // carrying to load fixture
+  POSE_PLACE_LOAD_FIXTURE:    false,  // just landed on fixture, about to release
+  POSE_RELEASE_LOAD_FIXTURE:  true,   // released
+  POSE_RETREAT_LOAD_FIXTURE:  true,
+  POSE_APPROACH_PICK_RIVETED: true,
+  POSE_PICK_RIVETED:          true,   // just landed, about to grab riveted piece
+  POSE_LIFT_RIVETED:          false,  // carrying riveted piece
+  POSE_APPROACH_VISION:       false,  // carrying to vision
+  POSE_PLACE_VISION:          false,
+  POSE_RELEASE_VISION:        true,
+  POSE_RETREAT_VISION:        true,
+  POSE_APPROACH_ACCEPT_BIN:   false,  // carrying after re-pick from vision
+  POSE_DROP_ACCEPT_BIN:       true,
+  POSE_APPROACH_REJECT_BIN:   false,
+  POSE_DROP_REJECT_BIN:       true,
+};
+
+const GRIPPER_OPEN_M  = 0.028;  // URDF upper limit
+const GRIPPER_CLOSED_M = 0.000;
+
 // V53 world anchors (from schneider_cell.urdf.xacro, all in metres, Z up).
 const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
 const TURNTABLE_BASE : [number, number, number] = [0.692, 1.259, 1.000];
@@ -75,14 +104,18 @@ function useUrdf(url: string): URDFRobot | null {
 // ── Cobot (loaded URDF, joint-driven) ────────────────────────────────────────
 interface CobotProps {
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
+  gripperRef: React.MutableRefObject<number>; // target prismatic value in metres
+  gripperLiveRef: React.MutableRefObject<number>; // current animated value
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
 }
 
-function Cobot({ jointsRef, gripperWorldRef }: CobotProps) {
+const GRIPPER_SPEED = 0.04; // m/s (URDF velocity limit is 0.08)
+
+function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef }: CobotProps) {
   const robot = useUrdf('/urdf/lexium_cobot.urdf');
   const groupRef = useRef<THREE.Group>(null);
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     if (!robot) return;
     const j = jointsRef.current;
     robot.setJointValue('joint_1', j[0]);
@@ -91,6 +124,17 @@ function Cobot({ jointsRef, gripperWorldRef }: CobotProps) {
     robot.setJointValue('joint_4', j[3]);
     robot.setJointValue('joint_5', j[4]);
     robot.setJointValue('joint_6', j[5]);
+
+    // Smoothly track the target gripper aperture.
+    const target = gripperRef.current;
+    const live = gripperLiveRef.current;
+    const step = GRIPPER_SPEED * dt;
+    let next = live;
+    if (Math.abs(target - live) <= step) next = target;
+    else next = live + Math.sign(target - live) * step;
+    gripperLiveRef.current = next;
+    robot.setJointValue('appendage_prismatic_joint', next);
+
     const tcp = robot.frames['tcp_link'];
     if (tcp) {
       const v = new THREE.Vector3();
@@ -384,12 +428,18 @@ function HMIPanel({
   jointsRef,
   discAngleRef,
   setDiscAngle,
+  gripperRef,
+  gripperLiveRef,
+  setGripper,
   gripperWorldRef,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
   discAngleRef: React.MutableRefObject<number>;
   setDiscAngle: (a: number) => void;
+  gripperRef: React.MutableRefObject<number>;
+  gripperLiveRef: React.MutableRefObject<number>;
+  setGripper: (open: boolean) => void;
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
 }) {
   const [, force] = useState(0);
@@ -399,6 +449,8 @@ function HMIPanel({
   }, []);
   const j = jointsRef.current;
   const g = gripperWorldRef.current;
+  const gripPct = (gripperLiveRef.current / GRIPPER_OPEN_M) * 100;
+  const gripIsOpen = gripperRef.current > GRIPPER_OPEN_M / 2;
   return (
     <div style={{
       position: 'absolute', top: 0, right: 0, bottom: 0, width: 300,
@@ -432,6 +484,28 @@ function HMIPanel({
               {p.replace('POSE_', '').replace(/_/g, ' ')}
             </button>
           ))}
+        </div>
+      </Section>
+
+      {/* Gripper manual override */}
+      <Section title="Gripper">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          <button onClick={() => setGripper(true)}
+            style={{ ...btnStyle, background: gripIsOpen
+              ? 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)'
+              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' }}>
+            OPEN
+          </button>
+          <button onClick={() => setGripper(false)}
+            style={{ ...btnStyle, background: !gripIsOpen
+              ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
+              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' }}>
+            CLOSE
+          </button>
+        </div>
+        <div style={statRow}>
+          <span>jaw</span>
+          <span>{(gripperLiveRef.current * 1000).toFixed(1)} mm ({gripPct.toFixed(0)}%)</span>
         </div>
       </Section>
 
@@ -495,12 +569,19 @@ const statRow: React.CSSProperties = {
 export default function CellViewer3D() {
   const jointsRef = useRef<[number, number, number, number, number, number]>([...POSE_LIB.POSE_HOME]);
   const discAngleRef = useRef(0);
+  const gripperRef = useRef<number>(GRIPPER_OPEN_M);        // target
+  const gripperLiveRef = useRef<number>(GRIPPER_OPEN_M);    // animated
   const gripperWorldRef = useRef<[number, number, number]>([0, 0, 0]);
 
   const setPose = (p: PoseName) => {
     jointsRef.current = [...POSE_LIB[p]] as typeof jointsRef.current;
+    // Auto-set the gripper open/closed state for this pose (pick & place).
+    gripperRef.current = GRIPPER_OPEN_AT_POSE[p] ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
   };
   const setDiscAngle = (a: number) => { discAngleRef.current = a; };
+  const setGripper = (open: boolean) => {
+    gripperRef.current = open ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
+  };
 
   return (
     <div style={{ background: '#07111e', borderTop: '1px solid #1a3550', borderBottom: '1px solid #1a3550' }}>
@@ -548,7 +629,12 @@ export default function CellViewer3D() {
 
           <Suspense fallback={null}>
             <CellPrimitives />
-            <Cobot jointsRef={jointsRef} gripperWorldRef={gripperWorldRef} />
+            <Cobot
+              jointsRef={jointsRef}
+              gripperRef={gripperRef}
+              gripperLiveRef={gripperLiveRef}
+              gripperWorldRef={gripperWorldRef}
+            />
             <Turntable angleRef={discAngleRef} />
           </Suspense>
 
@@ -568,6 +654,9 @@ export default function CellViewer3D() {
           jointsRef={jointsRef}
           discAngleRef={discAngleRef}
           setDiscAngle={setDiscAngle}
+          gripperRef={gripperRef}
+          gripperLiveRef={gripperLiveRef}
+          setGripper={setGripper}
           gripperWorldRef={gripperWorldRef}
         />
       </div>

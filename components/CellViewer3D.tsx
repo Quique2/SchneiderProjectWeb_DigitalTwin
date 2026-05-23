@@ -282,8 +282,9 @@ function SickPhotoelectric({
       >
         <meshStandardMaterial color="#101212" metalness={0.5} roughness={0.45} />
       </mesh>
-      {/* Aim beam — translucent cylinder along link +X */}
-      <mesh position={[beamLen / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+      {/* Aim beam — translucent cylinder along link +X.
+          Three.js cylinder is local Y by default; Rz(-π/2) maps Y → +X. */}
+      <mesh position={[beamLen / 2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
         <cylinderGeometry args={[0.0015, 0.0015, beamLen, 12]} />
         <meshStandardMaterial color="#33dffe" transparent opacity={0.55} />
       </mesh>
@@ -297,8 +298,8 @@ function SickPhotoelectric({
         <boxGeometry args={[0.062, 0.016, 0.016]} />
         <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
       </mesh>
-      {/* Vertical post */}
-      <mesh position={[-0.078, 0, -postLen / 2]} castShadow>
+      {/* Vertical post — Three.js cylinder is local Y; Rx(+π/2) maps Y → +Z. */}
+      <mesh position={[-0.078, 0, -postLen / 2]} rotation={[Math.PI / 2, 0, 0]} castShadow>
         <cylinderGeometry args={[0.011, 0.011, postLen, 12]} />
         <meshStandardMaterial color="#7a808a" metalness={0.7} roughness={0.4} />
       </mesh>
@@ -386,8 +387,9 @@ function CognexCamera({ x, y, z, cabinTopZ }: { x: number; y: number; z: number;
   const colH = cabinTopZ - z;
   return (
     <>
-      {/* Vertical suspension column from cabin top down to body */}
-      <mesh position={[x, y, z + colH / 2]} castShadow>
+      {/* Vertical suspension column from cabin top down to body.
+          Three.js cylinder is local Y by default; Rx(+π/2) puts it along Z. */}
+      <mesh position={[x, y, z + colH / 2]} rotation={[Math.PI / 2, 0, 0]} castShadow>
         <cylinderGeometry args={[0.012, 0.012, colH, 16]} />
         <meshStandardMaterial color="#888" metalness={0.7} roughness={0.4} />
       </mesh>
@@ -449,6 +451,7 @@ function OperatorChair({ x, y, sx, sy, seatTopZ, backH, legR }: {
       {[[+1, +1], [+1, -1], [-1, +1], [-1, -1]].map(([dx, dy], i) => (
         <mesh key={i}
           position={[x + dx * (sx / 2 - 0.030), y + dy * (sy / 2 - 0.030), legH / 2]}
+          rotation={[Math.PI / 2, 0, 0]}
           castShadow>
           <cylinderGeometry args={[legR, legR, legH, 14]} />
           <meshStandardMaterial color="#3a3f48" metalness={0.5} />

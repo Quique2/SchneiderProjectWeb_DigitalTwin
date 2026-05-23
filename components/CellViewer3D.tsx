@@ -64,6 +64,42 @@ const GRIPPER_OPEN_AT_POSE: Record<PoseName, boolean> = {
 const GRIPPER_OPEN_M  = 0.028;  // URDF upper limit
 const GRIPPER_CLOSED_M = 0.000;
 
+// Cobot joint limits, in radians (from the V53 URDF).
+const JOINT_LIMITS: ReadonlyArray<[number, number]> = [
+  [-3.14159, +3.14159],  // j1 (Y axis, base rotation)
+  [-2.61799, +2.61799],  // j2 (shoulder)
+  [-2.61799, +2.61799],  // j3 (elbow)
+  [-3.14159, +3.14159],  // j4 (wrist1)
+  [-2.09440, +2.09440],  // j5 (wrist2)
+  [-3.14159, +3.14159],  // j6 (tool flange)
+];
+
+// Saved positions schema — what the user "teaches" by jogging the cobot.
+interface SavedPosition {
+  name: string;
+  joints: [number, number, number, number, number, number];
+  disc: number;            // turntable angle (rad)
+  gripper: number;         // appendage prismatic value (m)
+  tcp: [number, number, number]; // TCP world XYZ (snapshot)
+  collisions: string[];    // collision-box names hit at this pose
+  timestamp: string;       // ISO when saved
+}
+
+const SAVED_POSITIONS_KEY = 'schneider_v53_saved_positions';
+function loadSavedFromStorage(): SavedPosition[] {
+  try {
+    const raw = localStorage.getItem(SAVED_POSITIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return [];
+  } catch { return []; }
+}
+function persistSaved(positions: SavedPosition[]): void {
+  try { localStorage.setItem(SAVED_POSITIONS_KEY, JSON.stringify(positions)); }
+  catch { /* quota / privacy mode */ }
+}
+
 // V53 world anchors (from schneider_cell.urdf.xacro, all in metres, Z up).
 const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
 const TURNTABLE_BASE : [number, number, number] = [0.692, 1.259, 1.000];
@@ -1013,6 +1049,13 @@ function HMIPanel({
   collisionsRef,
   showCollisions,
   toggleCollisions,
+  jogJoint,
+  savedPositions,
+  saveCurrentPosition,
+  loadSavedPosition,
+  deleteSavedPosition,
+  exportSavedPositions,
+  clearSavedPositions,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1025,6 +1068,13 @@ function HMIPanel({
   collisionsRef: React.MutableRefObject<string[]>;
   showCollisions: boolean;
   toggleCollisions: () => void;
+  jogJoint: (i: number, delta: number) => void;
+  savedPositions: SavedPosition[];
+  saveCurrentPosition: (name?: string) => void;
+  loadSavedPosition: (i: number) => void;
+  deleteSavedPosition: (i: number) => void;
+  exportSavedPositions: () => void;
+  clearSavedPositions: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1145,10 +1195,85 @@ function HMIPanel({
         <div style={statRow}><span>z</span><span>{g[2].toFixed(3)} m</span></div>
       </Section>
 
-      <Section title="Joints (rad)">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <div key={i} style={statRow}><span>j{i + 1}</span><span>{j[i].toFixed(3)}</span></div>
+      {/* Manual jog — 6 joints, ±0.001 / ±0.01 / ±0.1 / ±0.5 rad steps */}
+      <Section title="Manual Jog (rad)">
+        {[0, 1, 2, 3, 4, 5].map((i) => {
+          const v = j[i];
+          const [lo, hi] = JOINT_LIMITS[i];
+          const atLo = Math.abs(v - lo) < 1e-4;
+          const atHi = Math.abs(v - hi) < 1e-4;
+          return (
+            <div key={i} style={{ marginBottom: 6 }}>
+              <div style={statRow}>
+                <span>j{i + 1}</span>
+                <span style={{
+                  color: atLo || atHi ? '#ff8080' : '#abc',
+                }}>
+                  {v >= 0 ? '+' : ''}{v.toFixed(3)} ({(v * 180 / Math.PI).toFixed(1)}°)
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2, marginTop: 2 }}>
+                {[-0.5, -0.1, -0.01, -0.001, +0.001, +0.01, +0.1, +0.5].map((d) => (
+                  <button key={d} onClick={() => jogJoint(i, d)} style={jogBtnStyle}>
+                    {d > 0 ? '+' : ''}{Math.abs(d) >= 0.01 ? d : d.toFixed(3)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </Section>
+
+      {/* Saved positions — teach-pendant style.  Persisted in localStorage. */}
+      <Section title={`Saved Positions (${savedPositions.length})`}>
+        <button onClick={() => saveCurrentPosition()} style={{
+          ...btnStyle,
+          fontSize: 11, padding: '8px 10px',
+          background: 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)',
+        }}>
+          💾 SAVE current as pos{savedPositions.length + 1}
+        </button>
+        {savedPositions.map((p, i) => (
+          <div key={i} style={{
+            display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 4,
+            marginTop: 4, alignItems: 'center',
+          }}>
+            <button onClick={() => loadSavedPosition(i)} style={{
+              ...jogBtnStyle, textAlign: 'left', padding: '4px 6px',
+              background: p.collisions.length > 0
+                ? 'linear-gradient(180deg,#5a2030 0%,#3a1018 100%)'
+                : 'linear-gradient(180deg,#2a3548 0%,#1a2434 100%)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700 }}>
+                {p.name} {p.collisions.length > 0 ? '✗' : '✓'}
+              </div>
+              <div style={{ fontSize: 8, color: '#8090a0', fontFamily: 'monospace' }}>
+                TCP ({p.tcp[0].toFixed(2)}, {p.tcp[1].toFixed(2)}, {p.tcp[2].toFixed(2)})
+              </div>
+            </button>
+            <button onClick={() => deleteSavedPosition(i)} title="Delete"
+              style={{ ...jogBtnStyle, padding: '4px 8px', background: '#3a1018' }}>
+              ✕
+            </button>
+            <div style={{ width: 0 }} />
+          </div>
         ))}
+        {savedPositions.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 6 }}>
+            <button onClick={exportSavedPositions} style={{
+              ...jogBtnStyle, padding: '6px 8px',
+              background: 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+            }}>
+              📋 COPY JSON
+            </button>
+            <button onClick={clearSavedPositions} style={{
+              ...jogBtnStyle, padding: '6px 8px',
+              background: 'linear-gradient(180deg,#5a2030 0%,#3a1018 100%)',
+            }}>
+              CLEAR ALL
+            </button>
+          </div>
+        )}
       </Section>
 
       <div style={{ marginTop: 'auto', fontSize: 9, color: '#456', textAlign: 'center' }}>
@@ -1180,6 +1305,13 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer', letterSpacing: 0.5, width: '100%',
 };
 
+const jogBtnStyle: React.CSSProperties = {
+  background: 'linear-gradient(180deg,#2a3548 0%,#1a2434 100%)',
+  color: '#dde4f0', border: '1px solid #2a4060', borderRadius: 3,
+  padding: '4px 2px', fontSize: 9, fontWeight: 600,
+  cursor: 'pointer', letterSpacing: 0.2, fontFamily: 'monospace',
+};
+
 const statRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between',
   fontSize: 10, fontFamily: 'monospace', color: '#abc', padding: '2px 0',
@@ -1194,6 +1326,7 @@ export default function CellViewer3D() {
   const gripperWorldRef = useRef<[number, number, number]>([0, 0, 0]);
   const collisionsRef = useRef<string[]>([]);
   const [showCollisions, setShowCollisions] = useState(false);
+  const [savedPositions, setSavedPositions] = useState<SavedPosition[]>(loadSavedFromStorage);
 
   const setPose = (p: PoseName) => {
     jointsRef.current = [...POSE_LIB[p]] as typeof jointsRef.current;
@@ -1203,6 +1336,61 @@ export default function CellViewer3D() {
   const setDiscAngle = (a: number) => { discAngleRef.current = a; };
   const setGripper = (open: boolean) => {
     gripperRef.current = open ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
+  };
+
+  // Manual jog: nudge one joint by delta rad, clamped to the URDF limit.
+  const jogJoint = (i: number, delta: number) => {
+    const [lo, hi] = JOINT_LIMITS[i];
+    const next = Math.max(lo, Math.min(hi, jointsRef.current[i] + delta));
+    jointsRef.current[i] = next;
+  };
+
+  // Save the current cobot state (joints + disc + gripper + TCP + collisions)
+  // as a SavedPosition.  Auto-names "pos1", "pos2", ... unless a name is given.
+  const saveCurrentPosition = (name?: string) => {
+    const auto = name && name.trim()
+      ? name.trim()
+      : `pos${savedPositions.length + 1}`;
+    const entry: SavedPosition = {
+      name: auto,
+      joints: [...jointsRef.current] as SavedPosition['joints'],
+      disc: discAngleRef.current,
+      gripper: gripperRef.current,
+      tcp: [...gripperWorldRef.current] as SavedPosition['tcp'],
+      collisions: [...collisionsRef.current],
+      timestamp: new Date().toISOString(),
+    };
+    const next = [...savedPositions, entry];
+    setSavedPositions(next);
+    persistSaved(next);
+  };
+
+  const loadSavedPosition = (i: number) => {
+    const p = savedPositions[i];
+    if (!p) return;
+    jointsRef.current = [...p.joints] as typeof jointsRef.current;
+    discAngleRef.current = p.disc;
+    gripperRef.current = p.gripper;
+  };
+
+  const deleteSavedPosition = (i: number) => {
+    const next = savedPositions.filter((_, idx) => idx !== i);
+    setSavedPositions(next);
+    persistSaved(next);
+  };
+
+  const exportSavedPositions = () => {
+    const json = JSON.stringify(savedPositions, null, 2);
+    try { navigator.clipboard.writeText(json); } catch { /* ignore */ }
+    // Also log so the user can copy from devtools as a fallback.
+    // eslint-disable-next-line no-console
+    console.log('%c[Saved positions JSON]', 'color:#22dd55;font-weight:700', json);
+  };
+
+  const clearSavedPositions = () => {
+    if (!window.confirm(`Delete all ${savedPositions.length} saved positions?`)) return;
+    setSavedPositions([]);
+    persistSaved([]);
   };
 
   return (
@@ -1286,6 +1474,13 @@ export default function CellViewer3D() {
           collisionsRef={collisionsRef}
           showCollisions={showCollisions}
           toggleCollisions={() => setShowCollisions((s) => !s)}
+          jogJoint={jogJoint}
+          savedPositions={savedPositions}
+          saveCurrentPosition={saveCurrentPosition}
+          loadSavedPosition={loadSavedPosition}
+          deleteSavedPosition={deleteSavedPosition}
+          exportSavedPositions={exportSavedPositions}
+          clearSavedPositions={clearSavedPositions}
         />
       </div>
     </div>

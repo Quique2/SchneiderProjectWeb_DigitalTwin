@@ -44,7 +44,11 @@ function useUrdf(url: string): URDFRobot | null {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
   useEffect(() => {
     const loader = new URDFLoader();
-    loader.workingPath = '/';
+    // urdf-loader prefixes mesh URIs with workingPath unconditionally.
+    // Our mesh paths in the URDF are absolute (/meshes/v53/...), so we
+    // MUST keep workingPath empty or they become "/urdf//meshes/..." (404).
+    loader.workingPath = '';
+    loader.parseCollision = false;
     loader.loadAsync(url).then((r) => {
       r.traverse((c) => {
         c.castShadow = true;

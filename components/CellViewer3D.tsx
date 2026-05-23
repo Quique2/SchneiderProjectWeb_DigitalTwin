@@ -102,23 +102,31 @@ function persistSaved(positions: SavedPosition[]): void {
 
 // ── CAFI workpiece ───────────────────────────────────────────────────────────
 type CafiState =
-  | 'parked'         // hidden (off-scene)
-  | 'conveyor'       // on the belt, at the pick window
-  | 'in_gripper'     // follows the TCP
-  | 'at_load'        // sitting on the load fixture
-  | 'at_vision'      // sitting on the vision cradle
+  | 'parked'          // hidden (off-scene)
+  | 'conveyor'        // on the belt, at the pick window
+  | 'in_gripper'      // follows cobot's cafi_lateral_target_frame (rotates with wrist)
+  | 'on_fixture_1'    // attached to turntable fixture 1 (rotates with disc)
+  | 'on_fixture_2'    // attached to turntable fixture 2
+  | 'at_vision'       // sitting on the vision cradle
   | 'in_accept_bin'
   | 'in_reject_bin';
 
-// CAFI world position per state.  When in_gripper, the position is overridden
-// by the live TCP world XYZ each frame (set by Cobot.useFrame).
-const CAFI_AT: Record<Exclude<CafiState, 'in_gripper' | 'parked'>, [number, number, number]> = {
+// Static-state CAFI world centres (used when the part is NOT attached to a
+// kinematic frame).  Identity orientation, mesh uses CENTERED offset.
+type StaticCafiState = 'conveyor' | 'at_vision' | 'in_accept_bin' | 'in_reject_bin';
+const CAFI_AT: Record<StaticCafiState, [number, number, number]> = {
   conveyor:      [1.235, 1.365, 1.070 + 0.0125],   // belt top + half-CAFI thickness
-  at_load:       [0.692, 1.109, 1.130],            // top of load fixture
   at_vision:     [0.750, 0.804, 1.025],            // top of vision plate + half-CAFI
   in_accept_bin: [1.650, 0.720, 1.020],            // bin floor + half-CAFI
   in_reject_bin: [1.330, 0.700, 1.020],
 };
+
+// V53 lateral-grasp offset (matches the cafi_part_1_link visual in the
+// turntable URDF).  Used when the CAFI is attached to a *_cafi_lateral_target
+// frame, so its grasp contact aligns with the frame and the body extends
+// correctly.  Centered offset is used when the CAFI sits flat on a surface.
+const CAFI_OFFSET_ATTACHED: [number, number, number] = [-0.212983, 0.056354, -0.022608];
+const CAFI_OFFSET_CENTERED: [number, number, number] = [-0.06145, +0.04365, -0.01255];
 
 // ── Animation sequence (full V53 pick → rivet → vision → accept-bin cycle) ──
 type SequenceStep =
@@ -143,7 +151,7 @@ const SEQUENCE: SequenceStep[] = [
   { kind: 'pose',    pose: 'POSE_PLACE_LOAD_FIXTURE',    duration: 1.5 },
   { kind: 'pose',    pose: 'POSE_RELEASE_LOAD_FIXTURE',  duration: 0.8 },
   { kind: 'gripper', open: true, dwell: 0.8,         label: 'Opening gripper' },
-  { kind: 'cafi',    state: 'at_load' },
+  { kind: 'cafi',    state: 'on_fixture_1'},
   { kind: 'pose',    pose: 'POSE_RETREAT_LOAD_FIXTURE',  duration: 1.5 },
   // === disc indexes 180°, rivets, indexes back ===
   { kind: 'disc',    target: Math.PI, duration: 2.5, label: 'Indexing disc' },
@@ -270,14 +278,20 @@ interface CobotProps {
   gripperLiveRef: React.MutableRefObject<number>; // current animated value
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
   collisionsRef: React.MutableRefObject<string[]>;
+  robotRef: React.MutableRefObject<URDFRobot | null>;
 }
 
 const GRIPPER_SPEED = 0.04; // m/s (URDF velocity limit is 0.08)
 
-function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisionsRef }: CobotProps) {
+function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisionsRef, robotRef }: CobotProps) {
   const robot = useUrdf('/urdf/lexium_cobot.urdf');
   const groupRef = useRef<THREE.Group>(null);
   const obstacles = useMemo(() => collisionAABBs(), []);
+
+  // Expose loaded robot to parent so other components (CafiMesh) can query frames.
+  useEffect(() => {
+    if (robot) robotRef.current = robot;
+  }, [robot, robotRef]);
 
   // Bulk-check every pose once the URDF is loaded — logs which poses collide
   // with which boxes (and at which links).  Restores HOME after the sweep.
@@ -352,42 +366,68 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
 }
 
 // ── CAFI workpiece (real V53 cafi.STL) ───────────────────────────────────────
-// State drives where it renders.  When in_gripper, position is set every frame
-// from gripperWorldRef (the TCP world XYZ from the cobot's FK).
+// When attached (in_gripper / on_fixture_*) the group's world pose is copied
+// straight from the corresponding URDF frame, so the CAFI tracks rotation as
+// well as translation (e.g. follows the disc spinning, or the wrist orienting
+// while the cobot is carrying it).  When static the group is positioned at a
+// hardcoded world centre with identity rotation.  The mesh-local offset is
+// swapped between V53 lateral-grasp values (attached) and centred values
+// (static) so the CAFI lands in the right spot in both cases.
 function CafiMesh({
-  stateRef, gripperWorldRef,
+  stateRef, cobotRobotRef, turntableRobotRef,
 }: {
   stateRef: React.MutableRefObject<CafiState>;
-  gripperWorldRef: React.MutableRefObject<[number, number, number]>;
+  cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
+  turntableRobotRef: React.MutableRefObject<URDFRobot | null>;
 }) {
   const geom = useLoader(STLLoader, '/meshes/v53/cell/cafi.STL');
   const groupRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
+  const tmpPos = useMemo(() => new THREE.Vector3(), []);
+  const tmpQuat = useMemo(() => new THREE.Quaternion(), []);
+
   useFrame(() => {
     const g = groupRef.current;
-    if (!g) return;
+    const m = meshRef.current;
+    if (!g || !m) return;
     const state = stateRef.current;
-    if (state === 'parked') {
-      g.visible = false;
-      return;
-    }
+    if (state === 'parked') { g.visible = false; return; }
     g.visible = true;
-    let xyz: [number, number, number];
+
+    let frame: THREE.Object3D | undefined;
     if (state === 'in_gripper') {
-      xyz = gripperWorldRef.current;
-    } else {
-      xyz = CAFI_AT[state];
+      frame = cobotRobotRef.current?.frames['cafi_lateral_target_frame'];
+    } else if (state === 'on_fixture_1') {
+      frame = turntableRobotRef.current?.frames['cafi_part_1_link'];
+    } else if (state === 'on_fixture_2') {
+      frame = turntableRobotRef.current?.frames['cafi_part_2_link'];
     }
-    g.position.set(xyz[0], xyz[1], xyz[2]);
+
+    if (frame) {
+      frame.getWorldPosition(tmpPos);
+      frame.getWorldQuaternion(tmpQuat);
+      g.position.copy(tmpPos);
+      g.quaternion.copy(tmpQuat);
+      m.position.set(...CAFI_OFFSET_ATTACHED);
+    } else {
+      const xyz = CAFI_AT[state as StaticCafiState];
+      if (xyz) {
+        g.position.set(xyz[0], xyz[1], xyz[2]);
+        g.quaternion.identity();
+        m.position.set(...CAFI_OFFSET_CENTERED);
+      }
+    }
   });
+
   return (
     <group ref={groupRef}>
-      {/* Rx(+π/2) so the mesh's 25.1 mm thickness (mesh Y) becomes world Z (vertical).
-          Translation centres the rotated mesh (bbox 122.9 × 25.1 × 87.3 mm) at the
-          group origin so position = CAFI centre. */}
+      {/* Rx(+π/2) lays the 25.1 mm thickness along world Z.  position is
+          rewritten each frame by useFrame (attached vs centred). */}
       <mesh
+        ref={meshRef}
         geometry={geom}
         scale={[0.001, 0.001, 0.001]}
-        position={[-0.0615, +0.04365, -0.01255]}
+        position={CAFI_OFFSET_CENTERED}
         rotation={[Math.PI / 2, 0, 0]}
         castShadow
       >
@@ -473,8 +513,16 @@ function SequencePlayer({
 }
 
 // ── Turntable (loaded URDF, disc-driven) ─────────────────────────────────────
-function Turntable({ angleRef }: { angleRef: React.MutableRefObject<number> }) {
+function Turntable({
+  angleRef, robotRef,
+}: {
+  angleRef: React.MutableRefObject<number>;
+  robotRef: React.MutableRefObject<URDFRobot | null>;
+}) {
   const robot = useUrdf('/urdf/turntable_rivet_cell.urdf');
+  useEffect(() => {
+    if (robot) robotRef.current = robot;
+  }, [robot, robotRef]);
   useFrame(() => {
     if (!robot) return;
     robot.setJointValue('table_rotation_joint', angleRef.current);
@@ -1618,6 +1666,8 @@ export default function CellViewer3D() {
   const [showCollisions, setShowCollisions] = useState(false);
   const [savedPositions, setSavedPositions] = useState<SavedPosition[]>(loadSavedFromStorage);
   const cafiStateRef = useRef<CafiState>('conveyor');
+  const cobotRobotRef = useRef<URDFRobot | null>(null);
+  const turntableRobotRef = useRef<URDFRobot | null>(null);
   const playerRef = useRef<PlayerState>({
     playing: false,
     step: 0,
@@ -1772,9 +1822,14 @@ export default function CellViewer3D() {
               gripperLiveRef={gripperLiveRef}
               gripperWorldRef={gripperWorldRef}
               collisionsRef={collisionsRef}
+              robotRef={cobotRobotRef}
             />
-            <Turntable angleRef={discAngleRef} />
-            <CafiMesh stateRef={cafiStateRef} gripperWorldRef={gripperWorldRef} />
+            <Turntable angleRef={discAngleRef} robotRef={turntableRobotRef} />
+            <CafiMesh
+              stateRef={cafiStateRef}
+              cobotRobotRef={cobotRobotRef}
+              turntableRobotRef={turntableRobotRef}
+            />
           </Suspense>
 
           <SequencePlayer

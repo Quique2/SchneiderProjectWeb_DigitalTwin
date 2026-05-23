@@ -224,11 +224,22 @@
     <limit lower="0.000" upper="0.028" effort="30" velocity="0.08"/>
   </joint>
 
-  <!-- TCP at the working tip of the gripper. -->
+  <!-- TCP at the working tip of the gripper (moves with the appendage). -->
   <link name="tcp_link"/>
   <joint name="tcp_fixed_joint" type="fixed">
     <parent link="appendage_link"/><child link="tcp_link"/>
     <origin xyz="0.000250 0.060250 0.076750" rpy="0 0 0"/>
+  </joint>
+
+  <!-- V53 lateral grasp frame.  Fixed to gripper_base (does NOT move with
+       the appendage / jaw).  This is where the CAFI's grasp contact sits
+       when the gripper is holding a part.  The turntable URDF uses the
+       same name to mark the CAFI's lateral target on each fixture. -->
+  <link name="cafi_lateral_target_frame"/>
+  <joint name="cafi_lateral_target_fixed_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="cafi_lateral_target_frame"/>
+    <origin xyz="0.000000 0.016600 0.076750" rpy="0 0 0"/>
   </joint>
 
 </robot>

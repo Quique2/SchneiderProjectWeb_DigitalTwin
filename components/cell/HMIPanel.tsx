@@ -64,7 +64,7 @@ function StatusPill({ text, color, bg = 'transparent', mono = true }: {
 
 export default function HMIPanel() {
   const s = useSimSnapshot();
-  const { spawnCafi, toggleStop, reset, toggleCollapsed, debugSnapPickConveyor } = useSimActions();
+  const { spawnCafi, toggleStop, reset, toggleCollapsed, debugSnapToPose } = useSimActions();
 
   const cell = s.fsm.cell;
   const stage = s.fsm.stage;
@@ -238,7 +238,7 @@ export default function HMIPanel() {
         </div>
       </div>
 
-      {/* Debug: snap to PICK_CONVEYOR pose + spawn CAFI at pick window */}
+      {/* Debug: snap to various poses to measure offsets per-pose */}
       <div style={{
         padding: 8, border: '1px dashed #2a4060', borderRadius: 4,
         background: 'rgba(40,30,10,0.4)',
@@ -247,15 +247,26 @@ export default function HMIPanel() {
           fontSize: 9, letterSpacing: 2, color: '#a88040',
           textTransform: 'uppercase', marginBottom: 6, fontWeight: 600,
         }}>
-          🔧 Debug
+          🔧 Debug · Set Pose
         </div>
-        <button onClick={debugSnapPickConveyor} style={debugBtnStyle}>
-          Set to PICK_CONVEYOR
-        </button>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          <button onClick={() => debugSnapToPose('POSE_HOME')} style={debugBtnStyle}>HOME</button>
+          <button onClick={() => debugSnapToPose('POSE_PICK_CONVEYOR')} style={debugBtnStyle}>PICK_CONV</button>
+          <button onClick={() => debugSnapToPose('POSE_PLACE_LOAD_FIXTURE')} style={debugBtnStyle}>PLACE_LOAD</button>
+          <button onClick={() => debugSnapToPose('POSE_PICK_RIVETED')} style={debugBtnStyle}>PICK_RIVET</button>
+          <button onClick={() => debugSnapToPose('POSE_PLACE_VISION')} style={debugBtnStyle}>PLACE_VIS</button>
+          <button onClick={() => debugSnapToPose('POSE_APPROACH_VISION')} style={debugBtnStyle}>APPR_VIS</button>
+          <button onClick={() => debugSnapToPose('POSE_DROP_ACCEPT_BIN')} style={debugBtnStyle}>ACCEPT</button>
+          <button onClick={() => debugSnapToPose('POSE_DROP_REJECT_BIN')} style={debugBtnStyle}>REJECT</button>
+        </div>
         <div style={{ fontSize: 9, color: '#7a8090', marginTop: 6, lineHeight: 1.4 }}>
-          Snaps robot to POSE_PICK_CONVEYOR (no motion) + spawns a CAFI at the
-          pick window. Expected gripper world: (1.235, 1.365, 1.083). Compare
-          with the Telemetría readout to see the offset.
+          Snap robot to a named pose (no trajectory, FSM paused). Read the
+          gripper X/Y/Z in Telemetría and compare with the expected target.
+          Expected targets:<br/>
+          PICK_CONV: (1.235, 1.365, 1.083)<br/>
+          PLACE_LOAD: (0.692, 1.109, ~1.12)<br/>
+          PLACE_VIS: (0.750, 0.804, ~1.03)<br/>
+          ACCEPT: (1.650, 0.720, ~1.10) · REJECT: (1.330, 0.700, ~1.10)
         </div>
       </div>
 

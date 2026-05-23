@@ -94,21 +94,18 @@ export function useSimActions() {
       s.hmi.collapsed = !s.hmi.collapsed;
       store.notify();
     },
-    // DEBUG: snap robot to POSE_PICK_CONVEYOR (no trajectory), spawn a CAFI at
-    // the conveyor pick window, and PAUSE the FSM so nothing advances. Use
-    // this to compare the gripper world readout against the expected CAFI
-    // pick position (1.235, 1.365, 1.083).
-    debugSnapPickConveyor: () => {
-      // Reset to a clean state first
+    // DEBUG: snap robot to any named pose without trajectory. Pauses the FSM
+    // so nothing cycles. Use with the gripper X/Y/Z telemetry to compare
+    // landed positions vs expected V51 targets.
+    debugSnapToPose: (poseName: keyof typeof POSE_LIB) => {
       store.reset();
       const s = store.get();
-      // Pause the FSM so no auto-cycling
       s.fsm.cell = 'PAUSED';
       s.fsm.stage = 'STOPPED';
       s.fsm.stage_t0 = s.sim_t;
       s.hmi.stopped = true;
-      // Snap robot joints to POSE_PICK_CONVEYOR — no trajectory, no motion
-      const pose = POSE_LIB.POSE_PICK_CONVEYOR;
+      const pose = POSE_LIB[poseName];
+      if (!pose) return;
       s.robot.joints = [pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]] as
         [number, number, number, number, number, number];
       s.robot.seg_start_joints = [...s.robot.joints] as typeof s.robot.seg_start_joints;
@@ -119,13 +116,15 @@ export function useSimActions() {
       s.robot.motion_done = true;
       s.robot.busy = false;
       s.robot.current_task = 'idle';
-      // Spawn a CAFI directly at the conveyor pick position (so it sits there
-      // immediately, not far away at SPAWN_X). Mark it ready_for_pick.
-      const cafi = spawnCafi(store);
-      if (cafi) {
-        cafi.position = [PICK_X, BELT_Y, BELT_TOP_Z + CAFI_LZ / 2];
-        cafi.at_sensor = true;
-        cafi.ready_for_pick = true;
+      // For PICK_CONVEYOR, also drop a CAFI at the pick window so we can
+      // see the expected target visually.
+      if (poseName === 'POSE_PICK_CONVEYOR') {
+        const cafi = spawnCafi(store);
+        if (cafi) {
+          cafi.position = [PICK_X, BELT_Y, BELT_TOP_Z + CAFI_LZ / 2];
+          cafi.at_sensor = true;
+          cafi.ready_for_pick = true;
+        }
       }
       store.notify();
     },

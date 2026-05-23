@@ -493,7 +493,24 @@ function LiveCobot({ basePos, gripperRef }: {
 function CellScene({ gripperRef }: {
   gripperRef: React.MutableRefObject<THREE.Group | null>;
 }) {
-  const cobotBasePos = tPos(1.152, 1.049, 1.000 + 0.0867);
+  // V51: cobot mount at (1.152, 1.049, 1.000) yaw=0. The j1 axis is +87 mm
+  // above the mount per the Cobot URDF.
+  //
+  // BASE SHIFT (measured via the debug "Set to PICK_CONVEYOR" button):
+  //   gripper landed at  (1.072, 1.441, 1.116)
+  //   expected target    (1.235, 1.365, 1.083)
+  //   delta              (+0.163, -0.076, -0.033)
+  // We compensate +X and -Y on basePos so the gripper lands at the conveyor
+  // pick.  The -0.033 Z component is intentionally NOT applied to avoid
+  // sinking the base mesh below the mesa surface; a 33 mm visual Z error
+  // is acceptable.
+  const COBOT_SHIFT_X = +0.163;
+  const COBOT_SHIFT_Y = -0.076;
+  const cobotBasePos = tPos(
+    1.152 + COBOT_SHIFT_X,
+    1.049 + COBOT_SHIFT_Y,
+    1.000 + 0.0867,
+  );
 
   return (
     <group>

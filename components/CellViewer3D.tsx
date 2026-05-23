@@ -218,20 +218,28 @@ function CellPrimitives() {
       {/* Cognex 2800 camera hanging from cabin top at (0.750, 0.804, 1.520) */}
       <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
 
-      {/* Riveting station canopy (V53: 0.450 x 0.300 x 0.350, anchored at (0.692, 1.259, 1.000) with y_offset 0.200) */}
-      <RivetingCanopy ax={0.692} ay={1.259 + 0.200} az={1.000} sx={0.450} sy={0.300} height={0.350} />
+      {/* Riveting station (V53: cabin 0.450x0.300x0.350, NW+NE posts only,
+          canopy lips, stack-light tower, tool tray).  Anchored at
+          riveting_zone = (0.692, 1.259, 1.000) per schneider_cell.xacro;
+          cabin offset internal is (0, +0.025) within the zone. */}
+      <RivetingStation
+        anchorX={0.692} anchorY={1.259} anchorZ={1.000}
+        zoneSizeY={0.350}
+        cabinSizeX={0.450} cabinSizeY={0.300} cabinHeight={0.350}
+      />
 
-      {/* Control station box (V53: 0.483 x 0.254 x 1.200 @ (0.684, 0.462)) */}
-      <mesh position={[0.684, 0.462, 0.600]} castShadow receiveShadow>
-        <boxGeometry args={[0.483, 0.254, 1.200]} />
-        <meshStandardMaterial color="#3a3f48" metalness={0.5} roughness={0.6} />
-      </mesh>
+      {/* Control station — full V53 bench with monitors, PLC, HMI, e-stop, etc. */}
+      <ControlStation x={0.684} y={0.462} yaw={0}
+        width={0.483} depth={0.254} height={1.200} />
 
       {/* Operator chair (seat + back + 4 legs) */}
       <OperatorChair x={0.684} y={0.150} sx={0.400} sy={0.300} seatTopZ={0.500} backH={0.400} legR={0.018} />
 
-      {/* Aluminum cabin (4 corner posts + top frame, decorative) */}
-      <AluminumCabin xMin={0.30} xMax={2.20} yMin={0.30} yMax={1.80} topZ={2.070} />
+      {/* Aluminum cabin — 4 posts, top + bottom perimeter, cobot ceiling
+          cross-beams (matches aluminum_cabin.xacro V36). */}
+      <AluminumCabin xMin={0.30} xMax={2.20} yMin={0.30} yMax={1.80}
+        topZ={2.070} postSection={0.050}
+        cobotMountX={0.950} cobotMountY={0.972} />
     </>
   );
 }
@@ -333,18 +341,48 @@ function MesaTable({ cx, cy, sx, sy, topZ, thickness, legSect, legInset }: {
   const legZ = legH / 2;
   const lx = sx / 2 - legSect / 2 - legInset;
   const ly = sy / 2 - legSect / 2 - legInset;
+  const stretcherSect = 0.040;
+  const stretcherZ = topZ - thickness - (legH - 0.20); // 0.20 m above the floor
+  const stretchXLen = sx - 2 * legInset;
+  const stretchYLen = sy - 2 * legInset;
+  const lipT = 0.012, lipH = 0.010;
   return (
     <>
+      {/* Worktop */}
       <mesh position={[cx, cy, topZ - thickness / 2]} castShadow receiveShadow>
         <boxGeometry args={[sx, sy, thickness]} />
-        <meshStandardMaterial color="#6a7080" metalness={0.4} roughness={0.55} />
+        <meshStandardMaterial color="#aeb4c0" metalness={0.45} roughness={0.5} />
       </mesh>
+      {/* Top-surface lip N and S */}
+      <mesh position={[cx, cy + sy / 2 - lipT / 2, topZ + lipH / 2]} castShadow>
+        <boxGeometry args={[sx, lipT, lipH]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.55} roughness={0.45} />
+      </mesh>
+      <mesh position={[cx, cy - sy / 2 + lipT / 2, topZ + lipH / 2]} castShadow>
+        <boxGeometry args={[sx, lipT, lipH]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.55} roughness={0.45} />
+      </mesh>
+      {/* 4 corner legs (box section) */}
       {[[+lx, +ly], [+lx, -ly], [-lx, +ly], [-lx, -ly]].map(([dx, dy], i) => (
         <mesh key={i} position={[cx + dx, cy + dy, legZ]} castShadow>
           <boxGeometry args={[legSect, legSect, legH]} />
-          <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.6} />
+          <meshStandardMaterial color="#4a4f58" metalness={0.6} roughness={0.5} />
         </mesh>
       ))}
+      {/* 2 long-side stretchers (N and S) near the floor */}
+      <mesh position={[cx, cy + sy / 2 - legInset, stretcherZ]} castShadow>
+        <boxGeometry args={[stretchXLen, stretcherSect, stretcherSect]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.55} roughness={0.45} />
+      </mesh>
+      <mesh position={[cx, cy - sy / 2 + legInset, stretcherZ]} castShadow>
+        <boxGeometry args={[stretchXLen, stretcherSect, stretcherSect]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.55} roughness={0.45} />
+      </mesh>
+      {/* Cross stretcher (along Y, at centre) */}
+      <mesh position={[cx, cy, stretcherZ]} castShadow>
+        <boxGeometry args={[stretcherSect, stretchYLen, stretcherSect]} />
+        <meshStandardMaterial color="#7a808a" metalness={0.55} roughness={0.45} />
+      </mesh>
     </>
   );
 }
@@ -409,25 +447,254 @@ function CognexCamera({ x, y, z, cabinTopZ }: { x: number; y: number; z: number;
   );
 }
 
-function RivetingCanopy({ ax, ay, az, sx, sy, height }: { ax: number; ay: number; az: number; sx: number; sy: number; height: number }) {
-  const wallT = 0.01;
-  const topZ = az + height;
+// Riveting station — V8/V39 riveting_station.xacro.  Cabin posts on the
+// north side only (V39 removed south posts so cobot can enter from south),
+// top canopy plate with N/S lips, 3-lamp stack light (red/amber/green) on
+// a vertical post, and a tool tray bolted to the back wall.
+function RivetingStation({
+  anchorX, anchorY, anchorZ, zoneSizeY,
+  cabinSizeX, cabinSizeY, cabinHeight,
+}: {
+  anchorX: number; anchorY: number; anchorZ: number;
+  zoneSizeY: number;
+  cabinSizeX: number; cabinSizeY: number; cabinHeight: number;
+}) {
+  // Local layout — mirrors the xacro
+  const canopyT = 0.040;
+  const canopyTopZ = cabinHeight;
+  const canopyBotZ = cabinHeight - canopyT;
+  const canopyCtrZ = cabinHeight - canopyT / 2;
+  const cabinXOff = 0;
+  const cabinYOff = (zoneSizeY - cabinSizeY) / 2;
+  const postSection = 0.030;
+  const postLength = canopyBotZ;
+  const postCtrZ = postLength / 2;
+  const lipT = 0.010, lipH = 0.012;
+  // Stack light position (back-left corner of canopy top, on the cabin)
+  const stackX = cabinXOff - cabinSizeX / 2 + 0.060;
+  const stackY = cabinYOff;
+  const stackBaseZ = canopyTopZ + lipH + 0.005;
+  // Tool tray on the back (north) wall, south-facing
+  const backThickness = 0.020;
+  const trayX = cabinXOff + cabinSizeX / 2 - 0.180;
+  const trayY = cabinYOff + cabinSizeY / 2 - backThickness - 0.075;
+  const trayZ = 0.180;
+
   return (
-    <group>
-      {/* Top canopy plate */}
-      <mesh position={[ax, ay, topZ]} castShadow receiveShadow>
-        <boxGeometry args={[sx, sy, wallT]} />
-        <meshStandardMaterial color="#7a8090" metalness={0.4} roughness={0.6} transparent opacity={0.6} />
+    <group position={[anchorX, anchorY, anchorZ]}>
+      {/* Cabin posts — NE and NW (back only) */}
+      <mesh position={[cabinXOff + cabinSizeX / 2, cabinYOff + cabinSizeY / 2, postCtrZ]} castShadow>
+        <boxGeometry args={[postSection, postSection, postLength]} />
+        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
       </mesh>
-      {/* 4 vertical posts at corners */}
-      {[[+1, +1], [+1, -1], [-1, +1], [-1, -1]].map(([dx, dy], i) => (
+      <mesh position={[cabinXOff - cabinSizeX / 2, cabinYOff + cabinSizeY / 2, postCtrZ]} castShadow>
+        <boxGeometry args={[postSection, postSection, postLength]} />
+        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
+      </mesh>
+
+      {/* Top canopy plate */}
+      <mesh position={[cabinXOff, cabinYOff, canopyCtrZ]} castShadow receiveShadow>
+        <boxGeometry args={[cabinSizeX, cabinSizeY, canopyT]} />
+        <meshStandardMaterial color="#6a707a" metalness={0.5} roughness={0.55} />
+      </mesh>
+
+      {/* Canopy lips (N + S edges, slim raised border) */}
+      <mesh position={[cabinXOff, cabinYOff + cabinSizeY / 2 - lipT / 2, canopyTopZ + lipH / 2]} castShadow>
+        <boxGeometry args={[cabinSizeX, lipT, lipH]} />
+        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
+      </mesh>
+      <mesh position={[cabinXOff, cabinYOff - cabinSizeY / 2 + lipT / 2, canopyTopZ + lipH / 2]} castShadow>
+        <boxGeometry args={[cabinSizeX, lipT, lipH]} />
+        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
+      </mesh>
+
+      {/* Stack light tower: vertical post + 3 lamps (red top, amber middle, green bottom) */}
+      <mesh position={[stackX, stackY, stackBaseZ + 0.075]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.012, 0.012, 0.150, 16]} />
+        <meshStandardMaterial color="#5a606a" metalness={0.55} roughness={0.5} />
+      </mesh>
+      <mesh position={[stackX, stackY, stackBaseZ + 0.150]} castShadow>
+        <sphereGeometry args={[0.020, 20, 20]} />
+        <meshStandardMaterial color="#ff3030" emissive="#ff3030" emissiveIntensity={0.4} />
+      </mesh>
+      <mesh position={[stackX, stackY, stackBaseZ + 0.105]} castShadow>
+        <sphereGeometry args={[0.020, 20, 20]} />
+        <meshStandardMaterial color="#ffaa20" emissive="#ffaa20" emissiveIntensity={0.4} />
+      </mesh>
+      <mesh position={[stackX, stackY, stackBaseZ + 0.060]} castShadow>
+        <sphereGeometry args={[0.020, 20, 20]} />
+        <meshStandardMaterial color="#22dd55" emissive="#22dd55" emissiveIntensity={0.4} />
+      </mesh>
+
+      {/* Tool tray (main plate + 2 lateral rims) — bolted to the back wall, south-facing */}
+      <mesh position={[trayX, trayY, trayZ]} castShadow>
+        <boxGeometry args={[0.280, 0.130, 0.040]} />
+        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
+      </mesh>
+      <mesh position={[trayX, trayY + 0.060, trayZ + 0.025]} castShadow>
+        <boxGeometry args={[0.280, 0.008, 0.050]} />
+        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
+      </mesh>
+      <mesh position={[trayX, trayY - 0.060, trayZ + 0.025]} castShadow>
+        <boxGeometry args={[0.280, 0.008, 0.050]} />
+        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
+      </mesh>
+    </group>
+  );
+}
+
+// Industrial control bench — V14 control_station.xacro.  yaw=0: back panel
+// faces +Y (north), operator stands at -Y (south).  desk_top_z=0.800 (fixed
+// in V14 regardless of `height` param; height controls back panel height).
+function ControlStation({ x, y, yaw, width, depth, height }: {
+  x: number; y: number; yaw: number; width: number; depth: number; height: number;
+}) {
+  const deskTopZ = 0.800;
+  const deskTopT = 0.030;
+  const legR = 0.020;
+  const shelfT = 0.018;
+  const shelfLowZ = 0.050;
+  const backT = 0.025;
+  const backH = height - deskTopZ;
+  const backCy = depth / 2 - backT / 2;
+  const backSouthY = backCy - backT / 2;
+
+  // Lexium controller (under desk)
+  const ctlW = 0.410, ctlD = 0.235, ctlH = 0.307;
+  const ctlZBase = shelfLowZ + shelfT;
+  // Modicon M262 PLC
+  const plcW = 0.125, plcH = 0.100, plcD = 0.090;
+  const plcZ = deskTopZ + backH * 0.65;
+  const plcFaceY = backSouthY - plcD / 2;
+  // Harmony ST6 HMI
+  const hmiW = 0.208, hmiH = 0.153, hmiD = 0.045;
+  const hmiZ = deskTopZ + backH * 0.50;
+  const hmiFaceY = backSouthY - hmiD / 2;
+  // Mini-PC + monitor
+  const pcW = 0.220, pcD = 0.160, pcH = 0.055;
+  const pcX = -width / 4;
+  const pcY = depth / 2 - backT - pcD / 2 - 0.010;
+  const pcZ = deskTopZ + pcH / 2;
+  const monW = 0.330, monH = 0.210, monD = 0.030;
+  const monX = -width / 4 + 0.020;
+  const monY = pcY - pcD / 2 - monD / 2 - 0.010;
+  const monZBase = deskTopZ + 0.020;
+
+  // Materials
+  const frameMat  = <meshStandardMaterial color="#7a808a" metalness={0.6} roughness={0.45} />;
+  const shelfMat  = <meshStandardMaterial color="#aeb4c0" metalness={0.35} roughness={0.55} />;
+  const panelMat  = <meshStandardMaterial color="#4a4f58" metalness={0.4} roughness={0.6} />;
+  const ctlMat    = <meshStandardMaterial color="#88909c" metalness={0.5} roughness={0.5} />;
+  const plcMat    = <meshStandardMaterial color="#cf8b2a" metalness={0.4} roughness={0.6} />;
+  const hmiBezel  = <meshStandardMaterial color="#1a1a1c" metalness={0.6} roughness={0.4} />;
+  const screenMat = <meshStandardMaterial color="#103a78" emissive="#1f5eb8" emissiveIntensity={0.5} roughness={0.3} />;
+  const pcMat     = <meshStandardMaterial color="#22272f" metalness={0.5} roughness={0.55} />;
+  const estopRed  = <meshStandardMaterial color="#dd2030" metalness={0.3} roughness={0.5} />;
+  const estopYel  = <meshStandardMaterial color="#ffcc20" metalness={0.3} roughness={0.5} />;
+  const lampAmber = <meshStandardMaterial color="#ffae28" emissive="#ffae28" emissiveIntensity={0.4} />;
+
+  return (
+    <group position={[x, y, 0]} rotation={[0, 0, yaw]}>
+      {/* 4 cylindrical legs (along Z, Rx(+π/2) to convert from Three.js Y-cylinder) */}
+      {[[+1, -1], [-1, -1], [+1, +1], [-1, +1]].map(([dx, dy], i) => (
         <mesh key={i}
-          position={[ax + (dx * (sx / 2 - 0.01)), ay + (dy * (sy / 2 - 0.01)), az + height / 2]}
-          castShadow>
-          <boxGeometry args={[0.020, 0.020, height]} />
-          <meshStandardMaterial color="#5a606a" metalness={0.6} roughness={0.5} />
+          position={[dx * (width / 2 - legR), dy * (depth / 2 - legR), deskTopZ / 2]}
+          rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[legR, legR, deskTopZ, 14]} />
+          {frameMat}
         </mesh>
       ))}
+
+      {/* Worktop */}
+      <mesh position={[0, 0, deskTopZ - deskTopT / 2]} castShadow receiveShadow>
+        <boxGeometry args={[width, depth, deskTopT]} />
+        {shelfMat}
+      </mesh>
+
+      {/* Lower shelf (under desk, for the Lexium controller) */}
+      <mesh position={[0, 0, shelfLowZ + shelfT / 2]} castShadow>
+        <boxGeometry args={[width - 2 * legR, depth - 2 * legR, shelfT]} />
+        {shelfMat}
+      </mesh>
+
+      {/* Back upright panel */}
+      <mesh position={[0, backCy, deskTopZ + backH / 2]} castShadow>
+        <boxGeometry args={[width, backT, backH]} />
+        {panelMat}
+      </mesh>
+
+      {/* Top valance / amber lamp bar */}
+      <mesh position={[0, backCy - 0.030 - backT / 2, height - 0.0175]} castShadow>
+        <boxGeometry args={[width, 0.060, 0.035]} />
+        {lampAmber}
+      </mesh>
+
+      {/* Lexium controller (under desk) */}
+      <mesh position={[0, 0, ctlZBase + ctlH / 2]} castShadow>
+        <boxGeometry args={[ctlW, ctlD, ctlH]} />
+        {ctlMat}
+      </mesh>
+
+      {/* Modicon M262 PLC on back panel (left half), orange */}
+      <mesh position={[-width / 4, plcFaceY, plcZ]} castShadow>
+        <boxGeometry args={[plcW, plcD, plcH]} />
+        {plcMat}
+      </mesh>
+
+      {/* Harmony ST6 HMI on back panel (right half) */}
+      <mesh position={[width / 4, hmiFaceY, hmiZ]} castShadow>
+        <boxGeometry args={[hmiW, hmiD, hmiH]} />
+        {hmiBezel}
+      </mesh>
+      <mesh position={[width / 4, hmiFaceY - hmiD / 2 - 0.001, hmiZ]}>
+        <boxGeometry args={[hmiW * 0.92, 0.002, hmiH * 0.78]} />
+        {screenMat}
+      </mesh>
+
+      {/* Mini-PC on worktop (left-back) */}
+      <mesh position={[pcX, pcY, pcZ]} castShadow>
+        <boxGeometry args={[pcW, pcD, pcH]} />
+        {pcMat}
+      </mesh>
+
+      {/* Monitor on worktop (left-front) */}
+      <mesh position={[monX, monY, monZBase + monH / 2]} castShadow>
+        <boxGeometry args={[monW, monD, monH]} />
+        {pcMat}
+      </mesh>
+      <mesh position={[monX, monY - monD / 2 - 0.0015, monZBase + monH / 2]}>
+        <boxGeometry args={[monW * 0.92, 0.003, monH * 0.86]} />
+        {screenMat}
+      </mesh>
+      {/* Monitor stand (short cylinder) */}
+      <mesh position={[monX, monY, deskTopZ + 0.010]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.012, 0.012, 0.020, 16]} />
+        {frameMat}
+      </mesh>
+
+      {/* E-stop on worktop (right-front): red mushroom on yellow base */}
+      <mesh position={[width / 2 - 0.055, -depth / 2 + 0.060, deskTopZ + 0.005]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.024, 0.024, 0.010, 20]} />
+        {estopYel}
+      </mesh>
+      <mesh position={[width / 2 - 0.055, -depth / 2 + 0.060, deskTopZ + 0.020 + 0.010]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.020, 0.020, 0.040, 20]} />
+        {estopRed}
+      </mesh>
+
+      {/* Selector switch (right-mid) */}
+      <mesh position={[width / 2 - 0.055, -depth / 2 + 0.140, deskTopZ + 0.005]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.014, 0.014, 0.010, 16]} />
+        <meshStandardMaterial color="#1a1a1c" metalness={0.5} roughness={0.5} />
+      </mesh>
+      <mesh position={[width / 2 - 0.055, -depth / 2 + 0.140, deskTopZ + 0.012]} castShadow>
+        <boxGeometry args={[0.024, 0.005, 0.006]} />
+        <meshStandardMaterial color="#888" metalness={0.7} roughness={0.4} />
+      </mesh>
     </group>
   );
 }
@@ -461,36 +728,80 @@ function OperatorChair({ x, y, sx, sy, seatTopZ, backH, legR }: {
   );
 }
 
-function AluminumCabin({ xMin, xMax, yMin, yMax, topZ }: { xMin: number; xMax: number; yMin: number; yMax: number; topZ: number }) {
-  const postSect = 0.050;
-  const corners: [number, number][] = [
-    [xMin, yMin], [xMin, yMax], [xMax, yMin], [xMax, yMax],
-  ];
-  const topFrame: [[number, number], [number, number]][] = [
-    [[xMin, yMin], [xMax, yMin]], // S edge
-    [[xMin, yMax], [xMax, yMax]], // N edge
-    [[xMin, yMin], [xMin, yMax]], // W edge
-    [[xMax, yMin], [xMax, yMax]], // E edge
-  ];
+// Aluminum cabin frame — V36 aluminum_cabin.xacro (50x50 mm profile):
+//   - 4 vertical posts floor → top profile underside
+//   - Top perimeter frame (4 bars on N/S/W/E) sitting ON the posts
+//   - Bottom perimeter (2 bars on N/S, low)
+//   - 3 cobot ceiling cross-beams (2 X-bars at cobot_y ± 0.150, 1 Y-bar at cobot_x)
+//   - Cobot mount flange (cylinder + accent disc) at the cobot mount XY
+function AluminumCabin({ xMin, xMax, yMin, yMax, topZ, postSection, cobotMountX, cobotMountY }: {
+  xMin: number; xMax: number; yMin: number; yMax: number;
+  topZ: number; postSection: number;
+  cobotMountX: number; cobotMountY: number;
+}) {
+  const xLen = xMax - xMin;
+  const yLen = yMax - yMin;
+  const xMid = (xMin + xMax) / 2;
+  const yMid = (yMin + yMax) / 2;
+  const postLen = topZ - postSection;
+  const postCenterZ = postLen / 2;
+  const topProfileCenterZ = topZ - postSection / 2;
+  const profileUndersideZ = topZ - postSection;
+
+  const aluMat = (
+    <meshStandardMaterial color="#c8c8cc" metalness={0.65} roughness={0.4} />
+  );
+
   return (
     <group>
-      {corners.map(([cx, cy], i) => (
-        <mesh key={`p${i}`} position={[cx, cy, topZ / 2]} castShadow>
-          <boxGeometry args={[postSect, postSect, topZ]} />
-          <meshStandardMaterial color="#8a909a" metalness={0.6} roughness={0.45} />
+      {/* 4 vertical posts */}
+      {([[xMin, yMin], [xMax, yMin], [xMin, yMax], [xMax, yMax]] as [number, number][]).map(([x, y], i) => (
+        <mesh key={`post${i}`} position={[x, y, postCenterZ]} castShadow>
+          <boxGeometry args={[postSection, postSection, postLen]} />
+          {aluMat}
         </mesh>
       ))}
-      {topFrame.map(([[ax, ay], [bx, by]], i) => {
-        const mx = (ax + bx) / 2, my = (ay + by) / 2;
-        const len = Math.hypot(bx - ax, by - ay);
-        const isHoriz = Math.abs(bx - ax) > Math.abs(by - ay);
-        return (
-          <mesh key={`b${i}`} position={[mx, my, topZ]} castShadow>
-            <boxGeometry args={[isHoriz ? len : postSect, isHoriz ? postSect : len, postSect]} />
-            <meshStandardMaterial color="#8a909a" metalness={0.6} roughness={0.45} />
-          </mesh>
-        );
-      })}
+      {/* Top perimeter frame (S, N along X; W, E along Y) */}
+      <mesh position={[xMid, yMin, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[xMid, yMax, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[xMin, yMid, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[postSection, yLen, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[xMax, yMid, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[postSection, yLen, postSection]} />{aluMat}
+      </mesh>
+      {/* Bottom perimeter (2 long bars on S and N, low) */}
+      <mesh position={[xMid, yMin, postSection / 2]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[xMid, yMax, postSection / 2]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      {/* Cobot ceiling cross-beams: 2 X-bars at cobot_y ± 0.150 + 1 Y-bar (0.35 m) at cobot_x */}
+      <mesh position={[xMid, cobotMountY - 0.150, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[xMid, cobotMountY + 0.150, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[xLen, postSection, postSection]} />{aluMat}
+      </mesh>
+      <mesh position={[cobotMountX, cobotMountY, topProfileCenterZ]} castShadow>
+        <boxGeometry args={[postSection, 0.350, postSection]} />{aluMat}
+      </mesh>
+      {/* Cobot mount flange under the top profile (decorative — cobot is floor-mounted) */}
+      <mesh position={[cobotMountX, cobotMountY, profileUndersideZ - 0.002]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.060, 0.060, 0.004, 24]} />
+        <meshStandardMaterial color="#3a3f48" metalness={0.7} roughness={0.4} />
+      </mesh>
+      <mesh position={[cobotMountX, cobotMountY, profileUndersideZ - 0.005]}
+        rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.062, 0.062, 0.006, 24]} />
+        <meshStandardMaterial color="#22994a" metalness={0.4} roughness={0.5} />
+      </mesh>
     </group>
   );
 }

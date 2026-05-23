@@ -100,6 +100,86 @@ function persistSaved(positions: SavedPosition[]): void {
   catch { /* quota / privacy mode */ }
 }
 
+// ── CAFI workpiece ───────────────────────────────────────────────────────────
+type CafiState =
+  | 'parked'         // hidden (off-scene)
+  | 'conveyor'       // on the belt, at the pick window
+  | 'in_gripper'     // follows the TCP
+  | 'at_load'        // sitting on the load fixture
+  | 'at_vision'      // sitting on the vision cradle
+  | 'in_accept_bin'
+  | 'in_reject_bin';
+
+// CAFI world position per state.  When in_gripper, the position is overridden
+// by the live TCP world XYZ each frame (set by Cobot.useFrame).
+const CAFI_AT: Record<Exclude<CafiState, 'in_gripper' | 'parked'>, [number, number, number]> = {
+  conveyor:      [1.235, 1.365, 1.070 + 0.0125],   // belt top + half-CAFI thickness
+  at_load:       [0.692, 1.109, 1.130],            // top of load fixture
+  at_vision:     [0.750, 0.804, 1.025],            // top of vision plate + half-CAFI
+  in_accept_bin: [1.650, 0.720, 1.020],            // bin floor + half-CAFI
+  in_reject_bin: [1.330, 0.700, 1.020],
+};
+
+// ── Animation sequence (full V53 pick → rivet → vision → accept-bin cycle) ──
+type SequenceStep =
+  | { kind: 'pose';    pose: PoseName; duration: number; label?: string }
+  | { kind: 'gripper'; open: boolean;  dwell: number;    label?: string }
+  | { kind: 'cafi';    state: CafiState;                  label?: string }
+  | { kind: 'disc';    target: number; duration: number;  label?: string }
+  | { kind: 'wait';    dwell: number;                     label?: string };
+
+const SEQUENCE: SequenceStep[] = [
+  // === init ===
+  { kind: 'pose',    pose: 'POSE_HOME', duration: 0.1 },
+  { kind: 'cafi',    state: 'conveyor', label: 'CAFI delivered to conveyor' },
+  // === pick from conveyor ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_CONVEYOR', duration: 2.0 },
+  { kind: 'pose',    pose: 'POSE_PICK_CONVEYOR',     duration: 1.5 },
+  { kind: 'gripper', open: false, dwell: 0.8,        label: 'Closing gripper' },
+  { kind: 'cafi',    state: 'in_gripper' },
+  { kind: 'pose',    pose: 'POSE_LIFT_CONVEYOR',     duration: 1.5 },
+  // === place at load fixture ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_LOAD_FIXTURE', duration: 2.5 },
+  { kind: 'pose',    pose: 'POSE_PLACE_LOAD_FIXTURE',    duration: 1.5 },
+  { kind: 'pose',    pose: 'POSE_RELEASE_LOAD_FIXTURE',  duration: 0.8 },
+  { kind: 'gripper', open: true, dwell: 0.8,         label: 'Opening gripper' },
+  { kind: 'cafi',    state: 'at_load' },
+  { kind: 'pose',    pose: 'POSE_RETREAT_LOAD_FIXTURE',  duration: 1.5 },
+  // === disc indexes 180°, rivets, indexes back ===
+  { kind: 'disc',    target: Math.PI, duration: 2.5, label: 'Indexing disc' },
+  { kind: 'wait',    dwell: 2.0,                     label: 'Riveting…' },
+  { kind: 'disc',    target: 0.0,    duration: 2.5,  label: 'Indexing back' },
+  // === pick riveted from same world spot ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_PICK_RIVETED', duration: 2.0 },
+  { kind: 'pose',    pose: 'POSE_PICK_RIVETED',          duration: 1.5 },
+  { kind: 'gripper', open: false, dwell: 0.8 },
+  { kind: 'cafi',    state: 'in_gripper' },
+  { kind: 'pose',    pose: 'POSE_LIFT_RIVETED',          duration: 1.5 },
+  // === place at vision ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_VISION', duration: 2.5 },
+  { kind: 'pose',    pose: 'POSE_PLACE_VISION',    duration: 1.5 },
+  { kind: 'pose',    pose: 'POSE_RELEASE_VISION',  duration: 0.8 },
+  { kind: 'gripper', open: true, dwell: 0.8 },
+  { kind: 'cafi',    state: 'at_vision' },
+  { kind: 'pose',    pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
+  // === vision inspects (verdict: PASS) ===
+  { kind: 'wait',    dwell: 2.0, label: 'Vision inspecting (PASS)' },
+  // === pick from vision ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_VISION', duration: 1.5 },
+  { kind: 'pose',    pose: 'POSE_PLACE_VISION',    duration: 1.5 },
+  { kind: 'gripper', open: false, dwell: 0.8 },
+  { kind: 'cafi',    state: 'in_gripper' },
+  { kind: 'pose',    pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
+  // === drop in accept bin ===
+  { kind: 'pose',    pose: 'POSE_APPROACH_ACCEPT_BIN', duration: 2.5 },
+  { kind: 'pose',    pose: 'POSE_DROP_ACCEPT_BIN',     duration: 1.5 },
+  { kind: 'gripper', open: true, dwell: 0.8 },
+  { kind: 'cafi',    state: 'in_accept_bin' },
+  { kind: 'pose',    pose: 'POSE_APPROACH_ACCEPT_BIN', duration: 1.5 },
+  // === return home ===
+  { kind: 'pose',    pose: 'POSE_HOME', duration: 2.5 },
+];
+
 // V53 world anchors (from schneider_cell.urdf.xacro, all in metres, Z up).
 const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
 const TURNTABLE_BASE : [number, number, number] = [0.692, 1.259, 1.000];
@@ -269,6 +349,127 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
       <primitive object={robot} />
     </group>
   );
+}
+
+// ── CAFI workpiece (real V53 cafi.STL) ───────────────────────────────────────
+// State drives where it renders.  When in_gripper, position is set every frame
+// from gripperWorldRef (the TCP world XYZ from the cobot's FK).
+function CafiMesh({
+  stateRef, gripperWorldRef,
+}: {
+  stateRef: React.MutableRefObject<CafiState>;
+  gripperWorldRef: React.MutableRefObject<[number, number, number]>;
+}) {
+  const geom = useLoader(STLLoader, '/meshes/v53/cell/cafi.STL');
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const state = stateRef.current;
+    if (state === 'parked') {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    let xyz: [number, number, number];
+    if (state === 'in_gripper') {
+      xyz = gripperWorldRef.current;
+    } else {
+      xyz = CAFI_AT[state];
+    }
+    g.position.set(xyz[0], xyz[1], xyz[2]);
+  });
+  return (
+    <group ref={groupRef}>
+      {/* Rx(+π/2) so the mesh's 25.1 mm thickness (mesh Y) becomes world Z (vertical).
+          Translation centres the rotated mesh (bbox 122.9 × 25.1 × 87.3 mm) at the
+          group origin so position = CAFI centre. */}
+      <mesh
+        geometry={geom}
+        scale={[0.001, 0.001, 0.001]}
+        position={[-0.0615, +0.04365, -0.01255]}
+        rotation={[Math.PI / 2, 0, 0]}
+        castShadow
+      >
+        <meshStandardMaterial color="#d97340" metalness={0.25} roughness={0.55} />
+      </mesh>
+    </group>
+  );
+}
+
+// ── Sequence player ──────────────────────────────────────────────────────────
+// Drives jointsRef + discAngleRef + gripperRef + cafiStateRef from SEQUENCE
+// using cosine-eased interpolation between consecutive poses.
+interface PlayerState {
+  playing: boolean;
+  step: number;     // current index into SEQUENCE
+  t: number;        // elapsed time within current step (seconds)
+  startJoints: [number, number, number, number, number, number];
+  startDisc: number;
+}
+
+function SequencePlayer({
+  playerRef,
+  jointsRef,
+  discAngleRef,
+  gripperRef,
+  cafiStateRef,
+}: {
+  playerRef: React.MutableRefObject<PlayerState>;
+  jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
+  discAngleRef: React.MutableRefObject<number>;
+  gripperRef: React.MutableRefObject<number>;
+  cafiStateRef: React.MutableRefObject<CafiState>;
+}) {
+  useFrame((_, dt) => {
+    const p = playerRef.current;
+    if (!p.playing) return;
+    const step = SEQUENCE[p.step];
+    if (!step) { p.playing = false; return; }
+
+    // First entry into a step? Snapshot the start state.
+    if (p.t === 0) {
+      p.startJoints = [...jointsRef.current] as PlayerState['startJoints'];
+      p.startDisc = discAngleRef.current;
+      // For instantaneous "set" steps (cafi state), apply immediately.
+      if (step.kind === 'cafi') cafiStateRef.current = step.state;
+      if (step.kind === 'gripper') gripperRef.current = step.open ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
+    }
+
+    p.t += dt;
+
+    let done = false;
+    if (step.kind === 'pose') {
+      const dur = Math.max(0.0001, step.duration);
+      const u = Math.min(1, p.t / dur);
+      const eased = 0.5 * (1 - Math.cos(Math.PI * u));
+      const target = POSE_LIB[step.pose];
+      for (let i = 0; i < 6; i++) {
+        jointsRef.current[i] =
+          p.startJoints[i] + (target[i] - p.startJoints[i]) * eased;
+      }
+      if (u >= 1) done = true;
+    } else if (step.kind === 'disc') {
+      const dur = Math.max(0.0001, step.duration);
+      const u = Math.min(1, p.t / dur);
+      const eased = 0.5 * (1 - Math.cos(Math.PI * u));
+      discAngleRef.current = p.startDisc + (step.target - p.startDisc) * eased;
+      if (u >= 1) done = true;
+    } else if (step.kind === 'gripper') {
+      if (p.t >= step.dwell) done = true;
+    } else if (step.kind === 'cafi') {
+      done = true; // instantaneous
+    } else if (step.kind === 'wait') {
+      if (p.t >= step.dwell) done = true;
+    }
+
+    if (done) {
+      p.step += 1;
+      p.t = 0;
+      if (p.step >= SEQUENCE.length) p.playing = false;
+    }
+  });
+  return null;
 }
 
 // ── Turntable (loaded URDF, disc-driven) ─────────────────────────────────────
@@ -1075,6 +1276,11 @@ function HMIPanel({
   deleteSavedPosition: (i: number) => void;
   exportSavedPositions: () => void;
   clearSavedPositions: () => void;
+  playerRef: React.MutableRefObject<PlayerState>;
+  cafiStateRef: React.MutableRefObject<CafiState>;
+  playerPlay: () => void;
+  playerPause: () => void;
+  playerReset: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1102,6 +1308,85 @@ function HMIPanel({
           Schneider Riveting Cell
         </div>
       </div>
+
+      {/* === Sequence player === */}
+      <Section title="Cycle Sequence">
+        {(() => {
+          const p = playerRef.current;
+          const step = SEQUENCE[p.step];
+          const total = SEQUENCE.length;
+          const progress = step && step.kind === 'pose' && step.duration > 0
+            ? Math.min(1, p.t / step.duration)
+            : step && step.kind === 'disc' && step.duration > 0
+              ? Math.min(1, p.t / step.duration)
+              : 0;
+          const finished = p.step >= total;
+          const label = finished
+            ? '✓ Cycle complete'
+            : step
+              ? (step.label ?? (step.kind === 'pose'
+                ? step.pose.replace('POSE_', '').replace(/_/g, ' ')
+                : step.kind === 'gripper'
+                  ? `Gripper ${step.open ? 'OPEN' : 'CLOSE'}`
+                  : step.kind === 'cafi'
+                    ? `CAFI → ${step.state}`
+                    : step.kind === 'disc'
+                      ? `Disc → ${(step.target * 180 / Math.PI).toFixed(0)}°`
+                      : 'Waiting…'))
+              : '—';
+          return (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+                <button onClick={playerPlay}
+                  disabled={p.playing}
+                  style={{
+                    ...btnStyle, padding: '8px 6px', fontSize: 11,
+                    background: p.playing
+                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                      : 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)',
+                    cursor: p.playing ? 'not-allowed' : 'pointer',
+                  }}>▶ PLAY</button>
+                <button onClick={playerPause}
+                  disabled={!p.playing}
+                  style={{
+                    ...btnStyle, padding: '8px 6px', fontSize: 11,
+                    background: !p.playing
+                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                      : 'linear-gradient(180deg,#f47835 0%,#d96416 100%)',
+                    cursor: !p.playing ? 'not-allowed' : 'pointer',
+                  }}>⏸ PAUSE</button>
+                <button onClick={playerReset} style={{
+                  ...btnStyle, padding: '8px 6px', fontSize: 11,
+                  background: 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                }}>⏮ RESET</button>
+              </div>
+              <div style={{ ...statRow, marginTop: 8 }}>
+                <span>step</span>
+                <span>{finished ? `${total}/${total}` : `${p.step + 1}/${total}`}</span>
+              </div>
+              <div style={{ ...statRow }}>
+                <span>now</span>
+                <span style={{ color: '#9bf' }}>{label}</span>
+              </div>
+              <div style={{ ...statRow }}>
+                <span>cafi</span>
+                <span style={{ color: '#d97340' }}>{cafiStateRef.current}</span>
+              </div>
+              {/* progress bar */}
+              <div style={{
+                height: 6, background: '#1a2434', borderRadius: 3, marginTop: 6,
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  height: '100%', width: `${progress * 100}%`,
+                  background: 'linear-gradient(90deg,#22dd55,#33dffe)',
+                  transition: 'width 0.05s linear',
+                }} />
+              </div>
+            </>
+          );
+        })()}
+      </Section>
 
       {/* Pose buttons */}
       <Section title="Set Pose">
@@ -1327,6 +1612,43 @@ export default function CellViewer3D() {
   const collisionsRef = useRef<string[]>([]);
   const [showCollisions, setShowCollisions] = useState(false);
   const [savedPositions, setSavedPositions] = useState<SavedPosition[]>(loadSavedFromStorage);
+  const cafiStateRef = useRef<CafiState>('conveyor');
+  const playerRef = useRef<PlayerState>({
+    playing: false,
+    step: 0,
+    t: 0,
+    startJoints: [...POSE_LIB.POSE_HOME] as PlayerState['startJoints'],
+    startDisc: 0,
+  });
+  const [, forcePlayerTick] = useState(0); // re-render HMI when player advances
+
+  // Player controls — mutate playerRef and bump the HMI re-render.
+  const playerPlay = () => {
+    if (playerRef.current.step >= SEQUENCE.length) {
+      // auto-reset before re-playing if already done
+      playerReset();
+    }
+    playerRef.current.playing = true;
+    forcePlayerTick((n) => n + 1);
+  };
+  const playerPause = () => {
+    playerRef.current.playing = false;
+    forcePlayerTick((n) => n + 1);
+  };
+  const playerReset = () => {
+    playerRef.current = {
+      playing: false,
+      step: 0,
+      t: 0,
+      startJoints: [...POSE_LIB.POSE_HOME] as PlayerState['startJoints'],
+      startDisc: 0,
+    };
+    jointsRef.current = [...POSE_LIB.POSE_HOME] as typeof jointsRef.current;
+    discAngleRef.current = 0;
+    gripperRef.current = GRIPPER_OPEN_M;
+    cafiStateRef.current = 'conveyor';
+    forcePlayerTick((n) => n + 1);
+  };
 
   const setPose = (p: PoseName) => {
     jointsRef.current = [...POSE_LIB[p]] as typeof jointsRef.current;
@@ -1447,7 +1769,16 @@ export default function CellViewer3D() {
               collisionsRef={collisionsRef}
             />
             <Turntable angleRef={discAngleRef} />
+            <CafiMesh stateRef={cafiStateRef} gripperWorldRef={gripperWorldRef} />
           </Suspense>
+
+          <SequencePlayer
+            playerRef={playerRef}
+            jointsRef={jointsRef}
+            discAngleRef={discAngleRef}
+            gripperRef={gripperRef}
+            cafiStateRef={cafiStateRef}
+          />
 
           <CollisionBoxes visible={showCollisions} />
 
@@ -1481,6 +1812,11 @@ export default function CellViewer3D() {
           deleteSavedPosition={deleteSavedPosition}
           exportSavedPositions={exportSavedPositions}
           clearSavedPositions={clearSavedPositions}
+          playerRef={playerRef}
+          cafiStateRef={cafiStateRef}
+          playerPlay={playerPlay}
+          playerPause={playerPause}
+          playerReset={playerReset}
         />
       </div>
     </div>

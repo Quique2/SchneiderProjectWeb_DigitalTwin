@@ -69,6 +69,48 @@ const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
 const TURNTABLE_BASE : [number, number, number] = [0.692, 1.259, 1.000];
 const MESA_CENTRE    : [number, number, number] = [1.252205, 1.049061, 1.000];
 
+// ── Collision avoidance: AABB world boxes around every obstacle the cobot
+// must NOT enter.  Each entry is a centre + size in metres (Z-up).  Used
+// today only for visualisation (toggleable in HMI); the next pass will use
+// these as constraints in the motion planner / pose validator.
+interface CollisionBox {
+  x: number; y: number; z: number;       // centre, world coords
+  sx: number; sy: number; sz: number;    // dimensions
+  name: string;
+  color?: string;
+}
+
+const COLLISION_BOXES: CollisionBox[] = [
+  // Conveyor body + belt top (a single AABB encompassing both)
+  { x: 1.370, y: 1.365, z: 1.040, sx: 0.375, sy: 0.150, sz: 0.080, name: 'Conveyor',         color: '#fbbf24' },
+  // Suministro CAFI feeder plate
+  { x: 1.620, y: 1.365, z: 1.0075, sx: 0.150, sy: 0.220, sz: 0.015, name: 'Suministro CAFI', color: '#fbbf24' },
+  // Quality bins (hollow boxes — treat the full outer envelope as a no-go)
+  { x: 1.650, y: 0.720, z: 1.075, sx: 0.227, sy: 0.172, sz: 0.150, name: 'Bin Aceptado',     color: '#22dd55' },
+  { x: 1.330, y: 0.700, z: 1.075, sx: 0.227, sy: 0.182, sz: 0.150, name: 'Bin Rechazado',    color: '#ff5566' },
+  // Vision fixture plate
+  { x: 0.750, y: 0.804, z: 1.008, sx: 0.159, sy: 0.118, sz: 0.015, name: 'Vision fixture',   color: '#a78bfa' },
+  // Cognex camera body + suspension column (treat as a single tall AABB)
+  { x: 0.750, y: 0.804, z: 1.520, sx: 0.060, sy: 0.045, sz: 0.045, name: 'Cognex body',      color: '#e879f9' },
+  { x: 0.750, y: 0.804, z: 1.795, sx: 0.024, sy: 0.024, sz: 0.550, name: 'Cognex column',    color: '#e879f9' },
+  // Riveting canopy + 2 back posts
+  { x: 0.692, y: 1.284, z: 1.330, sx: 0.450, sy: 0.300, sz: 0.040, name: 'Riveting canopy',  color: '#fb923c' },
+  { x: 0.467, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NW', color: '#fb923c' },
+  { x: 0.917, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NE', color: '#fb923c' },
+  // Turntable disc + fixtures (approximated as a single cylinder-shaped AABB)
+  { x: 0.692, y: 1.259, z: 1.080, sx: 0.330, sy: 0.330, sz: 0.180, name: 'Turntable',        color: '#a78bfa' },
+  // Cabin corner posts (4)
+  { x: 0.30, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SW',     color: '#c8c8cc' },
+  { x: 2.20, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SE',     color: '#c8c8cc' },
+  { x: 0.30, y: 1.80, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post NW',     color: '#c8c8cc' },
+  { x: 2.20, y: 1.80, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post NE',     color: '#c8c8cc' },
+  // SICK photoelectric sensors (body + bracket envelope)
+  { x: 1.235, y: 1.310, z: 1.100, sx: 0.045, sy: 0.080, sz: 0.045, name: 'Sensor conveyor', color: '#33dffe' },
+  { x: 0.626, y: 0.804, z: 1.040, sx: 0.080, sy: 0.045, sz: 0.045, name: 'Sensor vision',   color: '#33dffe' },
+  // NEMA17 conveyor motor
+  { x: 1.550, y: 1.365, z: 1.036, sx: 0.045, sy: 0.045, sz: 0.060, name: 'NEMA17 motor',    color: '#fbbf24' },
+];
+
 // ── Hook: load a URDF asynchronously and expose the robot object ─────────────
 function useUrdf(url: string): URDFRobot | null {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
@@ -806,6 +848,33 @@ function AluminumCabin({ xMin, xMax, yMin, yMax, topZ, postSection, cobotMountX,
   );
 }
 
+// ── Collision-zone overlay (toggle from HMI) ─────────────────────────────────
+// Renders every COLLISION_BOX as a translucent coloured mesh + thin edge lines
+// so the operator can visually identify the no-go zones the cobot must avoid.
+function CollisionBoxes({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <group>
+      {COLLISION_BOXES.map((b, i) => (
+        <group key={i} position={[b.x, b.y, b.z]}>
+          <mesh>
+            <boxGeometry args={[b.sx, b.sy, b.sz]} />
+            <meshBasicMaterial
+              color={b.color ?? '#33dffe'}
+              transparent opacity={0.18}
+              depthWrite={false}
+            />
+          </mesh>
+          <lineSegments>
+            <edgesGeometry args={[new THREE.BoxGeometry(b.sx, b.sy, b.sz)]} />
+            <lineBasicMaterial color={b.color ?? '#33dffe'} transparent opacity={0.9} />
+          </lineSegments>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 // ── World-coord label using <Html /> ─────────────────────────────────────────
 function Label({ x, y, z, text, color = '#9fb' }: { x: number; y: number; z: number; text: string; color?: string }) {
   return (
@@ -844,6 +913,8 @@ function HMIPanel({
   gripperLiveRef,
   setGripper,
   gripperWorldRef,
+  showCollisions,
+  toggleCollisions,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -853,6 +924,8 @@ function HMIPanel({
   gripperLiveRef: React.MutableRefObject<number>;
   setGripper: (open: boolean) => void;
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
+  showCollisions: boolean;
+  toggleCollisions: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -896,6 +969,23 @@ function HMIPanel({
               {p.replace('POSE_', '').replace(/_/g, ' ')}
             </button>
           ))}
+        </div>
+      </Section>
+
+      {/* Collision-zone toggle */}
+      <Section title="Collision Zones">
+        <button onClick={toggleCollisions}
+          style={{
+            ...btnStyle,
+            fontSize: 11, padding: '8px 10px',
+            background: showCollisions
+              ? 'linear-gradient(180deg,#33dffe 0%,#1ba0c0 100%)'
+              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)',
+          }}>
+          {showCollisions ? '◉ HIDE' : '◯ SHOW'} ({COLLISION_BOXES.length} boxes)
+        </button>
+        <div style={{ ...statRow, marginTop: 6, fontSize: 9, color: '#7a8090' }}>
+          Translucent AABBs the cobot must avoid during motion planning.
         </div>
       </Section>
 
@@ -984,6 +1074,7 @@ export default function CellViewer3D() {
   const gripperRef = useRef<number>(GRIPPER_OPEN_M);        // target
   const gripperLiveRef = useRef<number>(GRIPPER_OPEN_M);    // animated
   const gripperWorldRef = useRef<[number, number, number]>([0, 0, 0]);
+  const [showCollisions, setShowCollisions] = useState(false);
 
   const setPose = (p: PoseName) => {
     jointsRef.current = [...POSE_LIB[p]] as typeof jointsRef.current;
@@ -1050,6 +1141,8 @@ export default function CellViewer3D() {
             <Turntable angleRef={discAngleRef} />
           </Suspense>
 
+          <CollisionBoxes visible={showCollisions} />
+
           <Label x={1.152} y={0.940} z={1.10}  text="Lexium Cobot"    color="#60a5fa" />
           <Label x={1.370} y={1.420} z={1.18}  text="Conveyor 1"      color="#fbbf24" />
           <Label x={0.692} y={1.259} z={1.18}  text="Turntable"       color="#a78bfa" />
@@ -1070,6 +1163,8 @@ export default function CellViewer3D() {
           gripperLiveRef={gripperLiveRef}
           setGripper={setGripper}
           gripperWorldRef={gripperWorldRef}
+          showCollisions={showCollisions}
+          toggleCollisions={() => setShowCollisions((s) => !s)}
         />
       </div>
     </div>

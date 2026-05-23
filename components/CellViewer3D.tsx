@@ -910,6 +910,24 @@ function collisionAABBs(): Array<{ name: string; box: THREE.Box3 }> {
   }));
 }
 
+// Compute the world AABB of THIS link only, NOT its descendants.  In the
+// URDF tree every link is the parent of the joint to the next link, so
+// setFromObject(link) would walk the whole subtree (e.g. base_link's box
+// would contain the entire cobot).  We only union the link's own direct
+// URDFVisual children (the actual STL meshes of that link).
+function ownLinkBox(link: THREE.Object3D, out: THREE.Box3): boolean {
+  out.makeEmpty();
+  const tmp = new THREE.Box3();
+  let any = false;
+  for (const child of link.children) {
+    if ((child as { isURDFVisual?: boolean }).isURDFVisual) {
+      tmp.setFromObject(child);
+      if (!tmp.isEmpty()) { out.union(tmp); any = true; }
+    }
+  }
+  return any;
+}
+
 function checkCobotCollisions(
   robot: URDFRobot,
   obstacles: Array<{ name: string; box: THREE.Box3 }>,
@@ -919,8 +937,7 @@ function checkCobotCollisions(
   for (const linkName of COBOT_LINK_NAMES) {
     const link = robot.links[linkName];
     if (!link) continue;
-    linkBox.setFromObject(link);
-    if (linkBox.isEmpty()) continue;
+    if (!ownLinkBox(link, linkBox)) continue;
     for (const ob of obstacles) {
       if (linkBox.intersectsBox(ob.box)) hit.add(ob.name);
     }

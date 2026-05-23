@@ -514,8 +514,11 @@ function CellScene({ gripperRef }: {
   //   - Re-measure with the remaining debug buttons (PLACE_VIS, ACCEPT,
   //     REJECT, etc.) to refine; per-pose j1 nudges may be needed for pixel-
   //     perfect alignment without touching the chain itself.
-  const COBOT_SHIFT_X = +0.140;
-  const COBOT_SHIFT_Y = -0.076;
+  // DIAGNOSTIC: temporarily zero out to confirm Railway is serving fresh JS.
+  // If cobot moves visibly west vs the +0.140 build → bundle is fresh and the
+  // math is off; if cobot doesn't move → Railway/CDN is serving stale bundle.
+  const COBOT_SHIFT_X = 0.0;
+  const COBOT_SHIFT_Y = 0.0;
   const cobotBasePos = tPos(
     1.152 + COBOT_SHIFT_X,
     1.049 + COBOT_SHIFT_Y,

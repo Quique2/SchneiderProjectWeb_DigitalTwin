@@ -43,22 +43,31 @@ const MESA_CENTRE    : [number, number, number] = [1.252205, 1.049061, 1.000];
 function useUrdf(url: string): URDFRobot | null {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
   useEffect(() => {
+    // URDFLoader.load() defaults workingPath to the URDF's directory if
+    // this.workingPath is falsy ('' is falsy too).  That breaks our
+    // absolute mesh URIs (they get prefixed with /urdf/ and 404).
+    // Bypass by fetching the XML ourselves and calling parse() — parse()
+    // uses this.workingPath directly (which we keep as '').
     const loader = new URDFLoader();
-    // urdf-loader prefixes mesh URIs with workingPath unconditionally.
-    // Our mesh paths in the URDF are absolute (/meshes/v53/...), so we
-    // MUST keep workingPath empty or they become "/urdf//meshes/..." (404).
     loader.workingPath = '';
     loader.parseCollision = false;
-    loader.loadAsync(url).then((r) => {
-      r.traverse((c) => {
-        c.castShadow = true;
-        c.receiveShadow = true;
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`URDF fetch failed: ${url} (${res.status})`);
+        return res.text();
+      })
+      .then((text) => {
+        const r = loader.parse(text);
+        r.traverse((c) => {
+          c.castShadow = true;
+          c.receiveShadow = true;
+        });
+        setRobot(r);
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error('URDF load failed:', url, e);
       });
-      setRobot(r);
-    }).catch((e) => {
-      // eslint-disable-next-line no-console
-      console.error('URDF load failed:', url, e);
-    });
   }, [url]);
   return robot;
 }

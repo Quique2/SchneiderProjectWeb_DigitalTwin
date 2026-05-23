@@ -97,8 +97,11 @@ const COLLISION_BOXES: CollisionBox[] = [
   { x: 0.692, y: 1.284, z: 1.330, sx: 0.450, sy: 0.300, sz: 0.040, name: 'Riveting canopy',  color: '#fb923c' },
   { x: 0.467, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NW', color: '#fb923c' },
   { x: 0.917, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NE', color: '#fb923c' },
-  // Turntable disc + fixtures (approximated as a single cylinder-shaped AABB)
-  { x: 0.692, y: 1.259, z: 1.080, sx: 0.330, sy: 0.330, sz: 0.180, name: 'Turntable',        color: '#a78bfa' },
+  // Turntable disc + rivet fixtures.  Top is flush with the fixture body
+  // (disc top z≈1.078 per URDF, fixture top ≈+50 mm → 1.128).  The CAFI
+  // workpieces sit above and are intentionally LEFT OUT — the cobot does
+  // pick them up.  XY shrunk to ~disc diameter (≈0.265 m).
+  { x: 0.692, y: 1.259, z: 1.064, sx: 0.270, sy: 0.270, sz: 0.128, name: 'Turntable + fixtures', color: '#a78bfa' },
   // Cabin corner posts (4)
   { x: 0.30, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SW',     color: '#c8c8cc' },
   { x: 2.20, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SE',     color: '#c8c8cc' },

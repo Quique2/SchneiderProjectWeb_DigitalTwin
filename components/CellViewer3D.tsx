@@ -496,15 +496,25 @@ function CellScene({ gripperRef }: {
   // V51: cobot mount at (1.152, 1.049, 1.000) yaw=0. The j1 axis is +87 mm
   // above the mount per the Cobot URDF.
   //
-  // BASE SHIFT (measured via the debug "Set to PICK_CONVEYOR" button):
-  //   gripper landed at  (1.072, 1.441, 1.116)
-  //   expected target    (1.235, 1.365, 1.083)
-  //   delta              (+0.163, -0.076, -0.033)
-  // We compensate +X and -Y on basePos so the gripper lands at the conveyor
-  // pick.  The -0.033 Z component is intentionally NOT applied to avoid
-  // sinking the base mesh below the mesa surface; a 33 mm visual Z error
-  // is acceptable.
-  const COBOT_SHIFT_X = +0.163;
+  // BASE SHIFT — measured via the debug "Set Pose" buttons:
+  //                       gripper got            expected            pre-shift err
+  //   PICK_CONVEYOR       (1.072, 1.441, 1.116)  (1.235, 1.365, 1.083)  (+0.163, -0.076, -0.033)
+  //   PLACE_LOAD_FIXTURE  (0.574, 1.185, 1.157)  (0.692, 1.109, ~1.12)  (+0.118, -0.076, -0.037)
+  //
+  // Analysis:
+  //   - Y error is constant -0.076 m across both poses  → shift Y by -0.076
+  //   - Z error is constant -0.035 m across both poses  → not shifted (would
+  //     sink the cobot mount below the mesa; ~35 mm visual error accepted)
+  //   - X error VARIES with pose (it scales linearly with target X distance,
+  //     ~+0.156 + 0.083·(targetX - baseX)). This is an FK-chain X-scale issue
+  //     that no uniform basePos shift can fully correct. We use the midpoint
+  //     +0.140 so the residual is split symmetrically:
+  //        PICK_CONV  → gripper ~23 mm east of pick
+  //        PLACE_LOAD → gripper ~22 mm west of fixture
+  //   - Re-measure with the remaining debug buttons (PLACE_VIS, ACCEPT,
+  //     REJECT, etc.) to refine; per-pose j1 nudges may be needed for pixel-
+  //     perfect alignment without touching the chain itself.
+  const COBOT_SHIFT_X = +0.140;
   const COBOT_SHIFT_Y = -0.076;
   const cobotBasePos = tPos(
     1.152 + COBOT_SHIFT_X,

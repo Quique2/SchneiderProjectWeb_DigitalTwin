@@ -402,7 +402,11 @@ function CafiMesh({
   const tmpPos = useMemo(() => new THREE.Vector3(), []);
   const tmpQuat = useMemo(() => new THREE.Quaternion(), []);
   const yawQuat = useMemo(() => new THREE.Quaternion(), []);
-  const yawAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  // Group local Z = gripper tool axis (the direction the gripper extends
+  // into the workpiece).  Rotating around it gives pure yaw regardless of
+  // how the cobot is oriented — using local Y instead would be roll/pitch
+  // because Y is the jaw open/close direction.
+  const yawAxis = useMemo(() => new THREE.Vector3(0, 0, 1), []);
   const lastStateLogged = useRef<CafiState | null>(null);
 
   useFrame(() => {

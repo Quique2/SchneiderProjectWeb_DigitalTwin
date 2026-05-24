@@ -121,11 +121,12 @@ const CAFI_AT: Record<StaticCafiState, [number, number, number]> = {
   in_reject_bin: [1.330, 0.700, 1.020],
 };
 
-// V53 lateral-grasp offset (matches the cafi_part_1_link visual in the
-// turntable URDF).  Used when the CAFI is attached to a *_cafi_lateral_target
-// frame, so its grasp contact aligns with the frame and the body extends
-// correctly.  Centered offset is used when the CAFI sits flat on a surface.
+// Lateral-grasp offset used when the CAFI is attached to a *_cafi_lateral_target
+// frame.  V53 turntable URDF visual offset = (-0.212983, +0.056354, -0.022608),
+// kept here for on_fixture_* (matches the blue reference exactly).
 const CAFI_OFFSET_ATTACHED: [number, number, number] = [-0.212983, 0.056354, -0.022608];
+// User-tuned golden defaults for the in_gripper grasp offset.
+const CAFI_GRASP_OFFSET_GOLD: [number, number, number] = [-0.205, +0.059, -0.023];
 const CAFI_OFFSET_CENTERED: [number, number, number] = [-0.06145, +0.04365, -0.01255];
 
 // ── Animation sequence (full V53 pick → rivet → vision → accept-bin cycle) ──
@@ -1814,8 +1815,10 @@ function HMIPanel({
   );
 }
 
-// Slider + numeric input that share a ref-backed value.  Slider gives coarse
-// drag, numeric input lets the operator type an exact metre offset.
+// Slider + numeric input that share a ref-backed value.  Both are CONTROLLED
+// (value, not defaultValue) so dragging the slider updates the numeric input
+// and vice versa.  The HMI's 100 ms tick re-renders this whole component so
+// the displayed value always reflects valueRef.current.
 function OffsetControl({ label, valueRef, setter }: {
   label: string;
   valueRef: React.MutableRefObject<number>;
@@ -1825,19 +1828,20 @@ function OffsetControl({ label, valueRef, setter }: {
     const n = parseFloat(v);
     if (Number.isFinite(n)) setter(n);
   };
+  const v = valueRef.current;
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={statRow}>
         <span>{label}</span>
-        <span>{(valueRef.current * 1000).toFixed(1)} mm</span>
+        <span>{(v * 1000).toFixed(1)} mm</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: 4, alignItems: 'center' }}>
         <input type="range" min={-0.4} max={0.4} step={0.001}
-          defaultValue={valueRef.current}
-          onInput={(e) => handle((e.target as HTMLInputElement).value)}
+          value={v}
+          onChange={(e) => handle((e.target as HTMLInputElement).value)}
           style={{ width: '100%' }} />
         <input type="number" step={0.001}
-          defaultValue={valueRef.current.toFixed(4)}
+          value={v.toFixed(4)}
           onChange={(e) => handle((e.target as HTMLInputElement).value)}
           style={{
             background: '#0c1828', color: '#dde4f0',
@@ -1908,10 +1912,10 @@ export default function CellViewer3D() {
   const setCafiGraspRoll = (roll: number) => { cafiGraspRollRef.current = roll; };
 
   // Grasp offset (CAFI mesh position relative to gripper cafi_lateral_target_frame).
-  // Defaults match the V53 turntable URDF visual offset.
-  const cafiGraspOffsetXRef = useRef<number>(CAFI_OFFSET_ATTACHED[0]);
-  const cafiGraspOffsetYRef = useRef<number>(CAFI_OFFSET_ATTACHED[1]);
-  const cafiGraspOffsetZRef = useRef<number>(CAFI_OFFSET_ATTACHED[2]);
+  // Defaults: user-tuned golden values for the in_gripper grasp.
+  const cafiGraspOffsetXRef = useRef<number>(CAFI_GRASP_OFFSET_GOLD[0]);
+  const cafiGraspOffsetYRef = useRef<number>(CAFI_GRASP_OFFSET_GOLD[1]);
+  const cafiGraspOffsetZRef = useRef<number>(CAFI_GRASP_OFFSET_GOLD[2]);
   const setCafiGraspOffsetX = (v: number) => { cafiGraspOffsetXRef.current = v; };
   const setCafiGraspOffsetY = (v: number) => { cafiGraspOffsetYRef.current = v; };
   const setCafiGraspOffsetZ = (v: number) => { cafiGraspOffsetZRef.current = v; };

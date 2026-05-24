@@ -1371,9 +1371,11 @@ interface IKResult {
 const IK_EPSILON = 1e-4;
 const IK_LAMBDA = 0.05;
 const IK_STEP_CLAMP = 0.3;
-const IK_MAX_ITER = 80;
-const IK_TOLERANCE = 0.001;        // 1 mm
-const IK_MAX_ATTEMPTS = 16;
+const IK_MAX_ITER = 200;
+const IK_TOLERANCE = 0.001;        // 1 mm — strict convergence
+const IK_ACCEPT_TOL = 0.005;       // 5 mm — acceptable if clean
+const IK_MAX_ATTEMPTS = 48;
+const IK_PERTURB_MAX = 1.8;        // rad — large enough to escape local collisions
 
 function applyJoints6(robot: URDFRobot, joints: number[]): void {
   for (let i = 0; i < 6; i++) robot.setJointValue(`joint_${i + 1}`, joints[i]);
@@ -1488,33 +1490,53 @@ function solveIKOnce(
   return { joints, positionError: posErr, collisions, iterations: iter, converged: posErr < IK_TOLERANCE };
 }
 
+// Strict ordering for IK candidates:
+//   1. fewer collisions wins
+//   2. break ties by lower position error
+// Convergence flag alone is intentionally NOT a tiebreaker — a "converged"
+// solution that still collides is worse than a slightly off-target one
+// that's clean.
+function isBetterIK(a: { collisions: string[]; positionError: number }, b: { collisions: string[]; positionError: number } | null): boolean {
+  if (!b) return true;
+  if (a.collisions.length !== b.collisions.length) return a.collisions.length < b.collisions.length;
+  return a.positionError < b.positionError;
+}
+
 function solveIK(
   robot: URDFRobot, rootGroup: THREE.Object3D,
   targetWorld: [number, number, number],
   initialJoints: number[],
   obstacles: ReturnType<typeof collisionAABBs>,
 ): IKResult {
-  let best = solveIKOnce(robot, rootGroup, targetWorld, initialJoints, obstacles);
-  let bestAttempt = 1;
-  if (best.converged && best.collisions.length === 0) {
-    return { ...best, joints: best.joints as IKResult['joints'], attempts: 1 };
-  }
-  for (let attempt = 2; attempt <= IK_MAX_ATTEMPTS; attempt++) {
-    const perturb = 0.6 * (attempt / IK_MAX_ATTEMPTS);
-    const start = initialJoints.map((j, i) => {
-      const [lo, hi] = JOINT_LIMITS[i];
-      return Math.max(lo, Math.min(hi, j + (Math.random() - 0.5) * 2 * perturb));
-    });
+  let best: (ReturnType<typeof solveIKOnce> & { attempts: number }) | null = null;
+  for (let attempt = 1; attempt <= IK_MAX_ATTEMPTS; attempt++) {
+    let start: number[];
+    if (attempt === 1) {
+      start = [...initialJoints];
+    } else {
+      // Grow the perturbation from small (attempt 2) to very large (final
+      // attempts) so we both refine and aggressively explore.
+      const perturb = IK_PERTURB_MAX * (attempt / IK_MAX_ATTEMPTS);
+      start = initialJoints.map((j, i) => {
+        const [lo, hi] = JOINT_LIMITS[i];
+        return Math.max(lo, Math.min(hi, j + (Math.random() - 0.5) * 2 * perturb));
+      });
+    }
     const r = solveIKOnce(robot, rootGroup, targetWorld, start, obstacles);
+    // Early-out on a clean solution that's also within strict tolerance.
     if (r.converged && r.collisions.length === 0) {
       return { ...r, joints: r.joints as IKResult['joints'], attempts: attempt };
     }
-    const betterThanBest =
-      (r.converged && !best.converged) ||
-      (r.converged === best.converged && r.collisions.length < best.collisions.length);
-    if (betterThanBest) { best = r; bestAttempt = attempt; }
+    // Also early-out if we're within "acceptable" tolerance AND clean — a few
+    // mm of TCP error is fine if it means dodging an obstacle.
+    if (r.positionError < IK_ACCEPT_TOL && r.collisions.length === 0) {
+      return { ...r, joints: r.joints as IKResult['joints'], attempts: attempt };
+    }
+    if (isBetterIK(r, best)) {
+      best = { ...r, attempts: attempt };
+    }
   }
-  return { ...best, joints: best.joints as IKResult['joints'], attempts: bestAttempt };
+  return { ...best!, joints: best!.joints as IKResult['joints'] };
 }
 
 // ── Collision-zone overlay (toggle from HMI) ─────────────────────────────────

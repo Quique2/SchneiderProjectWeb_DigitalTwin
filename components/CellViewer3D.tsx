@@ -1644,7 +1644,7 @@ function HMIPanel({
             <span>{(cafiGraspYawRef.current * 180 / Math.PI).toFixed(1)}°</span>
           </div>
           <input type="range" min={-Math.PI} max={Math.PI} step={0.01}
-            defaultValue={0}
+            defaultValue={Math.PI / 2}
             onInput={(e) => setCafiGraspYaw(parseFloat((e.target as HTMLInputElement).value))}
             style={{ width: '100%' }} />
         </div>
@@ -1654,7 +1654,7 @@ function HMIPanel({
             <span>{(cafiGraspPitchRef.current * 180 / Math.PI).toFixed(1)}°</span>
           </div>
           <input type="range" min={-Math.PI} max={Math.PI} step={0.01}
-            defaultValue={0}
+            defaultValue={Math.PI}
             onInput={(e) => setCafiGraspPitch(parseFloat((e.target as HTMLInputElement).value))}
             style={{ width: '100%' }} />
         </div>
@@ -1821,8 +1821,11 @@ export default function CellViewer3D() {
   const cafiStateRef = useRef<CafiState>('conveyor');
   const cobotRobotRef = useRef<URDFRobot | null>(null);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
-  const cafiGraspYawRef = useRef<number>(0);
-  const cafiGraspPitchRef = useRef<number>(0);
+  // V53 calibrated grasp orientation — CAFI sits flat in the gripper at
+  // yaw=+90°, pitch=180°, roll=0.  These are the "real" defaults; the
+  // sliders are there for fine-tuning, not for finding the base pose.
+  const cafiGraspYawRef = useRef<number>(Math.PI / 2);
+  const cafiGraspPitchRef = useRef<number>(Math.PI);
   const cafiGraspRollRef = useRef<number>(0);
   const setCafiGraspYaw = (yaw: number) => { cafiGraspYawRef.current = yaw; };
   const setCafiGraspPitch = (pitch: number) => { cafiGraspPitchRef.current = pitch; };

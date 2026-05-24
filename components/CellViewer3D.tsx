@@ -440,6 +440,14 @@ function CafiMesh({
       g.quaternion.copy(tmpQuat);
       m.position.set(...CAFI_OFFSET_ATTACHED);
       if (m.geometry !== geomAttached) m.geometry = geomAttached;
+      // While grasped, swap the CAFI's long axis (mesh X) onto the gripper's
+      // close direction (gripper Y) — V53 lateral grasp.  Without this extra
+      // rotation the CAFI extends perpendicular to the jaws and looks wrong.
+      if (state === 'in_gripper') {
+        m.rotation.set(Math.PI / 2, 0, Math.PI / 2);
+      } else {
+        m.rotation.set(Math.PI / 2, 0, 0);
+      }
     } else {
       const xyz = CAFI_AT[state as StaticCafiState];
       if (xyz) {
@@ -447,6 +455,7 @@ function CafiMesh({
         g.quaternion.identity();
         m.position.set(...CAFI_OFFSET_CENTERED);
         if (m.geometry !== geomStatic) m.geometry = geomStatic;
+        m.rotation.set(Math.PI / 2, 0, 0);
       }
     }
 

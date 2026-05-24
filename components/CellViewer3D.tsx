@@ -437,18 +437,43 @@ function CafiMesh({
       }
     }
 
-    // One-shot diagnostic on every state transition.
+    // One-shot diagnostic on every state transition: print pose of the
+    // frame we attached to AND the pose of the corresponding V53 reference
+    // mesh (if any) so we can compare offsets and orientations directly.
     if (state !== lastStateLogged.current) {
       lastStateLogged.current = state;
+      const refMeshName =
+        state === 'on_fixture_1' ? 'cafi_part_1_link' :
+        state === 'on_fixture_2' ? 'cafi_part_2_link' : null;
+      const refMesh = refMeshName && turntableRobotRef.current
+        ? turntableRobotRef.current.getObjectByName(refMeshName)
+        : null;
+      const refPos = new THREE.Vector3();
+      const refQuat = new THREE.Quaternion();
+      if (refMesh) {
+        // walk to the visual child (the actual mesh sits inside URDFVisual)
+        refMesh.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh && refPos.length() === 0) {
+            c.getWorldPosition(refPos);
+            c.getWorldQuaternion(refQuat);
+          }
+        });
+      }
+      const oranWorldPos = new THREE.Vector3();
+      const oranWorldQuat = new THREE.Quaternion();
+      m.getWorldPosition(oranWorldPos);
+      m.getWorldQuaternion(oranWorldQuat);
       // eslint-disable-next-line no-console
       console.log(
         `%c[CafiMesh] state → ${state}`,
         'color:#d97340;font-weight:700',
         {
           frameFound: !!frame,
-          cobotReady: !!cobotRobotRef.current,
-          turntableReady: !!turntableRobotRef.current,
-          worldPos: frame ? [tmpPos.x.toFixed(3), tmpPos.y.toFixed(3), tmpPos.z.toFixed(3)] : null,
+          frameWorldPos: frame ? `(${tmpPos.x.toFixed(3)}, ${tmpPos.y.toFixed(3)}, ${tmpPos.z.toFixed(3)})` : null,
+          orangeMeshWorldPos: `(${oranWorldPos.x.toFixed(3)}, ${oranWorldPos.y.toFixed(3)}, ${oranWorldPos.z.toFixed(3)})`,
+          orangeMeshQuat: `(${oranWorldQuat.x.toFixed(3)}, ${oranWorldQuat.y.toFixed(3)}, ${oranWorldQuat.z.toFixed(3)}, ${oranWorldQuat.w.toFixed(3)})`,
+          blueRefMeshWorldPos: refMesh ? `(${refPos.x.toFixed(3)}, ${refPos.y.toFixed(3)}, ${refPos.z.toFixed(3)})` : null,
+          blueRefMeshQuat: refMesh ? `(${refQuat.x.toFixed(3)}, ${refQuat.y.toFixed(3)}, ${refQuat.z.toFixed(3)}, ${refQuat.w.toFixed(3)})` : null,
         },
       );
     }

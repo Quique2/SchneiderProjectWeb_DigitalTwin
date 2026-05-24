@@ -280,13 +280,13 @@ interface CobotProps {
   gripperWorldRef: React.MutableRefObject<[number, number, number]>;
   collisionsRef: React.MutableRefObject<string[]>;
   robotRef: React.MutableRefObject<URDFRobot | null>;
+  groupRef: React.MutableRefObject<THREE.Group | null>;
 }
 
 const GRIPPER_SPEED = 0.04; // m/s (URDF velocity limit is 0.08)
 
-function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisionsRef, robotRef }: CobotProps) {
+function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisionsRef, robotRef, groupRef }: CobotProps) {
   const robot = useUrdf('/urdf/lexium_cobot.urdf');
-  const groupRef = useRef<THREE.Group>(null);
   const obstacles = useMemo(() => collisionAABBs(), []);
 
   // Expose loaded robot to parent so other components (CafiMesh) can query frames.
@@ -1352,6 +1352,171 @@ function checkCobotCollisions(
   return Array.from(hit);
 }
 
+// ── Inverse kinematics (position-only DLS + collision-aware sampling) ────────
+// 3D-target IK: given a desired TCP world XYZ, find joint values that put the
+// cobot's tcp_link at that position while avoiding the COLLISION_BOXES.  Uses
+// numerical Jacobian (finite differences) + damped least squares update with
+// step clamping.  For collision avoidance, restarts from random perturbations
+// of the initial guess until a clean solution is found or attempts run out.
+
+interface IKResult {
+  joints: [number, number, number, number, number, number];
+  positionError: number;
+  collisions: string[];
+  iterations: number;
+  converged: boolean;
+  attempts: number;
+}
+
+const IK_EPSILON = 1e-4;
+const IK_LAMBDA = 0.05;
+const IK_STEP_CLAMP = 0.3;
+const IK_MAX_ITER = 80;
+const IK_TOLERANCE = 0.001;        // 1 mm
+const IK_MAX_ATTEMPTS = 16;
+
+function applyJoints6(robot: URDFRobot, joints: number[]): void {
+  for (let i = 0; i < 6; i++) robot.setJointValue(`joint_${i + 1}`, joints[i]);
+}
+
+function tcpWorld(
+  robot: URDFRobot, rootGroup: THREE.Object3D, out: THREE.Vector3,
+): void {
+  rootGroup.updateMatrixWorld(true);
+  const tcp = robot.frames['tcp_link'];
+  if (tcp) tcp.getWorldPosition(out);
+  else out.set(0, 0, 0);
+}
+
+function ikJacobian(
+  robot: URDFRobot, rootGroup: THREE.Object3D, joints: number[],
+): number[][] {
+  const J = [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]];
+  const pos = new THREE.Vector3();
+  const neg = new THREE.Vector3();
+  for (let i = 0; i < 6; i++) {
+    const orig = joints[i];
+    joints[i] = orig + IK_EPSILON;
+    applyJoints6(robot, joints);
+    tcpWorld(robot, rootGroup, pos);
+    joints[i] = orig - IK_EPSILON;
+    applyJoints6(robot, joints);
+    tcpWorld(robot, rootGroup, neg);
+    J[0][i] = (pos.x - neg.x) / (2 * IK_EPSILON);
+    J[1][i] = (pos.y - neg.y) / (2 * IK_EPSILON);
+    J[2][i] = (pos.z - neg.z) / (2 * IK_EPSILON);
+    joints[i] = orig;
+  }
+  applyJoints6(robot, joints);
+  return J;
+}
+
+function invert3x3(m: number[][]): number[][] | null {
+  const a = m[0][0], b = m[0][1], c = m[0][2];
+  const d = m[1][0], e = m[1][1], f = m[1][2];
+  const g = m[2][0], h = m[2][1], i = m[2][2];
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  if (Math.abs(det) < 1e-12) return null;
+  const k = 1 / det;
+  return [
+    [(e * i - f * h) * k, (c * h - b * i) * k, (b * f - c * e) * k],
+    [(f * g - d * i) * k, (a * i - c * g) * k, (c * d - a * f) * k],
+    [(d * h - e * g) * k, (b * g - a * h) * k, (a * e - b * d) * k],
+  ];
+}
+
+function dlsUpdate(J: number[][], err: [number, number, number]): number[] {
+  const JJT = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      let s = 0;
+      for (let k = 0; k < 6; k++) s += J[i][k] * J[j][k];
+      JJT[i][j] = s + (i === j ? IK_LAMBDA * IK_LAMBDA : 0);
+    }
+  }
+  const inv = invert3x3(JJT);
+  if (!inv) return [0, 0, 0, 0, 0, 0];
+  const tmp = [
+    inv[0][0] * err[0] + inv[0][1] * err[1] + inv[0][2] * err[2],
+    inv[1][0] * err[0] + inv[1][1] * err[1] + inv[1][2] * err[2],
+    inv[2][0] * err[0] + inv[2][1] * err[1] + inv[2][2] * err[2],
+  ];
+  const delta = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < 6; i++) {
+    delta[i] = J[0][i] * tmp[0] + J[1][i] * tmp[1] + J[2][i] * tmp[2];
+  }
+  return delta;
+}
+
+function solveIKOnce(
+  robot: URDFRobot, rootGroup: THREE.Object3D,
+  targetWorld: [number, number, number],
+  initialJoints: number[],
+  obstacles: ReturnType<typeof collisionAABBs>,
+): { joints: number[]; positionError: number; collisions: string[]; iterations: number; converged: boolean } {
+  const joints = [...initialJoints];
+  const tcp = new THREE.Vector3();
+  let posErr = Infinity;
+  let iter = 0;
+  for (iter = 0; iter < IK_MAX_ITER; iter++) {
+    applyJoints6(robot, joints);
+    tcpWorld(robot, rootGroup, tcp);
+    const err: [number, number, number] = [
+      targetWorld[0] - tcp.x,
+      targetWorld[1] - tcp.y,
+      targetWorld[2] - tcp.z,
+    ];
+    posErr = Math.sqrt(err[0] * err[0] + err[1] * err[1] + err[2] * err[2]);
+    if (posErr < IK_TOLERANCE) break;
+    const J = ikJacobian(robot, rootGroup, joints);
+    const delta = dlsUpdate(J, err);
+    let stepNorm = 0;
+    for (let i = 0; i < 6; i++) stepNorm += delta[i] * delta[i];
+    stepNorm = Math.sqrt(stepNorm);
+    if (stepNorm > IK_STEP_CLAMP) {
+      const s = IK_STEP_CLAMP / stepNorm;
+      for (let i = 0; i < 6; i++) delta[i] *= s;
+    }
+    for (let i = 0; i < 6; i++) {
+      const [lo, hi] = JOINT_LIMITS[i];
+      joints[i] = Math.max(lo, Math.min(hi, joints[i] + delta[i]));
+    }
+  }
+  applyJoints6(robot, joints);
+  rootGroup.updateMatrixWorld(true);
+  const collisions = checkCobotCollisions(robot, obstacles);
+  return { joints, positionError: posErr, collisions, iterations: iter, converged: posErr < IK_TOLERANCE };
+}
+
+function solveIK(
+  robot: URDFRobot, rootGroup: THREE.Object3D,
+  targetWorld: [number, number, number],
+  initialJoints: number[],
+  obstacles: ReturnType<typeof collisionAABBs>,
+): IKResult {
+  let best = solveIKOnce(robot, rootGroup, targetWorld, initialJoints, obstacles);
+  let bestAttempt = 1;
+  if (best.converged && best.collisions.length === 0) {
+    return { ...best, joints: best.joints as IKResult['joints'], attempts: 1 };
+  }
+  for (let attempt = 2; attempt <= IK_MAX_ATTEMPTS; attempt++) {
+    const perturb = 0.6 * (attempt / IK_MAX_ATTEMPTS);
+    const start = initialJoints.map((j, i) => {
+      const [lo, hi] = JOINT_LIMITS[i];
+      return Math.max(lo, Math.min(hi, j + (Math.random() - 0.5) * 2 * perturb));
+    });
+    const r = solveIKOnce(robot, rootGroup, targetWorld, start, obstacles);
+    if (r.converged && r.collisions.length === 0) {
+      return { ...r, joints: r.joints as IKResult['joints'], attempts: attempt };
+    }
+    const betterThanBest =
+      (r.converged && !best.converged) ||
+      (r.converged === best.converged && r.collisions.length < best.collisions.length);
+    if (betterThanBest) { best = r; bestAttempt = attempt; }
+  }
+  return { ...best, joints: best.joints as IKResult['joints'], attempts: bestAttempt };
+}
+
 // ── Collision-zone overlay (toggle from HMI) ─────────────────────────────────
 // Renders every COLLISION_BOX as a translucent coloured mesh + thin edge lines
 // so the operator can visually identify the no-go zones the cobot must avoid.
@@ -1444,6 +1609,11 @@ function HMIPanel({
   setCafiGraspOffsetY,
   cafiGraspOffsetZRef,
   setCafiGraspOffsetZ,
+  ikResult,
+  ikRunning,
+  runRetarget,
+  applyIkResult,
+  discardIkResult,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1480,6 +1650,11 @@ function HMIPanel({
   setCafiGraspOffsetY: (v: number) => void;
   cafiGraspOffsetZRef: React.MutableRefObject<number>;
   setCafiGraspOffsetZ: (v: number) => void;
+  ikResult: IKResult | null;
+  ikRunning: boolean;
+  runRetarget: () => void;
+  applyIkResult: () => void;
+  discardIkResult: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1637,6 +1812,74 @@ function HMIPanel({
             fontFamily: 'monospace', lineHeight: 1.4,
           }}>
             {collisions.join(', ')}
+          </div>
+        )}
+      </Section>
+
+      {/* IK solver — retarget the current TCP world position with collision
+          avoidance.  Useful when a pose collides and needs an alternative
+          joint configuration that reaches the same TCP. */}
+      <Section title="IK Solver (Retarget)">
+        <button onClick={runRetarget} disabled={ikRunning}
+          style={{
+            ...btnStyle, fontSize: 11, padding: '8px 10px',
+            background: ikRunning
+              ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+              : 'linear-gradient(180deg,#b87333 0%,#8b5a25 100%)',
+            cursor: ikRunning ? 'wait' : 'pointer',
+          }}>
+          {ikRunning ? '⏳ SOLVING…' : '🔧 RETARGET current pose'}
+        </button>
+        <div style={{ ...statRow, marginTop: 6, fontSize: 9, color: '#7a8090' }}>
+          Re-solves joints to keep TCP at the current world XYZ while
+          avoiding collision boxes (DLS + random restarts).
+        </div>
+        {ikResult && (
+          <div style={{
+            marginTop: 8, padding: 8,
+            background: ikResult.converged && ikResult.collisions.length === 0
+              ? 'rgba(20,80,30,0.35)'
+              : 'rgba(80,40,20,0.35)',
+            border: '1px solid ' + (
+              ikResult.converged && ikResult.collisions.length === 0
+                ? '#22dd5566' : '#fbbf2466'
+            ),
+            borderRadius: 4,
+          }}>
+            <div style={statRow}>
+              <span>pos error</span>
+              <span>{(ikResult.positionError * 1000).toFixed(2)} mm</span>
+            </div>
+            <div style={statRow}>
+              <span>collisions</span>
+              <span style={{ color: ikResult.collisions.length === 0 ? '#22dd55' : '#ff5566' }}>
+                {ikResult.collisions.length === 0 ? '✓ clear' : `✗ ${ikResult.collisions.length}`}
+              </span>
+            </div>
+            <div style={statRow}>
+              <span>iter / attempts</span>
+              <span>{ikResult.iterations} / {ikResult.attempts}</span>
+            </div>
+            {ikResult.collisions.length > 0 && (
+              <div style={{ fontSize: 9, color: '#ff8090', marginTop: 4, fontFamily: 'monospace' }}>
+                {ikResult.collisions.join(', ')}
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
+              <button onClick={applyIkResult}
+                style={{
+                  ...btnStyle, fontSize: 10, padding: '6px 8px',
+                  background: ikResult.converged
+                    ? 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)'
+                    : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)',
+                }}>
+                ✓ APPLY
+              </button>
+              <button onClick={discardIkResult}
+                style={{ ...btnStyle, fontSize: 10, padding: '6px 8px', background: '#3a1018' }}>
+                ✕ DISCARD
+              </button>
+            </div>
           </div>
         )}
       </Section>
@@ -1900,7 +2143,46 @@ export default function CellViewer3D() {
   const [savedPositions, setSavedPositions] = useState<SavedPosition[]>(loadSavedFromStorage);
   const cafiStateRef = useRef<CafiState>('conveyor');
   const cobotRobotRef = useRef<URDFRobot | null>(null);
+  const cobotGroupRef = useRef<THREE.Group | null>(null);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
+  const obstacles = useMemo(() => collisionAABBs(), []);
+  const [ikResult, setIkResult] = useState<IKResult | null>(null);
+  const [ikRunning, setIkRunning] = useState(false);
+
+  // Retarget: take the current TCP world position as the IK target and
+  // re-solve from the current joints (with collision-aware sampling).
+  const runRetarget = () => {
+    const robot = cobotRobotRef.current;
+    const group = cobotGroupRef.current;
+    if (!robot || !group) return;
+    setIkRunning(true);
+    // Yield to the browser so the "running" state can render.
+    setTimeout(() => {
+      try {
+        const startJoints = [...jointsRef.current];
+        applyJoints6(robot, startJoints);
+        const tcp = new THREE.Vector3();
+        tcpWorld(robot, group, tcp);
+        const target: [number, number, number] = [tcp.x, tcp.y, tcp.z];
+        const result = solveIK(robot, group, target, startJoints, obstacles);
+        // Restore the on-screen pose to the user's original joints — APPLY
+        // is what actually writes the new joints into jointsRef.
+        applyJoints6(robot, startJoints);
+        group.updateMatrixWorld(true);
+        setIkResult(result);
+      } finally {
+        setIkRunning(false);
+      }
+    }, 0);
+  };
+
+  const applyIkResult = () => {
+    if (!ikResult) return;
+    jointsRef.current = [...ikResult.joints] as typeof jointsRef.current;
+    setIkResult(null);
+  };
+
+  const discardIkResult = () => setIkResult(null);
   // V53 calibrated grasp orientation — CAFI sits flat in the gripper at
   // yaw=+90°, pitch=180°, roll=0.  These are the "real" defaults; the
   // sliders are there for fine-tuning, not for finding the base pose.
@@ -2074,6 +2356,7 @@ export default function CellViewer3D() {
               gripperWorldRef={gripperWorldRef}
               collisionsRef={collisionsRef}
               robotRef={cobotRobotRef}
+              groupRef={cobotGroupRef}
             />
             <Turntable angleRef={discAngleRef} robotRef={turntableRobotRef} />
             <CafiMesh
@@ -2146,6 +2429,11 @@ export default function CellViewer3D() {
           setCafiGraspOffsetY={setCafiGraspOffsetY}
           cafiGraspOffsetZRef={cafiGraspOffsetZRef}
           setCafiGraspOffsetZ={setCafiGraspOffsetZ}
+          ikResult={ikResult}
+          ikRunning={ikRunning}
+          runRetarget={runRetarget}
+          applyIkResult={applyIkResult}
+          discardIkResult={discardIkResult}
         />
       </div>
     </div>

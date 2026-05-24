@@ -290,7 +290,11 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
 
   // Expose loaded robot to parent so other components (CafiMesh) can query frames.
   useEffect(() => {
-    if (robot) robotRef.current = robot;
+    if (robot) {
+      robotRef.current = robot;
+      // eslint-disable-next-line no-console
+      console.log('[Cobot URDF] frames:', Object.keys(robot.frames).sort());
+    }
   }, [robot, robotRef]);
 
   // Bulk-check every pose once the URDF is loaded — logs which poses collide
@@ -395,17 +399,23 @@ function CafiMesh({
     if (state === 'parked') { g.visible = false; return; }
     g.visible = true;
 
-    let frame: THREE.Object3D | undefined;
+    let frame: THREE.Object3D | undefined | null;
     let rootRobot: URDFRobot | null = null;
+    let frameName = '';
     if (state === 'in_gripper') {
       rootRobot = cobotRobotRef.current;
-      frame = rootRobot?.frames['cafi_lateral_target_frame'];
+      frameName = 'cafi_lateral_target_frame';
     } else if (state === 'on_fixture_1') {
       rootRobot = turntableRobotRef.current;
-      frame = rootRobot?.frames['cafi_part_1_link'];
+      frameName = 'cafi_part_1_link';
     } else if (state === 'on_fixture_2') {
       rootRobot = turntableRobotRef.current;
-      frame = rootRobot?.frames['cafi_part_2_link'];
+      frameName = 'cafi_part_2_link';
+    }
+    if (rootRobot && frameName) {
+      // Try the frames map first; fall back to a tree walk if the parser
+      // didn't expose the link in `frames` for some reason.
+      frame = rootRobot.frames[frameName] ?? rootRobot.getObjectByName(frameName);
     }
 
     if (frame) {
@@ -547,7 +557,11 @@ function Turntable({
   const robot = useUrdf('/urdf/turntable_rivet_cell.urdf');
   const groupRef = useRef<THREE.Group>(null);
   useEffect(() => {
-    if (robot) robotRef.current = robot;
+    if (robot) {
+      robotRef.current = robot;
+      // eslint-disable-next-line no-console
+      console.log('[Turntable URDF] frames:', Object.keys(robot.frames).sort());
+    }
   }, [robot, robotRef]);
   useFrame(() => {
     if (!robot) return;

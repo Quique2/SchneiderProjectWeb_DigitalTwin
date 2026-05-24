@@ -1390,6 +1390,30 @@ function tcpWorld(
   else out.set(0, 0, 0);
 }
 
+// Full TCP pose: position + world quaternion.
+function tcpPose(
+  robot: URDFRobot, rootGroup: THREE.Object3D,
+  outPos: THREE.Vector3, outQuat: THREE.Quaternion,
+): void {
+  rootGroup.updateMatrixWorld(true);
+  const tcp = robot.frames['tcp_link'];
+  if (!tcp) { outPos.set(0, 0, 0); outQuat.identity(); return; }
+  tcp.getWorldPosition(outPos);
+  tcp.getWorldQuaternion(outQuat);
+}
+
+// Axis-angle 3-vector from a (small) rotation quaternion.  Returns the
+// shortest rotation (picks the sign that keeps angle in [-π, π]).
+function quatToAxisAngleVec(q: THREE.Quaternion, out: THREE.Vector3): void {
+  let qw = q.w, qx = q.x, qy = q.y, qz = q.z;
+  if (qw < 0) { qw = -qw; qx = -qx; qy = -qy; qz = -qz; } // shortest path
+  const xyzLen = Math.sqrt(qx * qx + qy * qy + qz * qz);
+  if (xyzLen < 1e-12) { out.set(0, 0, 0); return; }
+  const angle = 2 * Math.atan2(xyzLen, qw);
+  const k = angle / xyzLen;
+  out.set(qx * k, qy * k, qz * k);
+}
+
 function ikJacobian(
   robot: URDFRobot, rootGroup: THREE.Object3D, joints: number[],
 ): number[][] {
@@ -1500,6 +1524,222 @@ function isBetterIK(a: { collisions: string[]; positionError: number }, b: { col
   if (!b) return true;
   if (a.collisions.length !== b.collisions.length) return a.collisions.length < b.collisions.length;
   return a.positionError < b.positionError;
+}
+
+// 6×6 Jacobian — finite differences of TCP pose (3 pos + 3 axis-angle rot)
+// w.r.t. each joint angle.
+function ik6Jacobian(
+  robot: URDFRobot, rootGroup: THREE.Object3D, joints: number[],
+): number[][] {
+  const J: number[][] = [
+    [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
+  ];
+  const posP = new THREE.Vector3();
+  const posN = new THREE.Vector3();
+  const quatP = new THREE.Quaternion();
+  const quatN = new THREE.Quaternion();
+  const qDelta = new THREE.Quaternion();
+  const axisAng = new THREE.Vector3();
+  for (let i = 0; i < 6; i++) {
+    const orig = joints[i];
+    joints[i] = orig + IK_EPSILON;
+    applyJoints6(robot, joints);
+    tcpPose(robot, rootGroup, posP, quatP);
+    joints[i] = orig - IK_EPSILON;
+    applyJoints6(robot, joints);
+    tcpPose(robot, rootGroup, posN, quatN);
+    joints[i] = orig;
+    const inv2eps = 1 / (2 * IK_EPSILON);
+    J[0][i] = (posP.x - posN.x) * inv2eps;
+    J[1][i] = (posP.y - posN.y) * inv2eps;
+    J[2][i] = (posP.z - posN.z) * inv2eps;
+    // qDelta = quatP * quatN^-1
+    qDelta.copy(quatN).invert().premultiply(quatP);
+    quatToAxisAngleVec(qDelta, axisAng);
+    J[3][i] = axisAng.x * inv2eps;
+    J[4][i] = axisAng.y * inv2eps;
+    J[5][i] = axisAng.z * inv2eps;
+  }
+  applyJoints6(robot, joints);
+  return J;
+}
+
+// Gauss-Jordan inverse of an NxN matrix.  Returns null if singular.
+function invertNxN(m: number[][], n: number): number[][] | null {
+  const a: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Array(2 * n);
+    for (let j = 0; j < n; j++) row[j] = m[i][j];
+    for (let j = 0; j < n; j++) row[n + j] = (i === j) ? 1 : 0;
+    a.push(row);
+  }
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    let maxAbs = Math.abs(a[col][col]);
+    for (let r = col + 1; r < n; r++) {
+      const v = Math.abs(a[r][col]);
+      if (v > maxAbs) { maxAbs = v; pivot = r; }
+    }
+    if (maxAbs < 1e-12) return null;
+    if (pivot !== col) { const t = a[col]; a[col] = a[pivot]; a[pivot] = t; }
+    const inv = 1 / a[col][col];
+    for (let j = 0; j < 2 * n; j++) a[col][j] *= inv;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = a[r][col];
+      if (f === 0) continue;
+      for (let j = 0; j < 2 * n; j++) a[r][j] -= f * a[col][j];
+    }
+  }
+  const out: number[][] = [];
+  for (let i = 0; i < n; i++) out.push(a[i].slice(n));
+  return out;
+}
+
+// 6D DLS update: Δθ = J^T (J J^T + λ²I)^-1 err, with err and Δθ length 6.
+function dls6Update(J: number[][], err: number[]): number[] {
+  const JJT: number[][] = [
+    [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0],
+  ];
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) {
+      let s = 0;
+      for (let k = 0; k < 6; k++) s += J[i][k] * J[j][k];
+      JJT[i][j] = s + (i === j ? IK_LAMBDA * IK_LAMBDA : 0);
+    }
+  }
+  const inv = invertNxN(JJT, 6);
+  if (!inv) return [0, 0, 0, 0, 0, 0];
+  const tmp = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < 6; i++) {
+    let s = 0;
+    for (let j = 0; j < 6; j++) s += inv[i][j] * err[j];
+    tmp[i] = s;
+  }
+  const delta = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < 6; i++) {
+    let s = 0;
+    for (let j = 0; j < 6; j++) s += J[j][i] * tmp[j];
+    delta[i] = s;
+  }
+  return delta;
+}
+
+// 6D pose IK: pin BOTH position and orientation.  Pos error in m, rot error
+// in rad (axis-angle magnitude).  6-DOF arm with a 6D target generally has a
+// discrete solution set (multiple branches), so collision avoidance via
+// random restart hops between branches rather than exploring a null space.
+const IK_ROT_TOLERANCE = 0.005;     // ~0.3°
+const IK_ROT_ACCEPT_TOL = 0.02;     // ~1.1°
+
+interface IK6Result {
+  joints: [number, number, number, number, number, number];
+  positionError: number;
+  rotationError: number;
+  collisions: string[];
+  iterations: number;
+  converged: boolean;
+  attempts: number;
+}
+
+function solveIK6DOnce(
+  robot: URDFRobot, rootGroup: THREE.Object3D,
+  targetPos: [number, number, number],
+  targetQuat: THREE.Quaternion,
+  initialJoints: number[],
+  obstacles: ReturnType<typeof collisionAABBs>,
+): { joints: number[]; positionError: number; rotationError: number; collisions: string[]; iterations: number; converged: boolean } {
+  const joints = [...initialJoints];
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const qDelta = new THREE.Quaternion();
+  const axisAng = new THREE.Vector3();
+  let posErr = Infinity;
+  let rotErr = Infinity;
+  let iter = 0;
+  for (iter = 0; iter < IK_MAX_ITER; iter++) {
+    applyJoints6(robot, joints);
+    tcpPose(robot, rootGroup, pos, quat);
+    const ex = targetPos[0] - pos.x;
+    const ey = targetPos[1] - pos.y;
+    const ez = targetPos[2] - pos.z;
+    posErr = Math.sqrt(ex * ex + ey * ey + ez * ez);
+    // qDelta = targetQuat * quat^-1 (rotates current to target)
+    qDelta.copy(quat).invert().premultiply(targetQuat);
+    quatToAxisAngleVec(qDelta, axisAng);
+    rotErr = axisAng.length();
+    if (posErr < IK_TOLERANCE && rotErr < IK_ROT_TOLERANCE) break;
+    const err = [ex, ey, ez, axisAng.x, axisAng.y, axisAng.z];
+    const J = ik6Jacobian(robot, rootGroup, joints);
+    const delta = dls6Update(J, err);
+    let n = 0;
+    for (let i = 0; i < 6; i++) n += delta[i] * delta[i];
+    n = Math.sqrt(n);
+    if (n > IK_STEP_CLAMP) {
+      const s = IK_STEP_CLAMP / n;
+      for (let i = 0; i < 6; i++) delta[i] *= s;
+    }
+    for (let i = 0; i < 6; i++) {
+      const [lo, hi] = JOINT_LIMITS[i];
+      joints[i] = Math.max(lo, Math.min(hi, joints[i] + delta[i]));
+    }
+  }
+  applyJoints6(robot, joints);
+  rootGroup.updateMatrixWorld(true);
+  const collisions = checkCobotCollisions(robot, obstacles);
+  return {
+    joints, positionError: posErr, rotationError: rotErr,
+    collisions, iterations: iter,
+    converged: posErr < IK_TOLERANCE && rotErr < IK_ROT_TOLERANCE,
+  };
+}
+
+// Better criterion for 6D candidates: clean wins, then lower combined error.
+function isBetterIK6(
+  a: { collisions: string[]; positionError: number; rotationError: number },
+  b: { collisions: string[]; positionError: number; rotationError: number } | null,
+): boolean {
+  if (!b) return true;
+  if (a.collisions.length !== b.collisions.length) return a.collisions.length < b.collisions.length;
+  // Combined error: pos in m + rot in rad * 0.1 (so 1 cm ≈ 0.1 rad of weight)
+  const ea = a.positionError + a.rotationError * 0.1;
+  const eb = b.positionError + b.rotationError * 0.1;
+  return ea < eb;
+}
+
+function solveIK6D(
+  robot: URDFRobot, rootGroup: THREE.Object3D,
+  targetPos: [number, number, number],
+  targetQuat: THREE.Quaternion,
+  initialJoints: number[],
+  obstacles: ReturnType<typeof collisionAABBs>,
+): IK6Result {
+  let best: (ReturnType<typeof solveIK6DOnce> & { attempts: number }) | null = null;
+  for (let attempt = 1; attempt <= IK_MAX_ATTEMPTS; attempt++) {
+    let start: number[];
+    if (attempt === 1) {
+      start = [...initialJoints];
+    } else {
+      const perturb = IK_PERTURB_MAX * (attempt / IK_MAX_ATTEMPTS);
+      start = initialJoints.map((j, i) => {
+        const [lo, hi] = JOINT_LIMITS[i];
+        return Math.max(lo, Math.min(hi, j + (Math.random() - 0.5) * 2 * perturb));
+      });
+    }
+    const r = solveIK6DOnce(robot, rootGroup, targetPos, targetQuat, start, obstacles);
+    if (r.converged && r.collisions.length === 0) {
+      return { ...r, joints: r.joints as IK6Result['joints'], attempts: attempt };
+    }
+    if (r.positionError < IK_ACCEPT_TOL && r.rotationError < IK_ROT_ACCEPT_TOL && r.collisions.length === 0) {
+      return { ...r, joints: r.joints as IK6Result['joints'], attempts: attempt };
+    }
+    if (isBetterIK6(r, best)) {
+      best = { ...r, attempts: attempt };
+    }
+  }
+  return { ...best!, joints: best!.joints as IK6Result['joints'] };
 }
 
 function solveIK(
@@ -1675,7 +1915,7 @@ function HMIPanel({
   setCafiGraspOffsetY: (v: number) => void;
   cafiGraspOffsetZRef: React.MutableRefObject<number>;
   setCafiGraspOffsetZ: (v: number) => void;
-  ikResult: IKResult | null;
+  ikResult: IK6Result | null;
   ikRunning: boolean;
   runRetarget: () => void;
   applyIkResult: () => void;
@@ -1877,6 +2117,10 @@ function HMIPanel({
             <div style={statRow}>
               <span>pos error</span>
               <span>{(ikResult.positionError * 1000).toFixed(2)} mm</span>
+            </div>
+            <div style={statRow}>
+              <span>rot error</span>
+              <span>{(ikResult.rotationError * 180 / Math.PI).toFixed(2)}°</span>
             </div>
             <div style={statRow}>
               <span>collisions</span>
@@ -2199,12 +2443,17 @@ export default function CellViewer3D() {
   const cobotGroupRef = useRef<THREE.Group | null>(null);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
   const obstacles = useMemo(() => collisionAABBs(), []);
-  const [ikResult, setIkResult] = useState<IKResult | null>(null);
+  const [ikResult, setIkResult] = useState<IK6Result | null>(null);
   const [ikRunning, setIkRunning] = useState(false);
-  // TCP pin: when active, jog moves are followed by a quick IK solve that
-  // pulls the TCP back to the captured world XYZ.  Lets the operator
-  // explore the elbow null space manually while the gripper stays put.
-  const pinnedTcpRef = useRef<[number, number, number] | null>(null);
+  // TCP pin: when active, jog moves are followed by a quick 6D IK solve that
+  // pulls the TCP back to the captured world POSE (position + orientation).
+  // Lets the operator explore valid configurations manually with the gripper
+  // pose locked.
+  interface PinnedPose {
+    pos: [number, number, number];
+    quat: [number, number, number, number];
+  }
+  const pinnedTcpRef = useRef<PinnedPose | null>(null);
   const [tcpPinned, setTcpPinned] = useState(false);
 
   const togglePinTcp = () => {
@@ -2218,29 +2467,36 @@ export default function CellViewer3D() {
     if (!robot || !group) return;
     applyJoints6(robot, jointsRef.current);
     const pos = new THREE.Vector3();
-    tcpWorld(robot, group, pos);
-    pinnedTcpRef.current = [pos.x, pos.y, pos.z];
+    const quat = new THREE.Quaternion();
+    tcpPose(robot, group, pos, quat);
+    pinnedTcpRef.current = {
+      pos: [pos.x, pos.y, pos.z],
+      quat: [quat.x, quat.y, quat.z, quat.w],
+    };
     setTcpPinned(true);
   };
 
-  // Retarget: take the current TCP world position as the IK target and
-  // re-solve from the current joints (with collision-aware sampling).
+  // Retarget: take the current TCP world POSE (position + orientation) as
+  // the 6D IK target and re-solve from the current joints with collision-
+  // aware random restarts.  Pose preservation means we look for alternate
+  // IK branches (elbow up/down, wrist flipped, etc.) — there's no null
+  // space to slide through.
+  const retargetTargetQuat = useMemo(() => new THREE.Quaternion(), []);
   const runRetarget = () => {
     const robot = cobotRobotRef.current;
     const group = cobotGroupRef.current;
     if (!robot || !group) return;
     setIkRunning(true);
-    // Yield to the browser so the "running" state can render.
     setTimeout(() => {
       try {
         const startJoints = [...jointsRef.current];
         applyJoints6(robot, startJoints);
-        const tcp = new THREE.Vector3();
-        tcpWorld(robot, group, tcp);
-        const target: [number, number, number] = [tcp.x, tcp.y, tcp.z];
-        const result = solveIK(robot, group, target, startJoints, obstacles);
-        // Restore the on-screen pose to the user's original joints — APPLY
-        // is what actually writes the new joints into jointsRef.
+        const pos = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        tcpPose(robot, group, pos, quat);
+        const target: [number, number, number] = [pos.x, pos.y, pos.z];
+        retargetTargetQuat.copy(quat);
+        const result = solveIK6D(robot, group, target, retargetTargetQuat, startJoints, obstacles);
         applyJoints6(robot, startJoints);
         group.updateMatrixWorld(true);
         setIkResult(result);
@@ -2323,23 +2579,26 @@ export default function CellViewer3D() {
   };
 
   // Manual jog: nudge one joint by delta rad, clamped to the URDF limit.
-  // If the TCP is pinned, follow the jog with a one-shot IK pass that pulls
-  // the TCP back to the captured world XYZ — the rest of the chain absorbs
-  // the change, letting the user surf the elbow null space manually.
+  // If the TCP is pinned, follow the jog with a one-shot 6D IK pass that
+  // pulls the TCP back to the captured pose (position + orientation).  The
+  // rest of the chain absorbs the change — the operator perturbs one joint
+  // at a time and watches valid alternate configurations emerge.
+  const pinTargetQuat = useMemo(() => new THREE.Quaternion(), []);
   const jogJoint = (i: number, delta: number) => {
     const [lo, hi] = JOINT_LIMITS[i];
     const next = Math.max(lo, Math.min(hi, jointsRef.current[i] + delta));
     jointsRef.current[i] = next;
-    if (pinnedTcpRef.current && cobotRobotRef.current && cobotGroupRef.current) {
-      const r = solveIKOnce(
+    const pin = pinnedTcpRef.current;
+    if (pin && cobotRobotRef.current && cobotGroupRef.current) {
+      pinTargetQuat.set(pin.quat[0], pin.quat[1], pin.quat[2], pin.quat[3]);
+      const r = solveIK6DOnce(
         cobotRobotRef.current,
         cobotGroupRef.current,
-        pinnedTcpRef.current,
+        pin.pos,
+        pinTargetQuat,
         [...jointsRef.current],
         obstacles,
       );
-      // Accept whatever IK gives us (even if not perfectly converged) so
-      // the operator can see the cobot move toward the pinned TCP.
       jointsRef.current = r.joints as typeof jointsRef.current;
     }
   };

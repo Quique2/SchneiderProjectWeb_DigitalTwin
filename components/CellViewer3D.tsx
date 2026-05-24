@@ -384,7 +384,12 @@ function CafiMesh({
   cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
   turntableRobotRef: React.MutableRefObject<URDFRobot | null>;
 }) {
-  const geom = useLoader(STLLoader, '/meshes/v53/cell/cafi.STL');
+  // IMPORTANT: must be the same STL used by the turntable URDF reference
+  // visuals.  /meshes/v53/cell/cafi.STL and /meshes/v53/turntable/cafi.stl
+  // have the same bbox but different vertex layouts/normals — using the
+  // wrong one made the runtime CAFI render at the right world pose but
+  // rotated/flipped vs the V53 reference markers.
+  const geom = useLoader(STLLoader, '/meshes/v53/turntable/cafi.stl');
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const tmpPos = useMemo(() => new THREE.Vector3(), []);

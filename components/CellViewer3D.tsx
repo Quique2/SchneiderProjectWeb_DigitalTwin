@@ -384,12 +384,18 @@ function CafiMesh({
   cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
   turntableRobotRef: React.MutableRefObject<URDFRobot | null>;
 }) {
-  // IMPORTANT: must be the same STL used by the turntable URDF reference
-  // visuals.  /meshes/v53/cell/cafi.STL and /meshes/v53/turntable/cafi.stl
-  // have the same bbox but different vertex layouts/normals — using the
-  // wrong one made the runtime CAFI render at the right world pose but
-  // rotated/flipped vs the V53 reference markers.
-  const geom = useLoader(STLLoader, '/meshes/v53/turntable/cafi.stl');
+  // Both V53 cafi STLs have the same bbox but DIFFERENT vertex layouts.
+  // Each was authored for a specific use:
+  //   - turntable/cafi.stl: oriented to match the V53 fixture/grasp offset
+  //     (-0.213, +0.056, -0.023) — use it when the CAFI is attached to a
+  //     URDF frame (in_gripper, on_fixture_*).
+  //   - cell/cafi.stl: oriented so the CENTERED mesh offset
+  //     (-0.0615, +0.0437, -0.0126) lays the part flat about the group
+  //     origin — use it for static states (conveyor, vision, bins).
+  const [geomAttached, geomStatic] = useLoader(STLLoader, [
+    '/meshes/v53/turntable/cafi.stl',
+    '/meshes/v53/cell/cafi.STL',
+  ]);
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const tmpPos = useMemo(() => new THREE.Vector3(), []);
@@ -433,12 +439,14 @@ function CafiMesh({
       g.position.copy(tmpPos);
       g.quaternion.copy(tmpQuat);
       m.position.set(...CAFI_OFFSET_ATTACHED);
+      if (m.geometry !== geomAttached) m.geometry = geomAttached;
     } else {
       const xyz = CAFI_AT[state as StaticCafiState];
       if (xyz) {
         g.position.set(xyz[0], xyz[1], xyz[2]);
         g.quaternion.identity();
         m.position.set(...CAFI_OFFSET_CENTERED);
+        if (m.geometry !== geomStatic) m.geometry = geomStatic;
       }
     }
 
@@ -490,7 +498,7 @@ function CafiMesh({
           rewritten each frame by useFrame (attached vs centred). */}
       <mesh
         ref={meshRef}
-        geometry={geom}
+        geometry={geomStatic}
         scale={[0.001, 0.001, 0.001]}
         position={CAFI_OFFSET_CENTERED}
         rotation={[Math.PI / 2, 0, 0]}

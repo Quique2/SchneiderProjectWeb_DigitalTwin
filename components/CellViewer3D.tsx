@@ -401,6 +401,8 @@ function CafiMesh({
   const meshRef = useRef<THREE.Mesh>(null);
   const tmpPos = useMemo(() => new THREE.Vector3(), []);
   const tmpQuat = useMemo(() => new THREE.Quaternion(), []);
+  const yawQuat = useMemo(() => new THREE.Quaternion(), []);
+  const yawAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const lastStateLogged = useRef<CafiState | null>(null);
 
   useFrame(() => {
@@ -438,18 +440,19 @@ function CafiMesh({
       frame.getWorldPosition(tmpPos);
       frame.getWorldQuaternion(tmpQuat);
       g.position.copy(tmpPos);
-      g.quaternion.copy(tmpQuat);
+      // For in_gripper, compose the gripper frame's world rotation with an
+      // extra Ry yaw applied in the group's LOCAL frame.  Since the group
+      // sits exactly at the gripper centre, this yaw rotates everything
+      // inside it (mesh + offset) around the gripper centre concentrically.
+      if (state === 'in_gripper') {
+        yawQuat.setFromAxisAngle(yawAxis, graspYawRef.current);
+        g.quaternion.copy(tmpQuat).multiply(yawQuat);
+      } else {
+        g.quaternion.copy(tmpQuat);
+      }
       m.position.set(...CAFI_OFFSET_ATTACHED);
       if (m.geometry !== geomAttached) m.geometry = geomAttached;
-      // Rx(+π/2) lay-flat in every attached state.  For in_gripper, also
-      // apply an extra Ry yaw (around the post-Rx Y axis, which after Rx
-      // points along world Z) so the operator can spin the held CAFI
-      // around the gripper's tool axis via the HMI slider.
-      m.rotation.set(
-        Math.PI / 2,
-        state === 'in_gripper' ? graspYawRef.current : 0,
-        0,
-      );
+      m.rotation.set(Math.PI / 2, 0, 0);
     } else {
       const xyz = CAFI_AT[state as StaticCafiState];
       if (xyz) {

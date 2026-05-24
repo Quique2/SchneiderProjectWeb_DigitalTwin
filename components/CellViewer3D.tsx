@@ -1921,7 +1921,10 @@ function HMIPanel({
   applyIkResult: () => void;
   discardIkResult: () => void;
   tcpPinned: boolean;
-  pinnedTcpRef: React.MutableRefObject<[number, number, number] | null>;
+  pinnedTcpRef: React.MutableRefObject<{
+    pos: [number, number, number];
+    quat: [number, number, number, number];
+  } | null>;
   togglePinTcp: () => void;
 }) {
   const [, force] = useState(0);
@@ -2260,7 +2263,9 @@ function HMIPanel({
             <div style={{ ...statRow, marginTop: 4, fontSize: 9 }}>
               <span>target</span>
               <span>
-                ({pinnedTcpRef.current[0].toFixed(3)}, {pinnedTcpRef.current[1].toFixed(3)}, {pinnedTcpRef.current[2].toFixed(3)})
+                ({pinnedTcpRef.current.pos[0].toFixed(3)},{' '}
+                {pinnedTcpRef.current.pos[1].toFixed(3)},{' '}
+                {pinnedTcpRef.current.pos[2].toFixed(3)})
               </span>
             </div>
           )}

@@ -385,6 +385,7 @@ function CafiMesh({
   const meshRef = useRef<THREE.Mesh>(null);
   const tmpPos = useMemo(() => new THREE.Vector3(), []);
   const tmpQuat = useMemo(() => new THREE.Quaternion(), []);
+  const lastStateLogged = useRef<CafiState | null>(null);
 
   useFrame(() => {
     const g = groupRef.current;
@@ -395,15 +396,23 @@ function CafiMesh({
     g.visible = true;
 
     let frame: THREE.Object3D | undefined;
+    let rootRobot: URDFRobot | null = null;
     if (state === 'in_gripper') {
-      frame = cobotRobotRef.current?.frames['cafi_lateral_target_frame'];
+      rootRobot = cobotRobotRef.current;
+      frame = rootRobot?.frames['cafi_lateral_target_frame'];
     } else if (state === 'on_fixture_1') {
-      frame = turntableRobotRef.current?.frames['cafi_part_1_link'];
+      rootRobot = turntableRobotRef.current;
+      frame = rootRobot?.frames['cafi_part_1_link'];
     } else if (state === 'on_fixture_2') {
-      frame = turntableRobotRef.current?.frames['cafi_part_2_link'];
+      rootRobot = turntableRobotRef.current;
+      frame = rootRobot?.frames['cafi_part_2_link'];
     }
 
     if (frame) {
+      // Belt-and-braces: force the whole chain's matrices fresh before
+      // querying — covers any case where matrixAutoUpdate hasn't kicked
+      // in yet this frame.
+      if (rootRobot) rootRobot.updateMatrixWorld(true);
       frame.getWorldPosition(tmpPos);
       frame.getWorldQuaternion(tmpQuat);
       g.position.copy(tmpPos);
@@ -416,6 +425,22 @@ function CafiMesh({
         g.quaternion.identity();
         m.position.set(...CAFI_OFFSET_CENTERED);
       }
+    }
+
+    // One-shot diagnostic on every state transition.
+    if (state !== lastStateLogged.current) {
+      lastStateLogged.current = state;
+      // eslint-disable-next-line no-console
+      console.log(
+        `%c[CafiMesh] state → ${state}`,
+        'color:#d97340;font-weight:700',
+        {
+          frameFound: !!frame,
+          cobotReady: !!cobotRobotRef.current,
+          turntableReady: !!turntableRobotRef.current,
+          worldPos: frame ? [tmpPos.x.toFixed(3), tmpPos.y.toFixed(3), tmpPos.z.toFixed(3)] : null,
+        },
+      );
     }
   });
 
@@ -520,16 +545,21 @@ function Turntable({
   robotRef: React.MutableRefObject<URDFRobot | null>;
 }) {
   const robot = useUrdf('/urdf/turntable_rivet_cell.urdf');
+  const groupRef = useRef<THREE.Group>(null);
   useEffect(() => {
     if (robot) robotRef.current = robot;
   }, [robot, robotRef]);
   useFrame(() => {
     if (!robot) return;
     robot.setJointValue('table_rotation_joint', angleRef.current);
+    // Without forcing matrixWorld, downstream consumers (CafiMesh querying
+    // the fixture frames) read the previous frame's pose and the CAFI
+    // appears to lag/snap instead of following the rotating disc.
+    if (groupRef.current) groupRef.current.updateMatrixWorld(true);
   });
   if (!robot) return null;
   return (
-    <group position={TURNTABLE_BASE}>
+    <group ref={groupRef} position={TURNTABLE_BASE}>
       <primitive object={robot} />
     </group>
   );

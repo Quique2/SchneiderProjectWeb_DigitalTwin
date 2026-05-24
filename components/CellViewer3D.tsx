@@ -440,7 +440,9 @@ function CafiMesh({
       g.quaternion.copy(tmpQuat);
       m.position.set(...CAFI_OFFSET_ATTACHED);
       if (m.geometry !== geomAttached) m.geometry = geomAttached;
-      m.rotation.set(Math.PI / 2, 0, 0);
+      // No Rx(π/2) when grasped — the gripper's own world quaternion already
+      // orients the CAFI correctly; an extra Rx would over-rotate it.
+      m.rotation.set(state === 'in_gripper' ? 0 : Math.PI / 2, 0, 0);
     } else {
       const xyz = CAFI_AT[state as StaticCafiState];
       if (xyz) {

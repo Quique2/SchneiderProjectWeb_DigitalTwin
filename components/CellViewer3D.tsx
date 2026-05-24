@@ -378,11 +378,12 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
 // swapped between V53 lateral-grasp values (attached) and centred values
 // (static) so the CAFI lands in the right spot in both cases.
 function CafiMesh({
-  stateRef, cobotRobotRef, turntableRobotRef,
+  stateRef, cobotRobotRef, turntableRobotRef, graspYawRef,
 }: {
   stateRef: React.MutableRefObject<CafiState>;
   cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
   turntableRobotRef: React.MutableRefObject<URDFRobot | null>;
+  graspYawRef: React.MutableRefObject<number>;
 }) {
   // Both V53 cafi STLs have the same bbox but DIFFERENT vertex layouts.
   // Each was authored for a specific use:
@@ -440,9 +441,15 @@ function CafiMesh({
       g.quaternion.copy(tmpQuat);
       m.position.set(...CAFI_OFFSET_ATTACHED);
       if (m.geometry !== geomAttached) m.geometry = geomAttached;
-      // Grasped: Rx(-π/2) flips the CAFI relative to the gripper frame.
-      // Other attached states (on_fixture_*): plain Rx(+π/2) lay-flat.
-      m.rotation.set(state === 'in_gripper' ? -Math.PI / 2 : Math.PI / 2, 0, 0);
+      // Rx(+π/2) lay-flat in every attached state.  For in_gripper, also
+      // apply an extra Ry yaw (around the post-Rx Y axis, which after Rx
+      // points along world Z) so the operator can spin the held CAFI
+      // around the gripper's tool axis via the HMI slider.
+      m.rotation.set(
+        Math.PI / 2,
+        state === 'in_gripper' ? graspYawRef.current : 0,
+        0,
+      );
     } else {
       const xyz = CAFI_AT[state as StaticCafiState];
       if (xyz) {
@@ -1396,6 +1403,8 @@ function HMIPanel({
   playerPlay,
   playerPause,
   playerReset,
+  cafiGraspYawRef,
+  setCafiGraspYaw,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1420,6 +1429,8 @@ function HMIPanel({
   playerPlay: () => void;
   playerPause: () => void;
   playerReset: () => void;
+  cafiGraspYawRef: React.MutableRefObject<number>;
+  setCafiGraspYaw: (yaw: number) => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1601,6 +1612,19 @@ function HMIPanel({
           <span>jaw</span>
           <span>{(gripperLiveRef.current * 1000).toFixed(1)} mm ({gripPct.toFixed(0)}%)</span>
         </div>
+        {/* CAFI grasp yaw — spins the held workpiece around the gripper's
+            tool axis without moving the cobot.  Only takes effect when the
+            CAFI is in_gripper. */}
+        <div style={{ marginTop: 8 }}>
+          <div style={statRow}>
+            <span>CAFI yaw</span>
+            <span>{(cafiGraspYawRef.current * 180 / Math.PI).toFixed(1)}°</span>
+          </div>
+          <input type="range" min={-Math.PI} max={Math.PI} step={0.01}
+            defaultValue={0}
+            onInput={(e) => setCafiGraspYaw(parseFloat((e.target as HTMLInputElement).value))}
+            style={{ width: '100%' }} />
+        </div>
       </Section>
 
       {/* Disc rotation */}
@@ -1754,6 +1778,8 @@ export default function CellViewer3D() {
   const cafiStateRef = useRef<CafiState>('conveyor');
   const cobotRobotRef = useRef<URDFRobot | null>(null);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
+  const cafiGraspYawRef = useRef<number>(0);
+  const setCafiGraspYaw = (yaw: number) => { cafiGraspYawRef.current = yaw; };
   const playerRef = useRef<PlayerState>({
     playing: false,
     step: 0,
@@ -1915,6 +1941,7 @@ export default function CellViewer3D() {
               stateRef={cafiStateRef}
               cobotRobotRef={cobotRobotRef}
               turntableRobotRef={turntableRobotRef}
+              graspYawRef={cafiGraspYawRef}
             />
           </Suspense>
 
@@ -1963,6 +1990,8 @@ export default function CellViewer3D() {
           playerPlay={playerPlay}
           playerPause={playerPause}
           playerReset={playerReset}
+          cafiGraspYawRef={cafiGraspYawRef}
+          setCafiGraspYaw={setCafiGraspYaw}
         />
       </div>
     </div>

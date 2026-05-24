@@ -380,6 +380,7 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
 function CafiMesh({
   stateRef, cobotRobotRef, turntableRobotRef,
   graspYawRef, graspPitchRef, graspRollRef,
+  graspOffsetXRef, graspOffsetYRef, graspOffsetZRef,
 }: {
   stateRef: React.MutableRefObject<CafiState>;
   cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
@@ -387,6 +388,9 @@ function CafiMesh({
   graspYawRef: React.MutableRefObject<number>;
   graspPitchRef: React.MutableRefObject<number>;
   graspRollRef: React.MutableRefObject<number>;
+  graspOffsetXRef: React.MutableRefObject<number>;
+  graspOffsetYRef: React.MutableRefObject<number>;
+  graspOffsetZRef: React.MutableRefObject<number>;
 }) {
   // Both V53 cafi STLs have the same bbox but DIFFERENT vertex layouts.
   // Each was authored for a specific use:
@@ -462,7 +466,16 @@ function CafiMesh({
       } else {
         g.quaternion.copy(tmpQuat);
       }
-      m.position.set(...CAFI_OFFSET_ATTACHED);
+      if (state === 'in_gripper') {
+        // Live-tunable grasp offset (the operator can refine via HMI).
+        m.position.set(
+          graspOffsetXRef.current,
+          graspOffsetYRef.current,
+          graspOffsetZRef.current,
+        );
+      } else {
+        m.position.set(...CAFI_OFFSET_ATTACHED);
+      }
       if (m.geometry !== geomAttached) m.geometry = geomAttached;
       m.rotation.set(Math.PI / 2, 0, 0);
     } else {
@@ -1424,6 +1437,12 @@ function HMIPanel({
   setCafiGraspPitch,
   cafiGraspRollRef,
   setCafiGraspRoll,
+  cafiGraspOffsetXRef,
+  setCafiGraspOffsetX,
+  cafiGraspOffsetYRef,
+  setCafiGraspOffsetY,
+  cafiGraspOffsetZRef,
+  setCafiGraspOffsetZ,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1454,6 +1473,12 @@ function HMIPanel({
   setCafiGraspPitch: (pitch: number) => void;
   cafiGraspRollRef: React.MutableRefObject<number>;
   setCafiGraspRoll: (roll: number) => void;
+  cafiGraspOffsetXRef: React.MutableRefObject<number>;
+  setCafiGraspOffsetX: (v: number) => void;
+  cafiGraspOffsetYRef: React.MutableRefObject<number>;
+  setCafiGraspOffsetY: (v: number) => void;
+  cafiGraspOffsetZRef: React.MutableRefObject<number>;
+  setCafiGraspOffsetZ: (v: number) => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1668,6 +1693,21 @@ function HMIPanel({
             onInput={(e) => setCafiGraspRoll(parseFloat((e.target as HTMLInputElement).value))}
             style={{ width: '100%' }} />
         </div>
+
+        {/* CAFI grasp offset (X/Y/Z in metres, in the gripper's local frame).
+            Each axis has a slider for coarse adjustment + a numeric input
+            for exact values.  Only takes effect in_gripper. */}
+        <div style={{
+          marginTop: 10, paddingTop: 8,
+          borderTop: '1px solid #1a2434',
+        }}>
+          <div style={{ fontSize: 9, letterSpacing: 1, color: '#688', marginBottom: 6 }}>
+            CAFI offset (m) · gripper local
+          </div>
+          <OffsetControl label="X" valueRef={cafiGraspOffsetXRef} setter={setCafiGraspOffsetX} />
+          <OffsetControl label="Y" valueRef={cafiGraspOffsetYRef} setter={setCafiGraspOffsetY} />
+          <OffsetControl label="Z" valueRef={cafiGraspOffsetZRef} setter={setCafiGraspOffsetZ} />
+        </div>
       </Section>
 
       {/* Disc rotation */}
@@ -1774,6 +1814,42 @@ function HMIPanel({
   );
 }
 
+// Slider + numeric input that share a ref-backed value.  Slider gives coarse
+// drag, numeric input lets the operator type an exact metre offset.
+function OffsetControl({ label, valueRef, setter }: {
+  label: string;
+  valueRef: React.MutableRefObject<number>;
+  setter: (v: number) => void;
+}) {
+  const handle = (v: string) => {
+    const n = parseFloat(v);
+    if (Number.isFinite(n)) setter(n);
+  };
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={statRow}>
+        <span>{label}</span>
+        <span>{(valueRef.current * 1000).toFixed(1)} mm</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: 4, alignItems: 'center' }}>
+        <input type="range" min={-0.4} max={0.4} step={0.001}
+          defaultValue={valueRef.current}
+          onInput={(e) => handle((e.target as HTMLInputElement).value)}
+          style={{ width: '100%' }} />
+        <input type="number" step={0.001}
+          defaultValue={valueRef.current.toFixed(4)}
+          onChange={(e) => handle((e.target as HTMLInputElement).value)}
+          style={{
+            background: '#0c1828', color: '#dde4f0',
+            border: '1px solid #2a4060', borderRadius: 3,
+            padding: '3px 4px', fontSize: 10, fontFamily: 'monospace',
+            width: '100%',
+          }} />
+      </div>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
@@ -1830,6 +1906,15 @@ export default function CellViewer3D() {
   const setCafiGraspYaw = (yaw: number) => { cafiGraspYawRef.current = yaw; };
   const setCafiGraspPitch = (pitch: number) => { cafiGraspPitchRef.current = pitch; };
   const setCafiGraspRoll = (roll: number) => { cafiGraspRollRef.current = roll; };
+
+  // Grasp offset (CAFI mesh position relative to gripper cafi_lateral_target_frame).
+  // Defaults match the V53 turntable URDF visual offset.
+  const cafiGraspOffsetXRef = useRef<number>(CAFI_OFFSET_ATTACHED[0]);
+  const cafiGraspOffsetYRef = useRef<number>(CAFI_OFFSET_ATTACHED[1]);
+  const cafiGraspOffsetZRef = useRef<number>(CAFI_OFFSET_ATTACHED[2]);
+  const setCafiGraspOffsetX = (v: number) => { cafiGraspOffsetXRef.current = v; };
+  const setCafiGraspOffsetY = (v: number) => { cafiGraspOffsetYRef.current = v; };
+  const setCafiGraspOffsetZ = (v: number) => { cafiGraspOffsetZRef.current = v; };
   const playerRef = useRef<PlayerState>({
     playing: false,
     step: 0,
@@ -1994,6 +2079,9 @@ export default function CellViewer3D() {
               graspYawRef={cafiGraspYawRef}
               graspPitchRef={cafiGraspPitchRef}
               graspRollRef={cafiGraspRollRef}
+              graspOffsetXRef={cafiGraspOffsetXRef}
+              graspOffsetYRef={cafiGraspOffsetYRef}
+              graspOffsetZRef={cafiGraspOffsetZRef}
             />
           </Suspense>
 
@@ -2048,6 +2136,12 @@ export default function CellViewer3D() {
           setCafiGraspPitch={setCafiGraspPitch}
           cafiGraspRollRef={cafiGraspRollRef}
           setCafiGraspRoll={setCafiGraspRoll}
+          cafiGraspOffsetXRef={cafiGraspOffsetXRef}
+          setCafiGraspOffsetX={setCafiGraspOffsetX}
+          cafiGraspOffsetYRef={cafiGraspOffsetYRef}
+          setCafiGraspOffsetY={setCafiGraspOffsetY}
+          cafiGraspOffsetZRef={cafiGraspOffsetZRef}
+          setCafiGraspOffsetZ={setCafiGraspOffsetZ}
         />
       </div>
     </div>

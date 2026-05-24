@@ -1636,6 +1636,9 @@ function HMIPanel({
   runRetarget,
   applyIkResult,
   discardIkResult,
+  tcpPinned,
+  pinnedTcpRef,
+  togglePinTcp,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1677,6 +1680,9 @@ function HMIPanel({
   runRetarget: () => void;
   applyIkResult: () => void;
   discardIkResult: () => void;
+  tcpPinned: boolean;
+  pinnedTcpRef: React.MutableRefObject<[number, number, number] | null>;
+  togglePinTcp: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1994,6 +2000,31 @@ function HMIPanel({
 
       {/* Manual jog — 6 joints, ±0.001 / ±0.01 / ±0.1 / ±0.5 rad steps */}
       <Section title="Manual Jog (rad)">
+        {/* PIN TCP: when ON, every jog re-solves IK to keep TCP at the
+            captured world XYZ.  Lets the operator surf the null space
+            without losing the gripper position. */}
+        <div style={{ marginBottom: 8 }}>
+          <button onClick={togglePinTcp} style={{
+            ...btnStyle, fontSize: 11, padding: '8px 10px',
+            background: tcpPinned
+              ? 'linear-gradient(180deg,#33dffe 0%,#1ba0c0 100%)'
+              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)',
+          }}>
+            {tcpPinned ? '📌 TCP PINNED' : '◯ PIN TCP'}
+          </button>
+          {tcpPinned && pinnedTcpRef.current && (
+            <div style={{ ...statRow, marginTop: 4, fontSize: 9 }}>
+              <span>target</span>
+              <span>
+                ({pinnedTcpRef.current[0].toFixed(3)}, {pinnedTcpRef.current[1].toFixed(3)}, {pinnedTcpRef.current[2].toFixed(3)})
+              </span>
+            </div>
+          )}
+          <div style={{ fontSize: 9, color: '#7a8090', marginTop: 4, lineHeight: 1.4 }}>
+            With PIN ON, jogs trigger IK to keep TCP fixed — gives you
+            direct control over elbow/wrist configuration.
+          </div>
+        </div>
         {[0, 1, 2, 3, 4, 5].map((i) => {
           const v = j[i];
           const [lo, hi] = JOINT_LIMITS[i];
@@ -2170,6 +2201,27 @@ export default function CellViewer3D() {
   const obstacles = useMemo(() => collisionAABBs(), []);
   const [ikResult, setIkResult] = useState<IKResult | null>(null);
   const [ikRunning, setIkRunning] = useState(false);
+  // TCP pin: when active, jog moves are followed by a quick IK solve that
+  // pulls the TCP back to the captured world XYZ.  Lets the operator
+  // explore the elbow null space manually while the gripper stays put.
+  const pinnedTcpRef = useRef<[number, number, number] | null>(null);
+  const [tcpPinned, setTcpPinned] = useState(false);
+
+  const togglePinTcp = () => {
+    if (tcpPinned) {
+      pinnedTcpRef.current = null;
+      setTcpPinned(false);
+      return;
+    }
+    const robot = cobotRobotRef.current;
+    const group = cobotGroupRef.current;
+    if (!robot || !group) return;
+    applyJoints6(robot, jointsRef.current);
+    const pos = new THREE.Vector3();
+    tcpWorld(robot, group, pos);
+    pinnedTcpRef.current = [pos.x, pos.y, pos.z];
+    setTcpPinned(true);
+  };
 
   // Retarget: take the current TCP world position as the IK target and
   // re-solve from the current joints (with collision-aware sampling).
@@ -2271,10 +2323,25 @@ export default function CellViewer3D() {
   };
 
   // Manual jog: nudge one joint by delta rad, clamped to the URDF limit.
+  // If the TCP is pinned, follow the jog with a one-shot IK pass that pulls
+  // the TCP back to the captured world XYZ — the rest of the chain absorbs
+  // the change, letting the user surf the elbow null space manually.
   const jogJoint = (i: number, delta: number) => {
     const [lo, hi] = JOINT_LIMITS[i];
     const next = Math.max(lo, Math.min(hi, jointsRef.current[i] + delta));
     jointsRef.current[i] = next;
+    if (pinnedTcpRef.current && cobotRobotRef.current && cobotGroupRef.current) {
+      const r = solveIKOnce(
+        cobotRobotRef.current,
+        cobotGroupRef.current,
+        pinnedTcpRef.current,
+        [...jointsRef.current],
+        obstacles,
+      );
+      // Accept whatever IK gives us (even if not perfectly converged) so
+      // the operator can see the cobot move toward the pinned TCP.
+      jointsRef.current = r.joints as typeof jointsRef.current;
+    }
   };
 
   // Save the current cobot state (joints + disc + gripper + TCP + collisions)
@@ -2456,6 +2523,9 @@ export default function CellViewer3D() {
           runRetarget={runRetarget}
           applyIkResult={applyIkResult}
           discardIkResult={discardIkResult}
+          tcpPinned={tcpPinned}
+          pinnedTcpRef={pinnedTcpRef}
+          togglePinTcp={togglePinTcp}
         />
       </div>
     </div>

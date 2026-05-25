@@ -11,26 +11,30 @@ import { STLLoader } from 'three-stdlib';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 
-// ── V53 poses (from resolved_poses.py) ───────────────────────────────────────
+// ── V57 poses (from resolved_poses.py) ───────────────────────────────────────
+// V56: disc shifted +300 mm east, so all LOAD/RIVETED joints re-IK'd with
+//      J5 locked at -π/2 and J6 locked at -π/4.
+// V57: conveyor shifted +300 mm east, so all CONVEYOR poses re-IK'd
+//      (J1 ≈ -2.37 rad instead of V53's -1.68 rad).
 const POSE_LIB: Record<string, [number, number, number, number, number, number]> = {
   POSE_HOME:                  [+0.000000, +0.000000, +0.000000, +1.570796, -1.570796, +0.000000],
-  POSE_APPROACH_CONVEYOR:     [-1.683778, +1.496127, -1.595100, +1.614122, -1.620474, -1.683917],
-  POSE_PICK_CONVEYOR:         [-1.683776, +2.000212, -1.975846, +1.490785, -1.620475, -1.683915],
-  POSE_LIFT_CONVEYOR:         [-1.683780, +1.373415, -1.461953, +1.603686, -1.620473, -1.683920],
-  POSE_APPROACH_LOAD_FIXTURE: [-0.638645, +1.595716, -0.778483, +0.169788, -0.884422, -0.974093],
-  POSE_PLACE_LOAD_FIXTURE:    [-0.640256, +1.764635, -0.745173, +0.213166, -0.877848, -1.002992],
-  POSE_RELEASE_LOAD_FIXTURE:  [-0.645366, +1.748148, -0.769518, +0.218750, -0.856014, -1.018961],
-  POSE_RETREAT_LOAD_FIXTURE:  [-0.651802, +1.614594, -0.793524, +0.166479, -0.827237, -0.998181],
-  POSE_APPROACH_PICK_RIVETED: [-0.655158, +1.617126, -0.793827, +0.167285, -0.812080, -1.004551],
-  POSE_PICK_RIVETED:          [-0.656090, +1.788124, -0.762968, +0.213773, -0.807076, -1.038163],
-  POSE_LIFT_RIVETED:          [-0.662384, +1.572930, -0.775116, +0.127519, -0.778237, -0.986133],
-  POSE_APPROACH_VISION:       [+0.110620, +1.135199, -0.051987, +0.485431, -1.565044, +0.110364],
-  POSE_PLACE_VISION:          [+0.113212, +1.676995, -0.659511, +0.552978, -1.565147, +0.113070],
+  POSE_APPROACH_CONVEYOR:     [-2.372758, +1.485911, -1.332119, +1.331061, -1.605556, -2.373385],
+  POSE_PICK_CONVEYOR:         [-2.372778, +1.961976, -1.699341, +1.222211, -1.605553, -2.373404],
+  POSE_LIFT_CONVEYOR:         [-2.372773, +1.360180, -1.193885, +1.318553, -1.605554, -2.373398],
+  POSE_APPROACH_LOAD_FIXTURE: [-0.821172, +1.338785, -1.418464, +1.739105, -1.570796, -0.785398],
+  POSE_PLACE_LOAD_FIXTURE:    [-0.821256, +1.834278, -1.876262, +1.701416, -1.570796, -0.785398],
+  POSE_RELEASE_LOAD_FIXTURE:  [-0.821159, +1.749900, -1.816596, +1.726125, -1.570796, -0.785398],
+  POSE_RETREAT_LOAD_FIXTURE:  [-0.821172, +1.338785, -1.418464, +1.739105, -1.570796, -0.785398],
+  POSE_APPROACH_PICK_RIVETED: [-0.821172, +1.338785, -1.418464, +1.739105, -1.570796, -0.785398],
+  POSE_PICK_RIVETED:          [-0.821256, +1.834278, -1.876262, +1.701416, -1.570796, -0.785398],
+  POSE_LIFT_RIVETED:          [-0.821206, +1.212485, -1.260442, +1.707372, -1.570796, -0.785398],
+  POSE_APPROACH_VISION:       [+0.110638, +1.121233, -0.023105, +0.470515, -1.565045, +0.110383],
+  POSE_PLACE_VISION:          [+0.113212, +1.676994, -0.659508, +0.552975, -1.565147, +0.113070],
   POSE_RELEASE_VISION:        [+0.113215, +1.582386, -0.589477, +0.577552, -1.565147, +0.113073],
-  POSE_RETREAT_VISION:        [+0.110638, +1.121296, -0.023234, +0.470581, -1.565045, +0.110383],
+  POSE_RETREAT_VISION:        [+0.110638, +1.120024, -0.020605, +0.469222, -1.565045, +0.110384],
   POSE_APPROACH_ACCEPT_BIN:   [+2.209657, +1.753535, -1.620040, +1.357474, -1.530664, +2.210256],
-  POSE_DROP_ACCEPT_BIN:       [+2.209750, +0.480417, +1.809828, -0.799259, -1.530674, +2.210355],
-  POSE_APPROACH_REJECT_BIN:   [+1.225784, -0.442571, +2.178226, -0.197937, -1.523750, +1.225390],
+  POSE_DROP_ACCEPT_BIN:       [+2.209751, +0.480417, +1.809826, -0.799257, -1.530674, +2.210355],
+  POSE_APPROACH_REJECT_BIN:   [+1.225784, -0.442571, +2.178227, -0.197937, -1.523750, +1.225389],
   POSE_DROP_REJECT_BIN:       [+1.225773, -0.031858, +2.523346, -0.953769, -1.523749, +1.225378],
 };
 type PoseName = keyof typeof POSE_LIB;
@@ -115,7 +119,7 @@ type CafiState =
 // kinematic frame).  Identity orientation, mesh uses CENTERED offset.
 type StaticCafiState = 'conveyor' | 'at_vision' | 'in_accept_bin' | 'in_reject_bin';
 const CAFI_AT: Record<StaticCafiState, [number, number, number]> = {
-  conveyor:      [1.235, 1.365, 1.070 + 0.0125],   // belt top + half-CAFI thickness
+  conveyor:      [1.535, 1.365, 1.070 + 0.0125],   // V57: pick X shifted +0.3 m east
   at_vision:     [0.750, 0.804, 1.025],            // top of vision plate + half-CAFI
   in_accept_bin: [1.650, 0.720, 1.020],            // bin floor + half-CAFI
   in_reject_bin: [1.330, 0.700, 1.020],
@@ -189,9 +193,13 @@ const SEQUENCE: SequenceStep[] = [
   { kind: 'pose',    pose: 'POSE_HOME', duration: 2.5 },
 ];
 
-// V53 world anchors (from schneider_cell.urdf.xacro, all in metres, Z up).
+// V57 world anchors (from schneider_cell.urdf.xacro).  Compared to V53:
+//   - disc shifted +0.300 m east (riveting_zone (0.692, 1.259) → (0.992, 1.259))
+//   - conveyor shifted +0.300 m east (anchor (1.370, 1.365) → (1.670, 1.365))
+//     so the conveyor pick X moves 1.235 → 1.535.
+//   - mesa, cobot, vision, bins, control station unchanged.
 const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
-const TURNTABLE_BASE : [number, number, number] = [0.692, 1.259, 1.000];
+const TURNTABLE_BASE : [number, number, number] = [0.992, 1.259, 1.000];
 const MESA_CENTRE    : [number, number, number] = [1.252205, 1.049061, 1.000];
 
 // ── Collision avoidance: AABB world boxes around every obstacle the cobot
@@ -206,37 +214,33 @@ interface CollisionBox {
 }
 
 const COLLISION_BOXES: CollisionBox[] = [
-  // Conveyor body + belt top (a single AABB encompassing both)
-  { x: 1.370, y: 1.365, z: 1.040, sx: 0.375, sy: 0.150, sz: 0.080, name: 'Conveyor',         color: '#fbbf24' },
-  // Suministro CAFI feeder plate
-  { x: 1.620, y: 1.365, z: 1.0075, sx: 0.150, sy: 0.220, sz: 0.015, name: 'Suministro CAFI', color: '#fbbf24' },
-  // Quality bins (hollow boxes — treat the full outer envelope as a no-go)
+  // V57: conveyor + feeder + motor + sensor all shifted +0.300 m east.
+  { x: 1.670, y: 1.365, z: 1.040, sx: 0.375, sy: 0.150, sz: 0.080, name: 'Conveyor',         color: '#fbbf24' },
+  { x: 1.920, y: 1.365, z: 1.0075, sx: 0.150, sy: 0.220, sz: 0.015, name: 'Suministro CAFI', color: '#fbbf24' },
+  // Quality bins (unchanged — outer envelope treated as no-go)
   { x: 1.650, y: 0.720, z: 1.075, sx: 0.227, sy: 0.172, sz: 0.150, name: 'Bin Aceptado',     color: '#22dd55' },
   { x: 1.330, y: 0.700, z: 1.075, sx: 0.227, sy: 0.182, sz: 0.150, name: 'Bin Rechazado',    color: '#ff5566' },
-  // Vision fixture plate
+  // Vision fixture plate (unchanged)
   { x: 0.750, y: 0.804, z: 1.008, sx: 0.159, sy: 0.118, sz: 0.015, name: 'Vision fixture',   color: '#a78bfa' },
-  // Cognex camera body + suspension column (treat as a single tall AABB)
+  // Cognex camera body + suspension column (unchanged)
   { x: 0.750, y: 0.804, z: 1.520, sx: 0.060, sy: 0.045, sz: 0.045, name: 'Cognex body',      color: '#e879f9' },
   { x: 0.750, y: 0.804, z: 1.795, sx: 0.024, sy: 0.024, sz: 0.550, name: 'Cognex column',    color: '#e879f9' },
-  // Riveting canopy + 2 back posts
-  { x: 0.692, y: 1.284, z: 1.330, sx: 0.450, sy: 0.300, sz: 0.040, name: 'Riveting canopy',  color: '#fb923c' },
-  { x: 0.467, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NW', color: '#fb923c' },
-  { x: 0.917, y: 1.434, z: 1.155, sx: 0.030, sy: 0.030, sz: 0.310, name: 'Riveting post NE', color: '#fb923c' },
-  // Turntable disc + rivet fixtures.  Top is flush with the fixture body
-  // (disc top z≈1.078 per URDF, fixture top ≈+50 mm → 1.128).  The CAFI
-  // workpieces sit above and are intentionally LEFT OUT — the cobot does
-  // pick them up.  XY shrunk to ~disc diameter (≈0.265 m).
-  { x: 0.692, y: 1.259, z: 1.064, sx: 0.270, sy: 0.270, sz: 0.128, name: 'Turntable + fixtures', color: '#a78bfa' },
-  // Cabin corner posts (4)
+  // V57: rivet cabin REMOVED.  Indicator post is the only new obstacle next
+  // to the disc (post + 3 lamps, all at x ≈ disc_x − 0.220).
+  { x: 0.772, y: 1.259, z: 1.225, sx: 0.060, sy: 0.060, sz: 0.350, name: 'Rivet indicator',  color: '#fb923c' },
+  // Turntable disc + rivet fixtures — V57 disc anchor (0.992, 1.259).
+  // Top flush with the fixture body (disc top z≈1.078, fixture +50 mm).
+  { x: 0.992, y: 1.259, z: 1.064, sx: 0.270, sy: 0.270, sz: 0.128, name: 'Turntable + fixtures', color: '#a78bfa' },
+  // Cabin corner posts (unchanged)
   { x: 0.30, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SW',     color: '#c8c8cc' },
   { x: 2.20, y: 0.30, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post SE',     color: '#c8c8cc' },
   { x: 0.30, y: 1.80, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post NW',     color: '#c8c8cc' },
   { x: 2.20, y: 1.80, z: 1.010, sx: 0.050, sy: 0.050, sz: 2.020, name: 'Cabin post NE',     color: '#c8c8cc' },
-  // SICK photoelectric sensors (body + bracket envelope)
-  { x: 1.235, y: 1.310, z: 1.100, sx: 0.045, sy: 0.080, sz: 0.045, name: 'Sensor conveyor', color: '#33dffe' },
+  // V57: sensor face_x = 1.535 (moved with conveyor)
+  { x: 1.535, y: 1.310, z: 1.100, sx: 0.045, sy: 0.080, sz: 0.045, name: 'Sensor conveyor', color: '#33dffe' },
   { x: 0.626, y: 0.804, z: 1.040, sx: 0.080, sy: 0.045, sz: 0.045, name: 'Sensor vision',   color: '#33dffe' },
-  // NEMA17 conveyor motor
-  { x: 1.550, y: 1.365, z: 1.036, sx: 0.045, sy: 0.045, sz: 0.060, name: 'NEMA17 motor',    color: '#fbbf24' },
+  // V57: NEMA17 motor moved with conveyor
+  { x: 1.850, y: 1.365, z: 1.036, sx: 0.045, sy: 0.045, sz: 0.060, name: 'NEMA17 motor',    color: '#fbbf24' },
 ];
 
 // ── Hook: load a URDF asynchronously and expose the robot object ─────────────
@@ -670,19 +674,19 @@ function CellPrimitives() {
       {/* Mesa: slab + 4 legs (V53 plant_table 1.62 x 0.92 x 1.00) */}
       <MesaTable cx={MESA_CENTRE[0]} cy={MESA_CENTRE[1]} sx={1.620} sy={0.920} topZ={1.000} thickness={0.040} legSect={0.060} legInset={0.060} />
 
-      {/* Conveyor (V53: 375 x 150 mm @ (1.370, 1.365), belt top z=1.070) */}
-      <mesh position={[1.370, 1.365, 1.070 - 0.0325]} castShadow receiveShadow>
+      {/* Conveyor (V57: 375 x 150 mm @ (1.670, 1.365), belt top z=1.070) */}
+      <mesh position={[1.670, 1.365, 1.070 - 0.0325]} castShadow receiveShadow>
         <boxGeometry args={[0.375, 0.150, 0.065]} />
         <meshStandardMaterial color="#4a4a52" metalness={0.4} roughness={0.5} />
       </mesh>
       {/* Belt top surface */}
-      <mesh position={[1.370, 1.365, 1.070]} receiveShadow>
+      <mesh position={[1.670, 1.365, 1.070]} receiveShadow>
         <boxGeometry args={[0.355, 0.110, 0.003]} />
         <meshStandardMaterial color="#1a1a1a" roughness={0.85} />
       </mesh>
 
-      {/* Suministro CAFI feeder at east end of belt */}
-      <mesh position={[1.620, 1.365, 1.0075]} castShadow>
+      {/* Suministro CAFI feeder at east end of belt (V57: x=1.920) */}
+      <mesh position={[1.920, 1.365, 1.0075]} castShadow>
         <boxGeometry args={[0.150, 0.220, 0.015]} />
         <meshStandardMaterial color="#888894" metalness={0.5} roughness={0.4} />
       </mesh>
@@ -695,27 +699,28 @@ function CellPrimitives() {
       <VisionFixture x={0.750} y={0.804} z={1.000} />
 
       {/* Cell-level photoelectric sensors (V53 sick_grte18s_p2312) */}
-      {/* sensor_conveyor_end: faces N across belt at the west pick */}
-      <SickPhotoelectric faceX={1.235} faceY={1.290} faceZ={1.100}
+      {/* sensor_conveyor_end: faces N across belt at the V57 pick X=1.535 */}
+      <SickPhotoelectric faceX={1.535} faceY={1.290} faceZ={1.100}
         beamYaw={Math.PI / 2} mesaZ={1.000} beamLen={0.150} />
       {/* sensor_vision_piece_present: west of cradle, beam yaw=0 (east) */}
       <SickPhotoelectric faceX={0.586} faceY={0.804} faceZ={1.040}
         beamYaw={0} mesaZ={1.000} beamLen={0.130} />
 
-      {/* Conveyor drive motor: NEMA17 STL under east end of belt */}
-      <Nema17Motor x={1.550} y={1.365} z={1.036} axisYaw={Math.PI / 2} />
+      {/* Conveyor drive motor: NEMA17 STL under east end of belt (V57: x=1.850) */}
+      <Nema17Motor x={1.850} y={1.365} z={1.036} axisYaw={Math.PI / 2} />
 
       {/* Cognex 2800 camera hanging from cabin top at (0.750, 0.804, 1.520) */}
       <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
 
-      {/* Riveting station (V53: cabin 0.450x0.300x0.350, NW+NE posts only,
-          canopy lips, stack-light tower, tool tray).  Anchored at
-          riveting_zone = (0.692, 1.259, 1.000) per schneider_cell.xacro;
-          cabin offset internal is (0, +0.025) within the zone. */}
-      <RivetingStation
-        anchorX={0.692} anchorY={1.259} anchorZ={1.000}
-        zoneSizeY={0.350}
-        cabinSizeX={0.450} cabinSizeY={0.300} cabinHeight={0.350}
+      {/* V57: rivet cabin REMOVED (was 2 posts + canopy + tray).  Replaced
+          by a small stack-light tower next to the disc that signals rivet
+          state via the same red/amber/green lamps.  Anchored at the V57
+          riveting_zone = (0.992, 1.259, 1.000) with local offset
+          (-0.220, 0, 0.150) per schneider_cell.urdf.xacro. */}
+      <RivetingIndicator
+        anchorX={TURNTABLE_BASE[0]}
+        anchorY={TURNTABLE_BASE[1]}
+        anchorZ={TURNTABLE_BASE[2]}
       />
 
       {/* Control station — full V53 bench with monitors, PLC, HMI, e-stop, etc. */}
@@ -937,98 +942,36 @@ function CognexCamera({ x, y, z, cabinTopZ }: { x: number; y: number; z: number;
   );
 }
 
-// Riveting station — V8/V39 riveting_station.xacro.  Cabin posts on the
-// north side only (V39 removed south posts so cobot can enter from south),
-// top canopy plate with N/S lips, 3-lamp stack light (red/amber/green) on
-// a vertical post, and a tool tray bolted to the back wall.
-function RivetingStation({
-  anchorX, anchorY, anchorZ, zoneSizeY,
-  cabinSizeX, cabinSizeY, cabinHeight,
-}: {
+// V57 rivet indicator — replaces the V53 cabin.  Just a vertical post next
+// to the disc carrying 3 lamps (red/amber/green) that mirror the V53 cabin
+// stack-light.  Per schneider_cell.urdf.xacro: post at riveting_zone +
+// (-0.220, 0, 0.150) m, R=12 mm × length 300 mm; lamps R=25 mm at z-offset
+// 0.180 (red), 0.130 (amber), 0.080 (green) from the post centre.
+function RivetingIndicator({ anchorX, anchorY, anchorZ }: {
   anchorX: number; anchorY: number; anchorZ: number;
-  zoneSizeY: number;
-  cabinSizeX: number; cabinSizeY: number; cabinHeight: number;
 }) {
-  // Local layout — mirrors the xacro
-  const canopyT = 0.040;
-  const canopyTopZ = cabinHeight;
-  const canopyBotZ = cabinHeight - canopyT;
-  const canopyCtrZ = cabinHeight - canopyT / 2;
-  const cabinXOff = 0;
-  const cabinYOff = (zoneSizeY - cabinSizeY) / 2;
-  const postSection = 0.030;
-  const postLength = canopyBotZ;
-  const postCtrZ = postLength / 2;
-  const lipT = 0.010, lipH = 0.012;
-  // Stack light position (back-left corner of canopy top, on the cabin)
-  const stackX = cabinXOff - cabinSizeX / 2 + 0.060;
-  const stackY = cabinYOff;
-  const stackBaseZ = canopyTopZ + lipH + 0.005;
-  // Tool tray on the back (north) wall, south-facing
-  const backThickness = 0.020;
-  const trayX = cabinXOff + cabinSizeX / 2 - 0.180;
-  const trayY = cabinYOff + cabinSizeY / 2 - backThickness - 0.075;
-  const trayZ = 0.180;
-
+  const postX = anchorX - 0.220;
+  const postY = anchorY;
+  const postCenterZ = anchorZ + 0.150;
   return (
-    <group position={[anchorX, anchorY, anchorZ]}>
-      {/* Cabin posts — NE and NW (back only) */}
-      <mesh position={[cabinXOff + cabinSizeX / 2, cabinYOff + cabinSizeY / 2, postCtrZ]} castShadow>
-        <boxGeometry args={[postSection, postSection, postLength]} />
-        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
-      </mesh>
-      <mesh position={[cabinXOff - cabinSizeX / 2, cabinYOff + cabinSizeY / 2, postCtrZ]} castShadow>
-        <boxGeometry args={[postSection, postSection, postLength]} />
-        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
-      </mesh>
-
-      {/* Top canopy plate */}
-      <mesh position={[cabinXOff, cabinYOff, canopyCtrZ]} castShadow receiveShadow>
-        <boxGeometry args={[cabinSizeX, cabinSizeY, canopyT]} />
-        <meshStandardMaterial color="#6a707a" metalness={0.5} roughness={0.55} />
-      </mesh>
-
-      {/* Canopy lips (N + S edges, slim raised border) */}
-      <mesh position={[cabinXOff, cabinYOff + cabinSizeY / 2 - lipT / 2, canopyTopZ + lipH / 2]} castShadow>
-        <boxGeometry args={[cabinSizeX, lipT, lipH]} />
-        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
-      </mesh>
-      <mesh position={[cabinXOff, cabinYOff - cabinSizeY / 2 + lipT / 2, canopyTopZ + lipH / 2]} castShadow>
-        <boxGeometry args={[cabinSizeX, lipT, lipH]} />
-        <meshStandardMaterial color="#888c94" metalness={0.55} roughness={0.5} />
-      </mesh>
-
-      {/* Stack light tower: vertical post + 3 lamps (red top, amber middle, green bottom) */}
-      <mesh position={[stackX, stackY, stackBaseZ + 0.075]}
-        rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <cylinderGeometry args={[0.012, 0.012, 0.150, 16]} />
+    <group>
+      {/* Vertical post — Three.js cylinder is along local Y; Rx(+π/2) maps Y→Z */}
+      <mesh position={[postX, postY, postCenterZ]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.012, 0.012, 0.300, 16]} />
         <meshStandardMaterial color="#5a606a" metalness={0.55} roughness={0.5} />
       </mesh>
-      <mesh position={[stackX, stackY, stackBaseZ + 0.150]} castShadow>
-        <sphereGeometry args={[0.020, 20, 20]} />
+      {/* Lamps — red top, amber middle, green bottom (offsets from post centre) */}
+      <mesh position={[postX, postY, postCenterZ + 0.180]} castShadow>
+        <sphereGeometry args={[0.025, 20, 20]} />
         <meshStandardMaterial color="#ff3030" emissive="#ff3030" emissiveIntensity={0.4} />
       </mesh>
-      <mesh position={[stackX, stackY, stackBaseZ + 0.105]} castShadow>
-        <sphereGeometry args={[0.020, 20, 20]} />
+      <mesh position={[postX, postY, postCenterZ + 0.130]} castShadow>
+        <sphereGeometry args={[0.025, 20, 20]} />
         <meshStandardMaterial color="#ffaa20" emissive="#ffaa20" emissiveIntensity={0.4} />
       </mesh>
-      <mesh position={[stackX, stackY, stackBaseZ + 0.060]} castShadow>
-        <sphereGeometry args={[0.020, 20, 20]} />
+      <mesh position={[postX, postY, postCenterZ + 0.080]} castShadow>
+        <sphereGeometry args={[0.025, 20, 20]} />
         <meshStandardMaterial color="#22dd55" emissive="#22dd55" emissiveIntensity={0.4} />
-      </mesh>
-
-      {/* Tool tray (main plate + 2 lateral rims) — bolted to the back wall, south-facing */}
-      <mesh position={[trayX, trayY, trayZ]} castShadow>
-        <boxGeometry args={[0.280, 0.130, 0.040]} />
-        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
-      </mesh>
-      <mesh position={[trayX, trayY + 0.060, trayZ + 0.025]} castShadow>
-        <boxGeometry args={[0.280, 0.008, 0.050]} />
-        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
-      </mesh>
-      <mesh position={[trayX, trayY - 0.060, trayZ + 0.025]} castShadow>
-        <boxGeometry args={[0.280, 0.008, 0.050]} />
-        <meshStandardMaterial color="#4a4f58" metalness={0.5} roughness={0.55} />
       </mesh>
     </group>
   );
@@ -2736,9 +2679,10 @@ export default function CellViewer3D() {
           <CollisionBoxes visible={showCollisions} />
 
           <Label x={1.152} y={0.940} z={1.10}  text="Lexium Cobot"    color="#60a5fa" />
-          <Label x={1.370} y={1.420} z={1.18}  text="Conveyor 1"      color="#fbbf24" />
-          <Label x={0.692} y={1.259} z={1.18}  text="Turntable"       color="#a78bfa" />
-          <Label x={0.692} y={1.409} z={1.42}  text="Riveting"        color="#fb923c" />
+          <Label x={1.670} y={1.420} z={1.18}  text="Conveyor 1"      color="#fbbf24" />
+          <Label x={1.920} y={1.420} z={1.05}  text="Suministro CAFI" color="#fbbf24" />
+          <Label x={0.992} y={1.259} z={1.18}  text="Turntable"       color="#a78bfa" />
+          <Label x={0.772} y={1.259} z={1.40}  text="Riveting"        color="#fb923c" />
           <Label x={0.750} y={0.804} z={1.10}  text="Vision"          color="#a78bfa" />
           <Label x={0.750} y={0.804} z={1.62}  text="Cognex 2800"     color="#e879f9" />
           <Label x={1.650} y={0.720} z={1.18}  text="Aceptado"        color="#22dd55" />

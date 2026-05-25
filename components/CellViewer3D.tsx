@@ -11,11 +11,13 @@ import { STLLoader } from 'three-stdlib';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 
-// ── V57 poses (from resolved_poses.py) ───────────────────────────────────────
-// V56: disc shifted +300 mm east, so all LOAD/RIVETED joints re-IK'd with
-//      J5 locked at -π/2 and J6 locked at -π/4.
-// V57: conveyor shifted +300 mm east, so all CONVEYOR poses re-IK'd
-//      (J1 ≈ -2.37 rad instead of V53's -1.68 rad).
+// ── V60 poses (from resolved_poses.py) ───────────────────────────────────────
+// V56: disc shifted +300 mm east, J5 locked at -π/2 for LOAD/RIVET.
+// V57: conveyor shifted +300 mm east (J1 ≈ -2.37 rad for the conveyor poses).
+// V60: J6 locked at -π/4 across the LOAD/RIVET family.  Side effect: the
+//      direct RETREAT_VISION → APPROACH_*_BIN swing now skims the bin lids
+//      in the elbow-up branch — TRAJ_PICK_VISION is therefore extended to
+//      terminate in POSE_HOME so the next bin traverse starts clean.
 const POSE_LIB: Record<string, [number, number, number, number, number, number]> = {
   POSE_HOME:                  [+0.000000, +0.000000, +0.000000, +1.570796, -1.570796, +0.000000],
   POSE_APPROACH_CONVEYOR:     [-2.372758, +1.485911, -1.332119, +1.331061, -1.605556, -2.373385],
@@ -183,6 +185,9 @@ const SEQUENCE: SequenceStep[] = [
   { kind: 'gripper', open: false, dwell: 0.8 },
   { kind: 'cafi',    state: 'in_gripper' },
   { kind: 'pose',    pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
+  // V60: traverse via HOME so the elbow-up branch clears the bin lids.
+  // Mirrors the TRAJ_PICK_VISION change in robot_controller_node.py.
+  { kind: 'pose',    pose: 'POSE_HOME',            duration: 2.0, label: 'Traverse via HOME (V60)' },
   // === drop in accept bin ===
   { kind: 'pose',    pose: 'POSE_APPROACH_ACCEPT_BIN', duration: 2.5 },
   { kind: 'pose',    pose: 'POSE_DROP_ACCEPT_BIN',     duration: 1.5 },

@@ -1880,6 +1880,7 @@ function HMIPanel({
   const gripPct = (gripperLiveRef.current / GRIPPER_OPEN_M) * 100;
   const gripIsOpen = gripperRef.current > GRIPPER_OPEN_M / 2;
   const collisions = collisionsRef.current;
+  const [tab, setTab] = useState<'hmi' | 'debug'>('hmi');
   return (
     <div style={{
       position: 'absolute', top: 0, right: 0, bottom: 0, width: 300,
@@ -1890,12 +1891,40 @@ function HMIPanel({
     }}>
       <div style={{ borderBottom: '1px solid #1d2c44', paddingBottom: 10 }}>
         <div style={{ fontSize: 8, letterSpacing: 4, color: '#22c55e', textTransform: 'uppercase' }}>
-          V53 · URDF viewer
+          V57 · URDF viewer
         </div>
         <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>
           Schneider Riveting Cell
         </div>
       </div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+        <button onClick={() => setTab('hmi')} style={tabBtnStyle(tab === 'hmi')}>
+          HMI
+        </button>
+        <button onClick={() => setTab('debug')} style={tabBtnStyle(tab === 'debug')}>
+          DEBUG
+        </button>
+      </div>
+
+      {tab === 'hmi' && (
+        <div style={{
+          padding: 20, textAlign: 'center', color: '#7a8090',
+          border: '1px dashed #2a4060', borderRadius: 6,
+        }}>
+          <div style={{ fontSize: 11, marginBottom: 8, color: '#9bf', fontWeight: 700 }}>
+            HMI · schneider_hmi V57
+          </div>
+          <div style={{ fontSize: 9, lineHeight: 1.5 }}>
+            Real operator HMI goes here<br/>
+            (DI/DO lamps, cycle state, verdict,<br/>
+            spawn/stop, V57 cell-state machine).
+          </div>
+        </div>
+      )}
+
+      {tab === 'debug' && <>
 
       {/* === Sequence player === */}
       <Section title="Cycle Sequence">
@@ -2296,12 +2325,26 @@ function HMIPanel({
         )}
       </Section>
 
+      </>}
+
       <div style={{ marginTop: 'auto', fontSize: 9, color: '#456', textAlign: 'center' }}>
-        URDF loader · V53 meshes
+        URDF loader · V57 meshes
       </div>
     </div>
   );
 }
+
+// Tab button styling — bordered top tabs, active = orange, inactive = dim.
+const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+  background: active
+    ? 'linear-gradient(180deg, #b87333 0%, #8b5a25 100%)'
+    : 'linear-gradient(180deg, #1a2434 0%, #0c1828 100%)',
+  color: active ? '#fff' : '#7a8090',
+  border: '1px solid ' + (active ? '#b87333' : '#1d2c44'),
+  borderBottom: 'none',
+  padding: '8px 4px', fontSize: 11, fontWeight: 700,
+  letterSpacing: 1.5, cursor: 'pointer',
+});
 
 // Slider + numeric input that share a ref-backed value.  Both are CONTROLLED
 // (value, not defaultValue) so dragging the slider updates the numeric input

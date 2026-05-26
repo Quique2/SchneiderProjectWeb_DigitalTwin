@@ -2648,20 +2648,32 @@ export default function CellViewer3D() {
   };
 
   return (
-    <div style={{ background: '#07111e', borderTop: '1px solid #1a3550', borderBottom: '1px solid #1a3550' }}>
-      <div style={{ padding: '32px 24px 16px', textAlign: 'center' }}>
-        <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
-          Gemelo Digital · Visualizador V53
-        </div>
-        <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: '#f1f5f9' }}>
-          Schneider Cell · URDF Loader
-        </div>
-        <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
-          URDF V53 (lexium_cobot_with_final_gripper + turntable_rivet_cell) · Z-up scene
-        </div>
+    <div style={{
+      background: '#07111e',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      {/* Slim status bar (replaces the V53 standalone header — the page-level
+          top bar already carries the project title and tabs). */}
+      <div style={{
+        flexShrink: 0,
+        padding: '6px 16px',
+        borderBottom: '1px solid #0d1e30',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        fontSize: 10,
+        color: '#4a6a88',
+        fontFamily: 'monospace',
+      }}>
+        <span style={{ color: '#22c55e', letterSpacing: 2 }}>V60 · URDF loader</span>
+        <span style={{ color: '#2a4060' }}>·</span>
+        <span>lexium_cobot_with_final_gripper + turntable_rivet_cell · Z-up</span>
       </div>
 
-      <div style={{ height: '80vh', position: 'relative', maxWidth: 1500, margin: '0 auto' }}>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <Canvas
           shadows
           camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}

@@ -6,19 +6,20 @@ import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
 
-type TabId = 'cell' | 'inicio' | 'wiring' | 'arch' | 'specs';
+type TabId = 'inicio' | 'wiring' | 'cell';
 
 interface TabDef {
   id: TabId;
   label: string;
 }
 
+// INICIO is the landing tab — it scrolls through Hero → Architecture →
+// Specs → Footer the way the old single-page layout did.  CABLEADO and
+// CELDA 3D are dedicated full-viewport views.
 const TABS: TabDef[] = [
-  { id: 'cell',    label: 'Celda 3D' },
   { id: 'inicio',  label: 'Inicio' },
   { id: 'wiring',  label: 'Cableado' },
-  { id: 'arch',    label: 'Arquitectura' },
-  { id: 'specs',   label: 'Specs' },
+  { id: 'cell',    label: 'Celda 3D' },
 ];
 
 const TOPBAR_HEIGHT = 60;
@@ -32,7 +33,7 @@ const MONO_FONT =
   '"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Courier New", monospace';
 
 export default function App() {
-  const [tab, setTab] = useState<TabId>('cell');
+  const [tab, setTab] = useState<TabId>('inicio');
 
   useEffect(() => {
     // React Native Web sets overflow:hidden on html/body/root — override it.
@@ -171,11 +172,16 @@ export default function App() {
         overflow: 'hidden',
         position: 'relative',
       }}>
-        {tab === 'cell'   && <CellViewer3D />}
-        {tab === 'inicio' && <ScrollHost><HeroSection /></ScrollHost>}
+        {tab === 'inicio' && (
+          <ScrollHost>
+            <HeroSection />
+            <ArchitectureDiagram />
+            <SpecsGrid />
+            <Footer />
+          </ScrollHost>
+        )}
         {tab === 'wiring' && <ScrollHost><WiringDiagram /></ScrollHost>}
-        {tab === 'arch'   && <ScrollHost><ArchitectureDiagram /></ScrollHost>}
-        {tab === 'specs'  && <ScrollHost><SpecsGrid /><Footer /></ScrollHost>}
+        {tab === 'cell'   && <CellViewer3D />}
       </main>
     </div>
   );

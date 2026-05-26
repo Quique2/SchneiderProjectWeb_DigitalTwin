@@ -11,26 +11,32 @@ type TabId = 'cell' | 'inicio' | 'wiring' | 'arch' | 'specs';
 interface TabDef {
   id: TabId;
   label: string;
-  icon: string;
 }
 
 const TABS: TabDef[] = [
-  { id: 'cell',    label: 'Celda 3D',     icon: '🤖' },
-  { id: 'inicio',  label: 'Inicio',       icon: '🏠' },
-  { id: 'wiring',  label: 'Cableado',     icon: '🔌' },
-  { id: 'arch',    label: 'Arquitectura', icon: '🏗' },
-  { id: 'specs',   label: 'Specs',        icon: '📊' },
+  { id: 'cell',    label: 'Celda 3D' },
+  { id: 'inicio',  label: 'Inicio' },
+  { id: 'wiring',  label: 'Cableado' },
+  { id: 'arch',    label: 'Arquitectura' },
+  { id: 'specs',   label: 'Specs' },
 ];
 
-const TOPBAR_HEIGHT = 56;
+const TOPBAR_HEIGHT = 60;
+
+// System sans-serif stack picks the OS-native UI font (SF Pro on macOS,
+// Segoe UI on Windows, Roboto on Android/ChromeOS) so the chrome looks
+// native and professional without shipping a font file.
+const SANS_FONT =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
+const MONO_FONT =
+  '"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Courier New", monospace';
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('cell');
 
   useEffect(() => {
     // React Native Web sets overflow:hidden on html/body/root — override it.
-    // For the tabbed layout we want the page to BE the viewport (no scroll
-    // on the shell itself; each tab manages its own scrolling).
+    // The shell IS the viewport here; each tab manages its own scrolling.
     document.documentElement.style.overflow = 'hidden';
     document.documentElement.style.height = '100%';
     document.body.style.margin = '0';
@@ -38,16 +44,26 @@ export default function App() {
     document.body.style.background = '#06101c';
     document.body.style.overflow = 'hidden';
     document.body.style.height = '100%';
+    document.body.style.fontFamily = SANS_FONT;
     const root = document.getElementById('root');
     if (root) {
       root.style.overflow = 'hidden';
       root.style.height = '100%';
     }
+    // Inject a small style block so children can opt into the mono stack
+    // via the .mono utility class — keeps numeric readouts aligned.
+    const style = document.createElement('style');
+    style.textContent = `
+      .mono { font-family: ${MONO_FONT}; font-variant-numeric: tabular-nums; }
+      ::selection { background: rgba(184,115,51,0.45); color: #fff; }
+    `;
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
   }, []);
 
   return (
     <div style={{
-      fontFamily: "'IBM Plex Mono','Courier New',monospace",
+      fontFamily: SANS_FONT,
       background: '#06101c',
       color: '#e2e8f0',
       height: '100vh',
@@ -63,63 +79,95 @@ export default function App() {
       <header style={{
         height: TOPBAR_HEIGHT,
         flexShrink: 0,
-        background: 'linear-gradient(180deg,#0a1422 0%,#06101c 100%)',
-        borderBottom: '1px solid #1a3550',
+        background: 'linear-gradient(180deg,#0c1a2c 0%,#070f1a 100%)',
+        borderBottom: '1px solid #1a2c44',
+        boxShadow: '0 4px 18px rgba(0,0,0,0.35)',
         display: 'flex',
-        alignItems: 'center',
-        padding: '0 20px',
-        gap: 24,
+        alignItems: 'stretch',
+        padding: '0 28px',
+        position: 'relative',
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 220 }}>
-          <div style={{ fontSize: 8, letterSpacing: 4, color: '#22c55e', textTransform: 'uppercase' }}>
+        {/* thin green accent rule along the very top edge */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+          background: 'linear-gradient(90deg,#22c55e 0%,#16a34a 30%,transparent 100%)',
+        }} />
+
+        {/* Brand */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          minWidth: 240, gap: 1,
+        }}>
+          <div style={{
+            fontSize: 9, letterSpacing: 3.5, color: '#22c55e',
+            textTransform: 'uppercase', fontWeight: 600,
+          }}>
             Gemelo Digital · V60
           </div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', lineHeight: 1.1 }}>
+          <div style={{
+            fontSize: 16, fontWeight: 600, color: '#f1f5f9',
+            letterSpacing: -0.2,
+          }}>
             Schneider Riveting Cell
           </div>
         </div>
 
-        <nav style={{ display: 'flex', gap: 2, flex: 1, justifyContent: 'center' }}>
+        {/* Tabs */}
+        <nav style={{
+          display: 'flex', gap: 4, flex: 1,
+          justifyContent: 'center', alignItems: 'center',
+        }}>
           {TABS.map((t) => {
             const active = t.id === tab;
             return (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
-                background: active
-                  ? 'linear-gradient(180deg,#b87333 0%,#8b5a25 100%)'
-                  : 'transparent',
-                color: active ? '#fff' : '#9bb0c8',
-                border: '1px solid ' + (active ? '#b87333' : '#1d2c44'),
-                borderRadius: 5,
-                padding: '8px 16px',
-                fontSize: 11,
-                fontWeight: 700,
+                position: 'relative',
+                background: active ? 'rgba(184,115,51,0.12)' : 'transparent',
+                color: active ? '#f1f5f9' : '#8a9bb4',
+                border: 'none',
+                padding: '0 18px',
+                height: '100%',
+                fontSize: 12,
+                fontWeight: active ? 600 : 500,
                 letterSpacing: 1.2,
+                textTransform: 'uppercase',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                transition: 'background 0.15s, color 0.15s',
-              }}>
-                <span style={{ fontSize: 13 }}>{t.icon}</span>
+                transition: 'color 0.15s, background 0.15s',
+              }}
+                onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = '#dde4f0'); }}
+                onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = '#8a9bb4'); }}>
                 {t.label}
+                {active && (
+                  <div style={{
+                    position: 'absolute', left: 12, right: 12, bottom: 0, height: 2,
+                    background: 'linear-gradient(90deg,#d97740 0%,#b87333 100%)',
+                    borderRadius: 1,
+                  }} />
+                )}
               </button>
             );
           })}
         </nav>
 
+        {/* Credit */}
         <div style={{
-          minWidth: 220, textAlign: 'right', fontSize: 10, color: '#456',
-          fontFamily: 'monospace',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          minWidth: 240, textAlign: 'right', gap: 2,
         }}>
-          Equipo 3 · ITESM × Schneider 3.0
+          <div style={{ fontSize: 11, color: '#dde4f0', fontWeight: 500 }}>
+            Equipo 3
+          </div>
+          <div style={{ fontSize: 9, letterSpacing: 1.5, color: '#5a6c84', textTransform: 'uppercase' }}>
+            ITESM × Schneider Challenge 3.0
+          </div>
         </div>
       </header>
 
       {/* === ACTIVE TAB CONTENT === */}
       <main style={{
         flex: 1,
-        minHeight: 0, // critical so the child can shrink to fit instead of pushing the shell
+        minHeight: 0,
         overflow: 'hidden',
         position: 'relative',
       }}>
@@ -133,8 +181,6 @@ export default function App() {
   );
 }
 
-// Tabs other than the cell viewer keep their original full-page layouts; wrap
-// them in a scrolling host so they don't blow out the fixed viewport.
 function ScrollHost({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>

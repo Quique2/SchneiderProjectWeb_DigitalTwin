@@ -1894,16 +1894,7 @@ function HMIPanel({
       overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12,
       zIndex: 25,
     }}>
-      <div style={{ borderBottom: '1px solid #1d2c44', paddingBottom: 10 }}>
-        <div style={{ fontSize: 8, letterSpacing: 4, color: '#22c55e', textTransform: 'uppercase' }}>
-          V57 · URDF viewer
-        </div>
-        <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>
-          Schneider Riveting Cell
-        </div>
-      </div>
-
-      {/* Tab bar */}
+      {/* Tab bar (panel header is gone — top bar already carries the brand). */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
         <button onClick={() => setTab('hmi')} style={tabBtnStyle(tab === 'hmi')}>
           HMI
@@ -1915,16 +1906,25 @@ function HMIPanel({
 
       {tab === 'hmi' && (
         <div style={{
-          padding: 20, textAlign: 'center', color: '#7a8090',
-          border: '1px dashed #2a4060', borderRadius: 6,
+          padding: '24px 18px', textAlign: 'left', color: '#9bb0c8',
+          border: '1px solid #1d2c44', background: 'rgba(20,30,48,0.45)',
+          borderRadius: 8,
         }}>
-          <div style={{ fontSize: 11, marginBottom: 8, color: '#9bf', fontWeight: 700 }}>
-            HMI · schneider_hmi V57
+          <div style={{
+            fontSize: 9, letterSpacing: 2.5, color: '#22c55e',
+            textTransform: 'uppercase', fontWeight: 600, marginBottom: 6,
+          }}>
+            schneider_hmi · V60
           </div>
-          <div style={{ fontSize: 9, lineHeight: 1.5 }}>
-            Real operator HMI goes here<br/>
-            (DI/DO lamps, cycle state, verdict,<br/>
-            spawn/stop, V57 cell-state machine).
+          <div style={{
+            fontSize: 14, fontWeight: 600, color: '#f1f5f9',
+            marginBottom: 12, letterSpacing: -0.2,
+          }}>
+            Operator HMI
+          </div>
+          <div style={{ fontSize: 11, lineHeight: 1.55, color: '#7a8c9e' }}>
+            Pending: DI/DO lamps, cycle state, verdict, spawn/stop, V60 cell-state machine.
+            Wire the existing refs and we're done.
           </div>
         </div>
       )}
@@ -2333,7 +2333,7 @@ function HMIPanel({
       </>}
 
       <div style={{ marginTop: 'auto', fontSize: 9, color: '#456', textAlign: 'center' }}>
-        URDF loader · V57 meshes
+        URDF loader · V60 meshes
       </div>
     </div>
   );
@@ -2655,24 +2655,6 @@ export default function CellViewer3D() {
       flexDirection: 'column',
       overflow: 'hidden',
     }}>
-      {/* Slim status bar (replaces the V53 standalone header — the page-level
-          top bar already carries the project title and tabs). */}
-      <div style={{
-        flexShrink: 0,
-        padding: '6px 16px',
-        borderBottom: '1px solid #0d1e30',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        fontSize: 10,
-        color: '#4a6a88',
-        fontFamily: 'monospace',
-      }}>
-        <span style={{ color: '#22c55e', letterSpacing: 2 }}>V60 · URDF loader</span>
-        <span style={{ color: '#2a4060' }}>·</span>
-        <span>lexium_cobot_with_final_gripper + turntable_rivet_cell · Z-up</span>
-      </div>
-
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <Canvas
           shadows

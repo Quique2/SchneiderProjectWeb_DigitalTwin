@@ -46,7 +46,12 @@ const POSE_LIB_V60: Record<string, [number, number, number, number, number, numb
 // = APPROACH_PICK_RIVETED are byte-for-byte identical to keep the cycle
 // smooth).  All 19 poses solved <3 mm pos / <0.86° rot.
 const POSE_LIB_V26: Record<string, [number, number, number, number, number, number]> = {
-  POSE_HOME:                  [-1.893121, -0.242405, -0.179570, +1.573884, -1.523339, +1.248095],
+  // HOME: override manual a la pose simétrica clásica del V60 (cobot recto,
+  // wrist alineado) en lugar del resultado del IK al TCP V60.  No afecta a
+  // las demás poses porque cada una se IK'ea independientemente a su TCP
+  // target; la única consecuencia es un salto mayor en la transición
+  // HOME → APPROACH_CONVEYOR, que ya era branch-switch en el bake.
+  POSE_HOME:                  [+0.000000, +0.000000, +0.000000, +1.570796, -1.570796, +0.000000],
   POSE_APPROACH_CONVEYOR:     [-2.353638, +0.232770, -1.341491, +0.088774, +1.535366, -2.354257],
   POSE_PICK_CONVEYOR:         [-2.353583, +0.366816, -1.703583, +0.584878, +1.535356, -2.354208],
   POSE_LIFT_CONVEYOR:         [-2.353621, +0.237994, -1.203807, -0.043695, +1.535363, -2.354244],

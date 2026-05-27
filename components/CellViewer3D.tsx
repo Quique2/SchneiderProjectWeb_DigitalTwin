@@ -197,68 +197,117 @@ const CAFI_OFFSET_ATTACHED: [number, number, number] = [-0.212983, 0.056354, -0.
 const CAFI_GRASP_OFFSET_GOLD: [number, number, number] = [-0.205, +0.059, -0.023];
 const CAFI_OFFSET_CENTERED: [number, number, number] = [-0.06145, +0.04365, -0.01255];
 
-// ── Animation sequence (full V53 pick → rivet → vision → accept-bin cycle) ──
-type SequenceStep =
-  | { kind: 'pose';    pose: PoseName; duration: number; label?: string }
-  | { kind: 'gripper'; open: boolean;  dwell: number;    label?: string }
-  | { kind: 'cafi';    state: CafiState;                  label?: string }
-  | { kind: 'disc';    target: number; duration: number;  label?: string }
-  | { kind: 'wait';    dwell: number;                     label?: string };
+// ── Animation sequence (full V53 pick → rivet → vision → bin cycle) ─────────
+// Verdict-aware: vision inspecting decides accept (green) vs reject (red),
+// and the cobot routes to the corresponding bin.  The pre-verdict portion
+// (everything up to the post-vision 5 s wait) is shared; the tails diverge.
+type CafiColor = 'natural' | 'accept' | 'reject';
+type Verdict = 'accept' | 'reject';
 
-const SEQUENCE: SequenceStep[] = [
+type SequenceStep =
+  | { kind: 'pose';      pose: PoseName; duration: number; label?: string }
+  | { kind: 'gripper';   open: boolean;  dwell: number;    label?: string }
+  | { kind: 'cafi';      state: CafiState;                 label?: string }
+  | { kind: 'cafiColor'; color: CafiColor;                 label?: string }
+  | { kind: 'disc';      target: number; duration: number; label?: string }
+  | { kind: 'wait';      dwell: number;                    label?: string };
+
+// Riveting cycle takes 30 s in the real cell (process spec).
+const RIVET_DWELL_S = 30.0;
+// Vision inspection takes 5 s while the cobot waits at HOME.
+const VISION_DWELL_S = 5.0;
+
+// === Pre-verdict portion (identical for accept and reject) ===
+// Ends right before the verdict is known — the cobot has placed the CAFI on
+// the vision plate, retreated to HOME, and is waiting for the verdict.
+const SEQUENCE_PRE: SequenceStep[] = [
   // === init ===
-  { kind: 'pose',    pose: 'POSE_HOME', duration: 0.1 },
-  { kind: 'cafi',    state: 'conveyor', label: 'CAFI delivered to conveyor' },
+  { kind: 'pose',      pose: 'POSE_HOME', duration: 0.1 },
+  { kind: 'cafiColor', color: 'natural' },
+  { kind: 'cafi',      state: 'conveyor', label: 'CAFI delivered to conveyor' },
   // === pick from conveyor ===
-  { kind: 'pose',    pose: 'POSE_APPROACH_CONVEYOR', duration: 2.0 },
-  { kind: 'pose',    pose: 'POSE_PICK_CONVEYOR',     duration: 1.5 },
-  { kind: 'gripper', open: false, dwell: 0.8,        label: 'Closing gripper' },
-  { kind: 'cafi',    state: 'in_gripper' },
-  { kind: 'pose',    pose: 'POSE_LIFT_CONVEYOR',     duration: 1.5 },
+  { kind: 'pose',      pose: 'POSE_APPROACH_CONVEYOR', duration: 2.0 },
+  { kind: 'pose',      pose: 'POSE_PICK_CONVEYOR',     duration: 1.5 },
+  { kind: 'gripper',   open: false, dwell: 0.8,        label: 'Closing gripper' },
+  { kind: 'cafi',      state: 'in_gripper' },
+  { kind: 'pose',      pose: 'POSE_LIFT_CONVEYOR',     duration: 1.5 },
   // === place at load fixture ===
-  { kind: 'pose',    pose: 'POSE_APPROACH_LOAD_FIXTURE', duration: 2.5 },
-  { kind: 'pose',    pose: 'POSE_PLACE_LOAD_FIXTURE',    duration: 1.5 },
-  { kind: 'pose',    pose: 'POSE_RELEASE_LOAD_FIXTURE',  duration: 0.8 },
-  { kind: 'gripper', open: true, dwell: 0.8,         label: 'Opening gripper' },
-  { kind: 'cafi',    state: 'on_fixture_1'},
-  { kind: 'pose',    pose: 'POSE_RETREAT_LOAD_FIXTURE',  duration: 1.5 },
-  // === disc indexes 180°, rivets, indexes back ===
-  { kind: 'disc',    target: Math.PI, duration: 2.5, label: 'Indexing disc' },
-  { kind: 'wait',    dwell: 2.0,                     label: 'Riveting…' },
-  { kind: 'disc',    target: 0.0,    duration: 2.5,  label: 'Indexing back' },
+  { kind: 'pose',      pose: 'POSE_APPROACH_LOAD_FIXTURE', duration: 2.5 },
+  { kind: 'pose',      pose: 'POSE_PLACE_LOAD_FIXTURE',    duration: 1.5 },
+  { kind: 'pose',      pose: 'POSE_RELEASE_LOAD_FIXTURE',  duration: 0.8 },
+  { kind: 'gripper',   open: true, dwell: 0.8,         label: 'Opening gripper' },
+  { kind: 'cafi',      state: 'on_fixture_1' },
+  { kind: 'pose',      pose: 'POSE_RETREAT_LOAD_FIXTURE',  duration: 1.5 },
+  // === disc indexes 180°, rivets 30 s, indexes back ===
+  { kind: 'disc',      target: Math.PI, duration: 2.5, label: 'Indexing disc' },
+  { kind: 'wait',      dwell: RIVET_DWELL_S,            label: 'Riveting (30 s)…' },
+  { kind: 'disc',      target: 0.0,     duration: 2.5,  label: 'Indexing back' },
   // === pick riveted from same world spot ===
-  { kind: 'pose',    pose: 'POSE_APPROACH_PICK_RIVETED', duration: 2.0 },
-  { kind: 'pose',    pose: 'POSE_PICK_RIVETED',          duration: 1.5 },
-  { kind: 'gripper', open: false, dwell: 0.8 },
-  { kind: 'cafi',    state: 'in_gripper' },
-  { kind: 'pose',    pose: 'POSE_LIFT_RIVETED',          duration: 1.5 },
+  { kind: 'pose',      pose: 'POSE_APPROACH_PICK_RIVETED', duration: 2.0 },
+  { kind: 'pose',      pose: 'POSE_PICK_RIVETED',          duration: 1.5 },
+  { kind: 'gripper',   open: false, dwell: 0.8 },
+  { kind: 'cafi',      state: 'in_gripper' },
+  { kind: 'pose',      pose: 'POSE_LIFT_RIVETED',          duration: 1.5 },
   // === place at vision ===
-  { kind: 'pose',    pose: 'POSE_APPROACH_VISION', duration: 2.5 },
-  { kind: 'pose',    pose: 'POSE_PLACE_VISION',    duration: 1.5 },
-  { kind: 'pose',    pose: 'POSE_RELEASE_VISION',  duration: 0.8 },
-  { kind: 'gripper', open: true, dwell: 0.8 },
-  { kind: 'cafi',    state: 'at_vision' },
-  { kind: 'pose',    pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
-  // === vision inspects (verdict: PASS) ===
-  { kind: 'wait',    dwell: 2.0, label: 'Vision inspecting (PASS)' },
-  // === pick from vision ===
+  { kind: 'pose',      pose: 'POSE_APPROACH_VISION', duration: 2.5 },
+  { kind: 'pose',      pose: 'POSE_PLACE_VISION',    duration: 1.5 },
+  { kind: 'pose',      pose: 'POSE_RELEASE_VISION',  duration: 0.8 },
+  { kind: 'gripper',   open: true, dwell: 0.8 },
+  { kind: 'cafi',      state: 'at_vision' },
+  { kind: 'pose',      pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
+  // === retreat to HOME and wait for vision verdict ===
+  // Real cell behaviour: cobot returns home and idles while the Cognex
+  // camera inspects the part on the plate.
+  { kind: 'pose',      pose: 'POSE_HOME',            duration: 2.5, label: 'Returning HOME for vision' },
+  { kind: 'wait',      dwell: VISION_DWELL_S,        label: 'Vision inspecting (5 s)…' },
+];
+
+// === Common pickup from vision (after verdict is set) ===
+const PICK_FROM_VISION: SequenceStep[] = [
   { kind: 'pose',    pose: 'POSE_APPROACH_VISION', duration: 1.5 },
   { kind: 'pose',    pose: 'POSE_PLACE_VISION',    duration: 1.5 },
   { kind: 'gripper', open: false, dwell: 0.8 },
   { kind: 'cafi',    state: 'in_gripper' },
   { kind: 'pose',    pose: 'POSE_RETREAT_VISION',  duration: 1.5 },
   // V60: traverse via HOME so the elbow-up branch clears the bin lids.
-  // Mirrors the TRAJ_PICK_VISION change in robot_controller_node.py.
   { kind: 'pose',    pose: 'POSE_HOME',            duration: 2.0, label: 'Traverse via HOME (V60)' },
-  // === drop in accept bin ===
+];
+
+// === Tail when verdict = ACCEPT (green, drop in accept bin) ===
+const TAIL_ACCEPT: SequenceStep[] = [
   { kind: 'pose',    pose: 'POSE_APPROACH_ACCEPT_BIN', duration: 2.5 },
   { kind: 'pose',    pose: 'POSE_DROP_ACCEPT_BIN',     duration: 1.5 },
   { kind: 'gripper', open: true, dwell: 0.8 },
   { kind: 'cafi',    state: 'in_accept_bin' },
   { kind: 'pose',    pose: 'POSE_APPROACH_ACCEPT_BIN', duration: 1.5 },
-  // === return home ===
   { kind: 'pose',    pose: 'POSE_HOME', duration: 2.5 },
 ];
+
+// === Tail when verdict = REJECT (red, drop in reject bin) ===
+const TAIL_REJECT: SequenceStep[] = [
+  { kind: 'pose',    pose: 'POSE_APPROACH_REJECT_BIN', duration: 2.5 },
+  { kind: 'pose',    pose: 'POSE_DROP_REJECT_BIN',     duration: 1.5 },
+  { kind: 'gripper', open: true, dwell: 0.8 },
+  { kind: 'cafi',    state: 'in_reject_bin' },
+  { kind: 'pose',    pose: 'POSE_APPROACH_REJECT_BIN', duration: 1.5 },
+  { kind: 'pose',    pose: 'POSE_HOME', duration: 2.5 },
+];
+
+function buildSequence(verdict: Verdict): SequenceStep[] {
+  return [
+    ...SEQUENCE_PRE,
+    // Verdict applied: CAFI tints green (accept) or red (reject) on the plate.
+    { kind: 'cafiColor', color: verdict,
+      label: verdict === 'accept' ? 'Vision verdict: PASS ✓' : 'Vision verdict: FAIL ✗' },
+    ...PICK_FROM_VISION,
+    ...(verdict === 'accept' ? TAIL_ACCEPT : TAIL_REJECT),
+  ];
+}
+
+// Default sequence used at boot (just for length/display before any START is
+// pressed).  The player swaps to a freshly-built sequence each time the user
+// hits a START button.
+const SEQUENCE: SequenceStep[] = buildSequence('accept');
 
 // V57 world anchors (from schneider_cell.urdf.xacro).  Compared to V53:
 //   - disc shifted +0.300 m east (riveting_zone (0.692, 1.259) → (0.992, 1.259))
@@ -449,12 +498,24 @@ function Cobot({ jointsRef, gripperRef, gripperLiveRef, gripperWorldRef, collisi
 // hardcoded world centre with identity rotation.  The mesh-local offset is
 // swapped between V53 lateral-grasp values (attached) and centred values
 // (static) so the CAFI lands in the right spot in both cases.
+// Vision verdict tint applied to the CAFI material.  Natural = factory
+// orange; accept = green (PASS); reject = red (FAIL).
+const CAFI_COLOR_NATURAL = '#d97340';
+const CAFI_COLOR_ACCEPT  = '#22c55e';
+const CAFI_COLOR_REJECT  = '#ef4444';
+function cafiColorHex(c: CafiColor): string {
+  return c === 'accept' ? CAFI_COLOR_ACCEPT
+       : c === 'reject' ? CAFI_COLOR_REJECT
+       : CAFI_COLOR_NATURAL;
+}
+
 function CafiMesh({
-  stateRef, cobotRobotRef, turntableRobotRef,
+  stateRef, colorRef, cobotRobotRef, turntableRobotRef,
   graspYawRef, graspPitchRef, graspRollRef,
   graspOffsetXRef, graspOffsetYRef, graspOffsetZRef,
 }: {
   stateRef: React.MutableRefObject<CafiState>;
+  colorRef: React.MutableRefObject<CafiColor>;
   cobotRobotRef: React.MutableRefObject<URDFRobot | null>;
   turntableRobotRef: React.MutableRefObject<URDFRobot | null>;
   graspYawRef: React.MutableRefObject<number>;
@@ -561,6 +622,14 @@ function CafiMesh({
       }
     }
 
+    // Verdict tint: drive the standard material's colour from colorRef so
+    // the player flipping cafiColor → accept/reject changes the visible
+    // hue both on the vision plate and while the cobot carries the part
+    // afterwards.
+    const mat = m.material as THREE.MeshStandardMaterial;
+    const desired = cafiColorHex(colorRef.current);
+    if (`#${mat.color.getHexString()}` !== desired) mat.color.set(desired);
+
     // One-shot diagnostic on every state transition: print pose of the
     // frame we attached to AND the pose of the corresponding V53 reference
     // mesh (if any) so we can compare offsets and orientations directly.
@@ -622,14 +691,18 @@ function CafiMesh({
 }
 
 // ── Sequence player ──────────────────────────────────────────────────────────
-// Drives jointsRef + discAngleRef + gripperRef + cafiStateRef from SEQUENCE
-// using cosine-eased interpolation between consecutive poses.
+// Drives jointsRef + discAngleRef + gripperRef + cafiStateRef + cafiColorRef
+// from p.sequence using cosine-eased interpolation between consecutive poses.
+// The sequence is per-run (built by buildSequence(verdict)) so accept/reject
+// trajectories share the same player.
 interface PlayerState {
   playing: boolean;
-  step: number;     // current index into SEQUENCE
+  step: number;     // current index into p.sequence
   t: number;        // elapsed time within current step (seconds)
   startJoints: [number, number, number, number, number, number];
   startDisc: number;
+  sequence: SequenceStep[];
+  verdict: Verdict;
 }
 
 function SequencePlayer({
@@ -638,26 +711,30 @@ function SequencePlayer({
   discAngleRef,
   gripperRef,
   cafiStateRef,
+  cafiColorRef,
 }: {
   playerRef: React.MutableRefObject<PlayerState>;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
   discAngleRef: React.MutableRefObject<number>;
   gripperRef: React.MutableRefObject<number>;
   cafiStateRef: React.MutableRefObject<CafiState>;
+  cafiColorRef: React.MutableRefObject<CafiColor>;
 }) {
   useFrame((_, dt) => {
     const p = playerRef.current;
     if (!p.playing) return;
-    const step = SEQUENCE[p.step];
+    const seq = p.sequence;
+    const step = seq[p.step];
     if (!step) { p.playing = false; return; }
 
     // First entry into a step? Snapshot the start state.
     if (p.t === 0) {
       p.startJoints = [...jointsRef.current] as PlayerState['startJoints'];
       p.startDisc = discAngleRef.current;
-      // For instantaneous "set" steps (cafi state), apply immediately.
-      if (step.kind === 'cafi') cafiStateRef.current = step.state;
-      if (step.kind === 'gripper') gripperRef.current = step.open ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
+      // For instantaneous "set" steps, apply immediately.
+      if (step.kind === 'cafi')      cafiStateRef.current = step.state;
+      if (step.kind === 'cafiColor') cafiColorRef.current = step.color;
+      if (step.kind === 'gripper')   gripperRef.current = step.open ? GRIPPER_OPEN_M : GRIPPER_CLOSED_M;
     }
 
     p.t += dt;
@@ -681,7 +758,7 @@ function SequencePlayer({
       if (u >= 1) done = true;
     } else if (step.kind === 'gripper') {
       if (p.t >= step.dwell) done = true;
-    } else if (step.kind === 'cafi') {
+    } else if (step.kind === 'cafi' || step.kind === 'cafiColor') {
       done = true; // instantaneous
     } else if (step.kind === 'wait') {
       if (p.t >= step.dwell) done = true;
@@ -690,7 +767,7 @@ function SequencePlayer({
     if (done) {
       p.step += 1;
       p.t = 0;
-      if (p.step >= SEQUENCE.length) p.playing = false;
+      if (p.step >= seq.length) p.playing = false;
     }
   });
   return null;
@@ -1934,8 +2011,10 @@ function HMIPanel({
   clearSavedPositions,
   playerRef,
   cafiStateRef,
-  playerPlay,
+  cafiColorRef,
+  startCycle,
   playerPause,
+  playerResume,
   playerReset,
   cafiGraspYawRef,
   setCafiGraspYaw,
@@ -1981,8 +2060,10 @@ function HMIPanel({
   clearSavedPositions: () => void;
   playerRef: React.MutableRefObject<PlayerState>;
   cafiStateRef: React.MutableRefObject<CafiState>;
-  playerPlay: () => void;
+  cafiColorRef: React.MutableRefObject<CafiColor>;
+  startCycle: (verdict: Verdict | 'auto') => void;
   playerPause: () => void;
+  playerResume: () => void;
   playerReset: () => void;
   cafiGraspYawRef: React.MutableRefObject<number>;
   setCafiGraspYaw: (yaw: number) => void;
@@ -2071,13 +2152,16 @@ function HMIPanel({
       <Section title="Cycle Sequence">
         {(() => {
           const p = playerRef.current;
-          const step = SEQUENCE[p.step];
-          const total = SEQUENCE.length;
+          const seq = p.sequence;
+          const step = seq[p.step];
+          const total = seq.length;
           const progress = step && step.kind === 'pose' && step.duration > 0
             ? Math.min(1, p.t / step.duration)
             : step && step.kind === 'disc' && step.duration > 0
               ? Math.min(1, p.t / step.duration)
-              : 0;
+              : step && step.kind === 'wait' && step.dwell > 0
+                ? Math.min(1, p.t / step.dwell)
+                : 0;
           const finished = p.step >= total;
           const label = finished
             ? '✓ Cycle complete'
@@ -2088,37 +2172,67 @@ function HMIPanel({
                   ? `Gripper ${step.open ? 'OPEN' : 'CLOSE'}`
                   : step.kind === 'cafi'
                     ? `CAFI → ${step.state}`
-                    : step.kind === 'disc'
-                      ? `Disc → ${(step.target * 180 / Math.PI).toFixed(0)}°`
-                      : 'Waiting…'))
+                    : step.kind === 'cafiColor'
+                      ? `CAFI tint → ${step.color}`
+                      : step.kind === 'disc'
+                        ? `Disc → ${(step.target * 180 / Math.PI).toFixed(0)}°`
+                        : 'Waiting…'))
               : '—';
+          const verdictColour =
+            cafiColorRef.current === 'accept' ? '#22c55e'
+            : cafiColorRef.current === 'reject' ? '#ef4444'
+            : '#788090';
+          const verdictLabel =
+            cafiColorRef.current === 'accept' ? 'PASS ✓'
+            : cafiColorRef.current === 'reject' ? 'FAIL ✗'
+            : '— pending';
           return (
             <>
+              {/* Three START buttons that build a fresh verdict-specific cycle */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-                <button onClick={playerPlay}
-                  disabled={p.playing}
-                  style={{
-                    ...btnStyle, padding: '8px 6px', fontSize: 11,
-                    background: p.playing
-                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
-                      : 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)',
-                    cursor: p.playing ? 'not-allowed' : 'pointer',
-                  }}>▶ PLAY</button>
+                <button onClick={() => startCycle('auto')} style={{
+                  ...btnStyle, padding: '8px 4px', fontSize: 10,
+                  background: 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                }}>▶ 50/50</button>
+                <button onClick={() => startCycle('accept')} style={{
+                  ...btnStyle, padding: '8px 4px', fontSize: 10,
+                  background: 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',
+                }}>✓ ACEPTADO</button>
+                <button onClick={() => startCycle('reject')} style={{
+                  ...btnStyle, padding: '8px 4px', fontSize: 10,
+                  background: 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)',
+                }}>✗ RECHAZADO</button>
+              </div>
+              {/* Pause / Resume / Reset row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginTop: 4 }}>
                 <button onClick={playerPause}
                   disabled={!p.playing}
                   style={{
-                    ...btnStyle, padding: '8px 6px', fontSize: 11,
+                    ...btnStyle, padding: '6px 4px', fontSize: 10,
                     background: !p.playing
                       ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
                       : 'linear-gradient(180deg,#f47835 0%,#d96416 100%)',
                     cursor: !p.playing ? 'not-allowed' : 'pointer',
                   }}>⏸ PAUSE</button>
+                <button onClick={playerResume}
+                  disabled={p.playing || finished}
+                  style={{
+                    ...btnStyle, padding: '6px 4px', fontSize: 10,
+                    background: (p.playing || finished)
+                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                      : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                    cursor: (p.playing || finished) ? 'not-allowed' : 'pointer',
+                  }}>▶ RESUME</button>
                 <button onClick={playerReset} style={{
-                  ...btnStyle, padding: '8px 6px', fontSize: 11,
-                  background: 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                  ...btnStyle, padding: '6px 4px', fontSize: 10,
+                  background: 'linear-gradient(180deg,#475569 0%,#334155 100%)',
                 }}>⏮ RESET</button>
               </div>
               <div style={{ ...statRow, marginTop: 8 }}>
+                <span>verdict</span>
+                <span style={{ color: verdictColour, fontWeight: 700 }}>{verdictLabel}</span>
+              </div>
+              <div style={{ ...statRow }}>
                 <span>step</span>
                 <span>{finished ? `${total}/${total}` : `${p.step + 1}/${total}`}</span>
               </div>
@@ -2618,6 +2732,7 @@ export default function CellViewer3D() {
   const [showCollisions, setShowCollisions] = useState(false);
   const [savedPositions, setSavedPositions] = useState<SavedPosition[]>(loadSavedFromStorage);
   const cafiStateRef = useRef<CafiState>('conveyor');
+  const cafiColorRef = useRef<CafiColor>('natural');
   const cobotRobotRef = useRef<URDFRobot | null>(null);
   const cobotGroupRef = useRef<THREE.Group | null>(null);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
@@ -2775,21 +2890,43 @@ export default function CellViewer3D() {
     t: 0,
     startJoints: [...POSE_LIB.POSE_HOME] as PlayerState['startJoints'],
     startDisc: 0,
+    sequence: buildSequence('accept'),
+    verdict: 'accept',
   });
   const [, forcePlayerTick] = useState(0); // re-render HMI when player advances
 
-  // Player controls — mutate playerRef and bump the HMI re-render.
-  const playerPlay = () => {
-    if (playerRef.current.step >= SEQUENCE.length) {
-      // auto-reset before re-playing if already done
-      playerReset();
-    }
-    playerRef.current.playing = true;
+  // Start a fresh cycle with the given verdict.  Resets all refs, builds the
+  // verdict-specific sequence (accept → green tail, reject → red tail), and
+  // sets the player playing.  Random verdict (50/50) → 'auto'.
+  const startCycle = (verdict: Verdict | 'auto') => {
+    const v: Verdict = verdict === 'auto'
+      ? (Math.random() < 0.5 ? 'accept' : 'reject')
+      : verdict;
+    playerRef.current = {
+      playing: true,
+      step: 0,
+      t: 0,
+      startJoints: [...POSE_LIB.POSE_HOME] as PlayerState['startJoints'],
+      startDisc: 0,
+      sequence: buildSequence(v),
+      verdict: v,
+    };
+    jointsRef.current = [...POSE_LIB.POSE_HOME] as typeof jointsRef.current;
+    discAngleRef.current = 0;
+    gripperRef.current = GRIPPER_OPEN_M;
+    cafiStateRef.current = 'conveyor';
+    cafiColorRef.current = 'natural';
     forcePlayerTick((n) => n + 1);
   };
   const playerPause = () => {
     playerRef.current.playing = false;
     forcePlayerTick((n) => n + 1);
+  };
+  const playerResume = () => {
+    if (playerRef.current.step < playerRef.current.sequence.length) {
+      playerRef.current.playing = true;
+      forcePlayerTick((n) => n + 1);
+    }
   };
   const playerReset = () => {
     playerRef.current = {
@@ -2798,11 +2935,14 @@ export default function CellViewer3D() {
       t: 0,
       startJoints: [...POSE_LIB.POSE_HOME] as PlayerState['startJoints'],
       startDisc: 0,
+      sequence: playerRef.current.sequence,
+      verdict: playerRef.current.verdict,
     };
     jointsRef.current = [...POSE_LIB.POSE_HOME] as typeof jointsRef.current;
     discAngleRef.current = 0;
     gripperRef.current = GRIPPER_OPEN_M;
     cafiStateRef.current = 'conveyor';
+    cafiColorRef.current = 'natural';
     forcePlayerTick((n) => n + 1);
   };
 
@@ -2941,6 +3081,7 @@ export default function CellViewer3D() {
             <Turntable angleRef={discAngleRef} robotRef={turntableRobotRef} />
             <CafiMesh
               stateRef={cafiStateRef}
+              colorRef={cafiColorRef}
               cobotRobotRef={cobotRobotRef}
               turntableRobotRef={turntableRobotRef}
               graspYawRef={cafiGraspYawRef}
@@ -2958,6 +3099,7 @@ export default function CellViewer3D() {
             discAngleRef={discAngleRef}
             gripperRef={gripperRef}
             cafiStateRef={cafiStateRef}
+            cafiColorRef={cafiColorRef}
           />
 
           <CollisionBoxes visible={showCollisions} />
@@ -2995,8 +3137,10 @@ export default function CellViewer3D() {
           clearSavedPositions={clearSavedPositions}
           playerRef={playerRef}
           cafiStateRef={cafiStateRef}
-          playerPlay={playerPlay}
+          cafiColorRef={cafiColorRef}
+          startCycle={startCycle}
           playerPause={playerPause}
+          playerResume={playerResume}
           playerReset={playerReset}
           cafiGraspYawRef={cafiGraspYawRef}
           setCafiGraspYaw={setCafiGraspYaw}

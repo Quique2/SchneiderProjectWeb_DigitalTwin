@@ -1,12 +1,11 @@
 <?xml version="1.0"?>
 <!--
-  Lexium Cobot V26 (web build).  Refactor from V60: link3_elbow_connector
-  is its own link hanging from link2_upper_arm via joint_elbow_connector
-  (rpy = 0 π 0).  joint_3 and the rest of the chain hang from
-  link_elbow_connector, inheriting the 180°-Y concentric pivot.
-  POSE_LIB at runtime is regenerated for this URDF by re-IKing each V60
-  pose's TCP world target.  Mesh paths point to /meshes/v53/{cobot,gripper}/
-  so the existing STL bundle keeps working.
+  Flattened V53 cobot URDF for the web.  Identical kinematics to
+  lexium_cobot_with_final_gripper.urdf (V53), with two adjustments:
+    1. package:// mesh URIs rewritten to /meshes/v53/...
+    2. <collision> blocks dropped (visualization only).
+  Keeps the original world_to_base_link_z_reference wrapper (Rx +90 deg)
+  so loading the URDF as-is produces a cobot standing on its base.
 -->
 <robot name="lexium_cobot_with_final_gripper">
 
@@ -18,6 +17,7 @@
   <material name="blue_gray"><color rgba="0.25 0.33 0.42 1"/></material>
   <material name="red_gripper"><color rgba="0.85 0.05 0.05 1"/></material>
 
+  <!-- Z REFERENCE WRAPPER: Rx +90deg so the CAD +Y becomes world +Z. -->
   <link name="world"/>
   <joint name="world_to_base_link_z_reference" type="fixed">
     <parent link="world"/>
@@ -66,25 +66,16 @@
       <geometry><mesh filename="/meshes/v53/cobot/link2_elbow_joint.STL" scale="0.001 0.001 0.001"/></geometry>
       <material name="lexium_grey"/>
     </visual>
-  </link>
-
-  <joint name="joint_elbow_connector" type="fixed">
-    <parent link="link2_upper_arm"/>
-    <child link="link_elbow_connector"/>
-    <origin xyz="0.001060 0.243625 0.119967" rpy="0 3.14159265359 0"/>
-  </joint>
-
-  <link name="link_elbow_connector">
     <visual>
-      <origin xyz="-0.151860 -0.394225 -0.172817" rpy="0 0 0"/>
+      <origin xyz="-0.1508 -0.1506 -0.0645" rpy="0 0 0"/>
       <geometry><mesh filename="/meshes/v53/cobot/link3_elbow_connector.STL" scale="0.001 0.001 0.001"/></geometry>
       <material name="lexium_grey"/>
     </visual>
   </link>
 
   <joint name="joint_3" type="revolute">
-    <parent link="link_elbow_connector"/><child link="link3_forearm"/>
-    <origin xyz="0.002560 0.001375 0.113592" rpy="0 0 0"/>
+    <parent link="link2_upper_arm"/><child link="link3_forearm"/>
+    <origin xyz="-0.0015 0.2450 0.2258" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-2.61799" upper="2.61799" velocity="3.14" effort="50"/>
   </joint>
@@ -163,6 +154,7 @@
   </joint>
   <link name="tool0"/>
 
+  <!-- GRIPPER MOUNT (tool0 -> gripper_base) -->
   <joint name="tool0_to_gripper_base" type="fixed">
     <parent link="tool0"/>
     <child link="gripper_base"/>
@@ -232,12 +224,17 @@
     <limit lower="0.000" upper="0.028" effort="30" velocity="0.08"/>
   </joint>
 
+  <!-- TCP at the working tip of the gripper (moves with the appendage). -->
   <link name="tcp_link"/>
   <joint name="tcp_fixed_joint" type="fixed">
     <parent link="appendage_link"/><child link="tcp_link"/>
     <origin xyz="0.000250 0.060250 0.076750" rpy="0 0 0"/>
   </joint>
 
+  <!-- V53 lateral grasp frame.  Fixed to gripper_base (does NOT move with
+       the appendage / jaw).  This is where the CAFI's grasp contact sits
+       when the gripper is holding a part.  The turntable URDF uses the
+       same name to mark the CAFI's lateral target on each fixture. -->
   <link name="cafi_lateral_target_frame"/>
   <joint name="cafi_lateral_target_fixed_joint" type="fixed">
     <parent link="gripper_base"/>

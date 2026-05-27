@@ -11,14 +11,13 @@ import { STLLoader } from 'three-stdlib';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 
-// ── V60 poses (from resolved_poses.py) ───────────────────────────────────────
-// V56: disc shifted +300 mm east, J5 locked at -π/2 for LOAD/RIVET.
-// V57: conveyor shifted +300 mm east (J1 ≈ -2.37 rad for the conveyor poses).
-// V60: J6 locked at -π/4 across the LOAD/RIVET family.  Side effect: the
-//      direct RETREAT_VISION → APPROACH_*_BIN swing now skims the bin lids
-//      in the elbow-up branch — TRAJ_PICK_VISION is therefore extended to
-//      terminate in POSE_HOME so the next bin traverse starts clean.
-const POSE_LIB: Record<string, [number, number, number, number, number, number]> = {
+// ── V60 poses (golden TCP targets for the V26 URDF refactor) ────────────────
+// These are the joint values that produced the desired TCP world poses on
+// the V60 URDF.  The V26 URDF has a re-parented elbow chain, so the same
+// joint values do NOT reach the same TCP — we keep V60 around as the
+// authoritative TCP source and re-IK each pose for V26 at boot.  The result
+// is stored in POSE_LIB (mutable) and cached in localStorage.
+const POSE_LIB_V60: Record<string, [number, number, number, number, number, number]> = {
   POSE_HOME:                  [+0.000000, +0.000000, +0.000000, +1.570796, -1.570796, +0.000000],
   POSE_APPROACH_CONVEYOR:     [-2.372758, +1.485911, -1.332119, +1.331061, -1.605556, -2.373385],
   POSE_PICK_CONVEYOR:         [-2.372778, +1.961976, -1.699341, +1.222211, -1.605553, -2.373404],
@@ -39,7 +38,35 @@ const POSE_LIB: Record<string, [number, number, number, number, number, number]>
   POSE_APPROACH_REJECT_BIN:   [+1.225784, -0.442571, +2.178227, -0.197937, -1.523750, +1.225389],
   POSE_DROP_REJECT_BIN:       [+1.225773, -0.031858, +2.523346, -0.953769, -1.523749, +1.225378],
 };
-type PoseName = keyof typeof POSE_LIB;
+
+// Runtime POSE_LIB.  Initialised with V60 values as a fallback so the app
+// boots usable; the boot-time regeneration overwrites every entry with
+// V26-compatible joints that hit the same TCP world poses.
+const POSE_LIB: Record<string, [number, number, number, number, number, number]> = {
+  ...Object.fromEntries(Object.entries(POSE_LIB_V60).map(([k, v]) => [k, [...v] as [number, number, number, number, number, number]])),
+};
+type PoseName = keyof typeof POSE_LIB_V60;
+
+const POSE_LIB_V26_CACHE_KEY = 'schneider_v26_pose_lib_v1';
+
+function loadPoseLibV26FromCache(): Record<string, [number, number, number, number, number, number]> | null {
+  try {
+    const raw = localStorage.getItem(POSE_LIB_V26_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Sanity: every V60 pose must be present and well-formed
+    for (const name of Object.keys(POSE_LIB_V60)) {
+      const v = parsed[name];
+      if (!Array.isArray(v) || v.length !== 6 || v.some((x) => typeof x !== 'number')) return null;
+    }
+    return parsed;
+  } catch { return null; }
+}
+
+function savePoseLibV26ToCache(lib: Record<string, [number, number, number, number, number, number]>) {
+  try { localStorage.setItem(POSE_LIB_V26_CACHE_KEY, JSON.stringify(lib)); }
+  catch { /* quota / privacy mode */ }
+}
 
 // Per-pose gripper state.  Mirrors the V53 pick/place trajectories:
 //   PICK_* / APPROACH_PICK / HOME / RELEASE_* / RETREAT_* / DROP_* → OPEN
@@ -1727,6 +1754,74 @@ function solveIK(
   return { ...best!, joints: best!.joints as IKResult['joints'] };
 }
 
+// ── V60 analytical FK ────────────────────────────────────────────────────────
+// Computes the world pose of tcp_link for the V60 URDF chain.  Used at boot
+// to capture the TCP world targets that the regenerated V26 POSE_LIB must
+// reach.  Built in the same order as the V60 URDF joint chain, with
+// COBOT_BASE prepended.  Static rpy=(0,0,0.05) of joint_2 is folded into
+// the variable rotation (both around Z).
+const _v60Tmp = new THREE.Matrix4();
+function v60TcpWorldPose(j: number[]): { pos: THREE.Vector3; quat: THREE.Quaternion } {
+  const m = new THREE.Matrix4();
+  m.makeTranslation(COBOT_BASE[0], COBOT_BASE[1], COBOT_BASE[2]);
+  m.multiply(_v60Tmp.makeRotationX(Math.PI / 2));
+  // joint_1 (Y)
+  m.multiply(_v60Tmp.makeTranslation(0.1623, 0.0867, 0.0645));
+  m.multiply(_v60Tmp.makeRotationY(j[0]));
+  // joint_2 (Z) + static rpy=(0,0,0.05) → both around Z, sum the angles
+  m.multiply(_v60Tmp.makeTranslation(-0.0115, 0.0639, 0));
+  m.multiply(_v60Tmp.makeRotationZ(0.05 + j[1]));
+  // joint_3 (Z) — V60 parent chain: link2 → joint_3 (no elbow connector link)
+  m.multiply(_v60Tmp.makeTranslation(-0.0015, 0.2450, 0.2258));
+  m.multiply(_v60Tmp.makeRotationZ(j[2]));
+  // joint_4 (Z)
+  m.multiply(_v60Tmp.makeTranslation(-0.0060, 0.2295, 0.1244));
+  m.multiply(_v60Tmp.makeRotationZ(j[3]));
+  // joint_5 (Y)
+  m.multiply(_v60Tmp.makeTranslation(-0.0010, 0.0465, -0.2300));
+  m.multiply(_v60Tmp.makeRotationY(j[4]));
+  // joint_6 (Z)
+  m.multiply(_v60Tmp.makeTranslation(-0.0040, 0.0720, 0.0898));
+  m.multiply(_v60Tmp.makeRotationZ(j[5]));
+  // tool0
+  m.multiply(_v60Tmp.makeTranslation(0, 0.068, 0));
+  // tool0 → gripper_base
+  m.multiply(_v60Tmp.makeTranslation(0, -0.07, 0.015));
+  // appendage prismatic at 0 → identity
+  // tcp_fixed_joint
+  m.multiply(_v60Tmp.makeTranslation(0.000250, 0.060250, 0.076750));
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  m.decompose(pos, quat, scale);
+  return { pos, quat };
+}
+
+// Re-IK every V60 pose against the loaded V26 URDF and return the new
+// joint values.  Each pose is seeded with the V60 joints (close enough
+// even though j3+ axes differ) so the solver usually converges in a few
+// iterations.  Logs any pose that fails to converge cleanly.
+function regeneratePoseLibForV26(
+  v26Robot: URDFRobot, v26Group: THREE.Object3D,
+  obstacles: ReturnType<typeof collisionAABBs>,
+): { lib: Record<string, [number, number, number, number, number, number]>; warnings: string[] } {
+  const lib: Record<string, [number, number, number, number, number, number]> = {};
+  const warnings: string[] = [];
+  for (const [name, jointsV60] of Object.entries(POSE_LIB_V60)) {
+    const { pos, quat } = v60TcpWorldPose(jointsV60);
+    const r = solveIK6D(
+      v26Robot, v26Group,
+      [pos.x, pos.y, pos.z], quat,
+      [...jointsV60], obstacles,
+    );
+    lib[name] = r.joints;
+    if (r.positionError > 0.005 || r.rotationError > 0.05) {
+      warnings.push(`${name}: posErr=${(r.positionError * 1000).toFixed(1)}mm rotErr=${(r.rotationError * 180 / Math.PI).toFixed(1)}° collisions=${r.collisions.length}`);
+    }
+  }
+  return { lib, warnings };
+}
+
 // ── Collision-zone overlay (toggle from HMI) ─────────────────────────────────
 // Renders every COLLISION_BOX as a translucent coloured mesh + thin edge lines
 // so the operator can visually identify the no-go zones the cobot must avoid.
@@ -1827,6 +1922,9 @@ function HMIPanel({
   tcpPinned,
   pinnedTcpRef,
   togglePinTcp,
+  poseRegenStatus,
+  poseRegenWarnings,
+  regeneratePoseLib,
 }: {
   setPose: (p: PoseName) => void;
   jointsRef: React.MutableRefObject<[number, number, number, number, number, number]>;
@@ -1874,6 +1972,9 @@ function HMIPanel({
     quat: [number, number, number, number];
   } | null>;
   togglePinTcp: () => void;
+  poseRegenStatus: 'idle' | 'running' | 'cached' | 'fresh' | 'failed';
+  poseRegenWarnings: string[];
+  regeneratePoseLib: () => void;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -2134,6 +2235,51 @@ function HMIPanel({
             </div>
           </div>
         )}
+
+        {/* V26 POSE_LIB regeneration status + manual trigger */}
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #1a2434' }}>
+          <div style={statRow}>
+            <span>POSE_LIB (V26)</span>
+            <span style={{
+              color: poseRegenStatus === 'fresh' ? '#22dd55'
+                : poseRegenStatus === 'cached' ? '#33dffe'
+                : poseRegenStatus === 'running' ? '#fbbf24'
+                : poseRegenStatus === 'failed' ? '#ff5566'
+                : '#788090',
+              fontWeight: 700,
+            }}>
+              {poseRegenStatus === 'fresh' ? '✓ fresh'
+                : poseRegenStatus === 'cached' ? '◉ cached'
+                : poseRegenStatus === 'running' ? '⏳ solving…'
+                : poseRegenStatus === 'failed' ? '✗ failed'
+                : '— V60 fallback'}
+            </span>
+          </div>
+          <button onClick={regeneratePoseLib}
+            disabled={poseRegenStatus === 'running'}
+            style={{
+              ...btnStyle, fontSize: 10, padding: '6px 8px', marginTop: 4,
+              background: poseRegenStatus === 'running'
+                ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+              cursor: poseRegenStatus === 'running' ? 'wait' : 'pointer',
+            }}>
+            🔁 RE-IK all poses for V26
+          </button>
+          {poseRegenWarnings.length > 0 && (
+            <div style={{
+              marginTop: 6, padding: 6,
+              background: 'rgba(80,40,20,0.35)', border: '1px solid #fbbf2444',
+              borderRadius: 4, fontSize: 9, color: '#fbbf24',
+              fontFamily: 'monospace', lineHeight: 1.4, maxHeight: 80, overflowY: 'auto',
+            }}>
+              <div style={{ marginBottom: 4, fontWeight: 700 }}>
+                {poseRegenWarnings.length} pose(s) with residual:
+              </div>
+              {poseRegenWarnings.map((w, i) => <div key={i}>{w}</div>)}
+            </div>
+          )}
+        </div>
       </Section>
 
       {/* Gripper manual override */}
@@ -2441,6 +2587,79 @@ export default function CellViewer3D() {
   const obstacles = useMemo(() => collisionAABBs(), []);
   const [ikResult, setIkResult] = useState<IK6Result | null>(null);
   const [ikRunning, setIkRunning] = useState(false);
+  // Boot-time regeneration of POSE_LIB for the V26 URDF.  Status is shown in
+  // the DEBUG panel so the user knows when poses are real V26 joints vs the
+  // V60 fallback.
+  const [poseRegenStatus, setPoseRegenStatus] = useState<'idle' | 'running' | 'cached' | 'fresh' | 'failed'>('idle');
+  const [poseRegenWarnings, setPoseRegenWarnings] = useState<string[]>([]);
+
+  // Apply a pose-lib snapshot into the runtime POSE_LIB object.
+  const applyPoseLibSnapshot = (snap: Record<string, [number, number, number, number, number, number]>) => {
+    for (const name of Object.keys(POSE_LIB_V60)) {
+      const v = snap[name];
+      if (v) POSE_LIB[name as PoseName] = [...v] as [number, number, number, number, number, number];
+    }
+  };
+
+  // Force-regenerate POSE_LIB by re-IKing every V60 pose against the V26 URDF.
+  const regeneratePoseLib = () => {
+    const robot = cobotRobotRef.current;
+    const group = cobotGroupRef.current;
+    if (!robot || !group) return;
+    setPoseRegenStatus('running');
+    setPoseRegenWarnings([]);
+    // Defer so the UI can paint the running state.
+    setTimeout(() => {
+      try {
+        // Snapshot whatever joints the cobot currently shows so we can
+        // restore them after the solver scrubs through every pose.
+        const restore = [...jointsRef.current] as typeof jointsRef.current;
+        const { lib, warnings } = regeneratePoseLibForV26(robot, group, obstacles);
+        applyPoseLibSnapshot(lib);
+        savePoseLibV26ToCache(lib);
+        // Restore the on-screen pose.
+        for (let i = 0; i < 6; i++) jointsRef.current[i] = restore[i];
+        setPoseRegenWarnings(warnings);
+        setPoseRegenStatus('fresh');
+        // eslint-disable-next-line no-console
+        console.log(`%c[POSE_LIB] regenerated for V26 (${Object.keys(lib).length} poses)`,
+          'color:#22dd55;font-weight:700',
+          warnings.length ? `\n${warnings.length} warnings:\n  ${warnings.join('\n  ')}` : '');
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[POSE_LIB] regeneration failed:', err);
+        setPoseRegenStatus('failed');
+      }
+    }, 0);
+  };
+
+  // Boot-time: load cached V26 POSE_LIB if present, otherwise regenerate
+  // once the cobot URDF is ready.
+  useEffect(() => {
+    const cached = loadPoseLibV26FromCache();
+    if (cached) {
+      applyPoseLibSnapshot(cached);
+      setPoseRegenStatus('cached');
+      // eslint-disable-next-line no-console
+      console.log('%c[POSE_LIB] loaded from cache', 'color:#33dffe;font-weight:700');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Trigger regeneration on first URDF load IF we don't have a cache.
+  // Refs aren't reactive, so poll every 200 ms until the cobot is ready
+  // and our status is still 'idle' (cache hit moved us to 'cached').
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (poseRegenStatus !== 'idle') { window.clearInterval(id); return; }
+      if (cobotRobotRef.current && cobotGroupRef.current) {
+        window.clearInterval(id);
+        regeneratePoseLib();
+      }
+    }, 200);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poseRegenStatus]);
   // TCP pin: when active, jog moves are followed by a quick 6D IK solve that
   // pulls the TCP back to the captured world POSE (position + orientation).
   // Lets the operator explore valid configurations manually with the gripper
@@ -2776,6 +2995,9 @@ export default function CellViewer3D() {
           tcpPinned={tcpPinned}
           pinnedTcpRef={pinnedTcpRef}
           togglePinTcp={togglePinTcp}
+          poseRegenStatus={poseRegenStatus}
+          poseRegenWarnings={poseRegenWarnings}
+          regeneratePoseLib={regeneratePoseLib}
         />
       </div>
     </div>

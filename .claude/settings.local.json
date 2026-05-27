@@ -74,7 +74,10 @@
       "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/sensors/sick_grte18s_p2312/sick_grte18s_p2312.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')",
       "Bash(cp 'C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src/schneider_cell_description/meshes/actuators/nema17/nema17.STL' 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cell/')",
       "Bash(SIMNEW='C:/Users/kiki7/Downloads/SchneiderProjectWeb_Simulation-main/SchneiderProjectWeb_Simulation-main/src'; SIMOLD='C:/Users/kiki7/Downloads/schneider_cell_description_V53/v53_ws/ros_ws/src'; ls \"$SIMNEW\" | sort > /tmp/sim_new.txt && ls \"$SIMOLD\" | sort > /tmp/sim_old.txt && diff /tmp/sim_old.txt /tmp/sim_new.txt)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(mkdir -p C:/Users/kiki7/Downloads/URDF_DEFINITIVO/meshes/cobot C:/Users/kiki7/Downloads/URDF_DEFINITIVO/meshes/gripper)",
+      "Bash(cp 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/cobot/*.STL' C:/Users/kiki7/Downloads/URDF_DEFINITIVO/meshes/cobot/)",
+      "Bash(cp 'c:/Users/kiki7/Downloads/Schneider Project/public/meshes/v53/gripper/*.stl' C:/Users/kiki7/Downloads/URDF_DEFINITIVO/meshes/gripper/)"
     ],
     "additionalDirectories": [
       "C:\\Users\\kiki7\\Downloads\\Cobot_URDFBUENO\\meshes"

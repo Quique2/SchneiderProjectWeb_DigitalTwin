@@ -177,13 +177,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function CobotLiveView() {
   const [mode, setMode] = useState<ConnMode>('demo');
-  const [url, setUrl] = useState('ws://192.168.1.167:8000/ws/cobot');
+  // Permanent ngrok static domain fronting the RPi gateway (https/wss so it
+  // works from the HTTPS Railway deploy — no mixed-content block).  Swap to
+  // ws://192.168.1.167:8000/ws/cobot for a same-LAN local run.
+  const [url, setUrl] = useState('wss://unmoral-shrink-cavalry.ngrok-free.dev/ws/cobot');
   const [telemetry, setTelemetry] = useState<CobotTelemetry>(DEMO_TELEMETRY);
   const [applyToModel, setApplyToModel] = useState(false);
   const [connErr, setConnErr] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
+  const manualCloseRef = useRef(false);   // distinguishes user disconnect from a drop
+  const autoStartedRef = useRef(false);    // auto-connect only once per mount
   // 3D cobot reads these; default HOME, driven by telemetry only when applyToModel.
   const targetJointsRef = useRef<[number, number, number, number, number, number]>([...HOME_JOINTS]);
   const tcpWorldRef = useRef<[number, number, number]>([0, 0, 0]);
@@ -201,6 +206,7 @@ export default function CobotLiveView() {
   }, [applyToModel, telemetry]);
 
   const disconnect = () => {
+    manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     setMode('demo');
@@ -208,40 +214,67 @@ export default function CobotLiveView() {
     setTelemetry(DEMO_TELEMETRY);
   };
 
-  const connect = () => {
+  // Failure handling.  On an *auto* connect (tab just opened) we degrade to
+  // DEMO silently — no scary red banner if the gateway simply isn't up.  On a
+  // manual CONECTAR we surface the error so the user knows their click failed.
+  const handleFail = (msg: string, auto: boolean) => {
+    if (auto) { setMode('demo'); setTelemetry(DEMO_TELEMETRY); setConnErr(null); }
+    else { setMode('error'); setConnErr(msg); }
+  };
+
+  const connect = (targetUrl: string, auto = false) => {
+    manualCloseRef.current = false;
     setConnErr(null);
     setMode('connecting');
-    const isWs = url.startsWith('ws://') || url.startsWith('wss://');
+    const isWs = targetUrl.startsWith('ws://') || targetUrl.startsWith('wss://');
     if (isWs) {
       try {
-        const ws = new WebSocket(url);
+        const ws = new WebSocket(targetUrl);
         wsRef.current = ws;
         const failTimer = window.setTimeout(() => {
-          if (ws.readyState !== WebSocket.OPEN) { ws.close(); setMode('error'); setConnErr('Timeout — sin respuesta del gateway'); }
-        }, 5000);
+          if (ws.readyState !== WebSocket.OPEN) ws.close(); // → onclose → handleFail
+        }, 6000);
         ws.onopen = () => { window.clearTimeout(failTimer); setMode('live'); };
         ws.onmessage = (e) => {
           try { setTelemetry(JSON.parse(e.data)); } catch { /* ignore malformed frame */ }
         };
-        ws.onerror = () => { window.clearTimeout(failTimer); setMode('error'); setConnErr('No se pudo abrir el WebSocket (¿gateway activo? ¿mixed-content?)'); };
-        ws.onclose = () => { if (mode === 'live') { setMode('demo'); setTelemetry(DEMO_TELEMETRY); } };
+        // onerror always precedes onclose; let onclose be the single fail path.
+        ws.onclose = () => {
+          window.clearTimeout(failTimer);
+          if (manualCloseRef.current) return;
+          handleFail('WebSocket cerrado — ¿gateway activo?', auto);
+        };
       } catch (err) {
-        setMode('error'); setConnErr(String(err));
+        handleFail(String(err), auto);
       }
     } else {
-      // REST polling fallback (GET /api/cobot/state)
+      // REST polling (GET /api/cobot/state).  ngrok-skip-browser-warning keeps
+      // the free-tier interstitial from replacing the JSON with an HTML page.
       const poll = () => {
-        fetch(url, { cache: 'no-store' })
+        fetch(targetUrl, { cache: 'no-store', headers: { 'ngrok-skip-browser-warning': 'true' } })
           .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
           .then((j) => { setTelemetry(j); setMode('live'); setConnErr(null); })
-          .catch((e) => { setMode('error'); setConnErr(String(e)); if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; } });
+          .catch((e) => {
+            if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+            handleFail(String(e), auto);
+          });
       };
       poll();
       pollRef.current = window.setInterval(poll, 500);
     }
   };
 
+  // Auto-connect once when the tab mounts, using the default ngrok URL, so the
+  // operator sees live data without typing anything when the gateway is up.
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    connect(url, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => () => { // cleanup on unmount
+    manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
     if (pollRef.current) window.clearInterval(pollRef.current);
   }, []);
@@ -293,7 +326,7 @@ export default function CobotLiveView() {
             background: 'linear-gradient(180deg,#f47835 0%,#d96416 100%)',
           }}>DESCONECTAR</button>
         ) : (
-          <button onClick={connect} style={{
+          <button onClick={() => connect(url, false)} style={{
             fontFamily: SANS_FONT, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
             border: 'none', borderRadius: 6, padding: '9px 18px',
             background: 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',

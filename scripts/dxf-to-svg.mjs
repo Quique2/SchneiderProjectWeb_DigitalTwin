@@ -153,7 +153,10 @@ const renderOrder = [...PREFERRED_ORDER, ...extraHex];
 
 // ── Build SVG ─────────────────────────────────────────────────────────────────
 const parts = [];
-parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" style="background:#07111e;display:block;width:100%;height:auto;">`);
+// width="100%" as an *attribute* (not just style) is required for inline SVGs
+// (inserted via innerHTML) so the browser uses the viewBox aspect ratio to
+// calculate the height. Without it, the browser defaults to 300×150px.
+parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" width="100%" style="background:#07111e;display:block;">`);
 parts.push(`<defs><style>line,path,circle,polyline,polygon,ellipse{vector-effect:non-scaling-stroke}text{font-family:"IBM Plex Mono",monospace;fill:#7a9ab8}</style></defs>`);
 parts.push(`<rect width="${W.toFixed(2)}" height="${H.toFixed(2)}" fill="#07111e"/>`);
 

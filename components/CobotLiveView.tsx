@@ -18,6 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
+import { POSE_LIB_V26 } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -41,6 +42,17 @@ const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
 // the controller speaks its own convention.
 const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
   [360, 360, 225, 360, 115, 360];
+
+// Inverse of the live display map (controller_deg → urdf via sign·ctrl+offset):
+// given a simulation pose in URDF radians, recover the controller-convention
+// joint degrees to command the real robot.  ctrl = sign·(urdf_deg − offset),
+// valid because sign ∈ {+1,−1} so 1/sign = sign.
+function urdfPoseToControllerDeg(poseRad: number[]): number[] {
+  return poseRad.map((rad, i) => {
+    const urdfDeg = THREE.MathUtils.radToDeg(rad);
+    return JOINT_SIGN[i] * (urdfDeg - JOINT_OFFSET_DEG[i]);
+  });
+}
 
 // Derive the gateway's https/http base from the ws/wss connection URL so the
 // control POSTs hit the same origin (…/api/cobot/*).
@@ -285,6 +297,7 @@ export default function CobotLiveView() {
   const [cmdBusy, setCmdBusy] = useState(false);
   const [cmdStatus, setCmdStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
+  const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -358,6 +371,16 @@ export default function CobotLiveView() {
   const cobotStop = () => postControl('/api/cobot/stop');
   const cobotEnable = () => postControl('/api/cobot/enable');
   const cobotDisable = () => postControl('/api/cobot/disable');
+
+  // Simulation pose (URDF rad) → controller-convention joint degrees.
+  const selectedPoseCtrlDeg = (): number[] =>
+    urdfPoseToControllerDeg(POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+  // Load the converted pose into the jog sliders so the operator can review
+  // the exact joint values before sending.
+  const loadPoseToSliders = () => setCmdJoints(selectedPoseCtrlDeg());
+  // Send the converted pose straight to the real robot.
+  const sendPoseToRobot = () =>
+    postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
   const disconnect = () => {
     manualCloseRef.current = true;
@@ -644,6 +667,40 @@ export default function CobotLiveView() {
                 {cmdStatus.ok ? '✓ ' : '⚠ '}{cmdStatus.msg}
               </div>
             )}
+          </Section>
+
+          {/* === Probar poses de la simulación en el robot real === */}
+          <Section title="Pose de simulación → real">
+            <select value={selectedPose} onChange={(e) => setSelectedPose(e.target.value)}
+              style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+              {Object.keys(POSE_LIB_V26).map((name) => (
+                <option key={name} value={name}>{name.replace('POSE_', '').replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+
+            {/* Preview of the converted controller-convention joint targets */}
+            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 4px' }}>
+              Joints a enviar (°, robot)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
+              {selectedPoseCtrlDeg().map((d, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
+                  <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
+                  <span style={{ color: '#dde4f0' }}>{d.toFixed(1)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
+              <button onClick={loadPoseToSliders} disabled={!controlEnabled}
+                style={ctrlBtn(controlEnabled, '#475569', '#334155')}>↧ Cargar en sliders</button>
+              <button onClick={sendPoseToRobot} disabled={!controlEnabled || cmdBusy}
+                style={ctrlBtn(controlEnabled, '#3b8bff', '#2563eb')}>▸ Enviar al robot</button>
+            </div>
+            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
+              "Cargar" llena los sliders para revisar antes de mover; "Enviar"
+              manda la pose directo (vel {jointSpeed}%). Usa STOP si algo sale mal.
+            </div>
           </Section>
 
           <Section title="Estado del robot">

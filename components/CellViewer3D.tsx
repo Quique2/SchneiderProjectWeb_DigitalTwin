@@ -45,7 +45,7 @@ const POSE_LIB_V60: Record<string, [number, number, number, number, number, numb
 // stay in the same IK branch (duplicates like APPROACH_LOAD = RETREAT_LOAD
 // = APPROACH_PICK_RIVETED are byte-for-byte identical to keep the cycle
 // smooth).  All 19 poses solved <3 mm pos / <0.86° rot.
-const POSE_LIB_V26: Record<string, [number, number, number, number, number, number]> = {
+export const POSE_LIB_V26: Record<string, [number, number, number, number, number, number]> = {
   // HOME: override manual a la pose simétrica clásica del V60 (cobot recto,
   // wrist alineado) en lugar del resultado del IK al TCP V60.  No afecta a
   // las demás poses porque cada una se IK'ea independientemente a su TCP

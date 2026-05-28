@@ -46,10 +46,37 @@ const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
 const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
   [360, 360, 225, 360, 115, 360];
 
-// Logical cycle order for the sequence player — POSE_LIB_V26 is already
-// defined in trajectory order (HOME → conveyor → load → rivet → vision →
-// bins), so its key order is the tour.
-const SEQ_POSE_NAMES = Object.keys(POSE_LIB_V26);
+// Faithful pick→rivet→vision→accept-bin cycle (accept branch), mirroring the
+// simulation's SEQUENCE incl. the double vision pass and HOME traversals.
+// `grip` fires the magnet AFTER arriving at that pose: grab = magnet ON,
+// release = magnet OFF — same points the sim opens/closes the gripper.
+type TrajStep = { pose: string; grip?: 'grab' | 'release' };
+const TRAJECTORY: TrajStep[] = [
+  { pose: 'POSE_HOME', grip: 'release' },          // start clean (not holding)
+  { pose: 'POSE_APPROACH_CONVEYOR' },
+  { pose: 'POSE_PICK_CONVEYOR', grip: 'grab' },     // pick raw part
+  { pose: 'POSE_LIFT_CONVEYOR' },
+  { pose: 'POSE_APPROACH_LOAD_FIXTURE' },
+  { pose: 'POSE_PLACE_LOAD_FIXTURE' },
+  { pose: 'POSE_RELEASE_LOAD_FIXTURE', grip: 'release' }, // drop on rivet fixture
+  { pose: 'POSE_RETREAT_LOAD_FIXTURE' },
+  { pose: 'POSE_APPROACH_PICK_RIVETED' },
+  { pose: 'POSE_PICK_RIVETED', grip: 'grab' },      // pick riveted part
+  { pose: 'POSE_LIFT_RIVETED' },
+  { pose: 'POSE_APPROACH_VISION' },
+  { pose: 'POSE_PLACE_VISION' },
+  { pose: 'POSE_RELEASE_VISION', grip: 'release' }, // drop on vision plate
+  { pose: 'POSE_RETREAT_VISION' },
+  { pose: 'POSE_HOME' },                            // wait for inspection
+  { pose: 'POSE_APPROACH_VISION' },
+  { pose: 'POSE_PLACE_VISION', grip: 'grab' },      // pick back from vision
+  { pose: 'POSE_RETREAT_VISION' },
+  { pose: 'POSE_HOME' },                            // traverse via HOME
+  { pose: 'POSE_APPROACH_ACCEPT_BIN' },
+  { pose: 'POSE_DROP_ACCEPT_BIN', grip: 'release' }, // drop in accept bin
+  { pose: 'POSE_APPROACH_ACCEPT_BIN' },
+  { pose: 'POSE_HOME' },
+];
 
 // Inverse of the live display map (controller_deg → urdf via sign·ctrl+offset):
 // given a simulation pose in URDF radians, recover the controller-convention
@@ -360,6 +387,7 @@ export default function CobotLiveView() {
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
   const [seqIsReal, setSeqIsReal] = useState(false);
+  const [seqStep, setSeqStep] = useState(0);
   const [seqStepMs, setSeqStepMs] = useState(1800);
   const [seqLoop, setSeqLoop] = useState(true);
   const seqTimerRef = useRef<number | null>(null);
@@ -482,14 +510,16 @@ export default function CobotLiveView() {
     setShowGhost(true);
     setSeqIsReal(false);
     let i = 0;
-    setSelectedPose(SEQ_POSE_NAMES[0]);
+    setSelectedPose(TRAJECTORY[0].pose);
+    setSeqStep(0);
     setSeqPlaying(true);
     seqTimerRef.current = window.setInterval(() => {
       i += 1;
-      if (i >= SEQ_POSE_NAMES.length) {
+      if (i >= TRAJECTORY.length) {
         if (seqLoopRef.current) { i = 0; } else { stopSequence(); return; }
       }
-      setSelectedPose(SEQ_POSE_NAMES[i]);
+      setSelectedPose(TRAJECTORY[i].pose);
+      setSeqStep(i);
     }, seqStepMs);
   };
 
@@ -533,17 +563,24 @@ export default function CobotLiveView() {
     try {
       let i = 0;
       while (!seqAbortRef.current) {
-        const name = SEQ_POSE_NAMES[i];
-        setSelectedPose(name);
-        const targetCtrl = urdfPoseToControllerDeg(POSE_LIB_V26[name]);
+        const step = TRAJECTORY[i];
+        setSelectedPose(step.pose);
+        setSeqStep(i);
+        const targetCtrl = urdfPoseToControllerDeg(POSE_LIB_V26[step.pose]);
         const res = await postControl('/api/cobot/move/joint', { joints: targetCtrl, speed: jointSpeed, relative: false });
         if (!res.ok || seqAbortRef.current) break;
         const arrived = await waitForArrival(targetCtrl, 2.0, 25000);
         if (seqAbortRef.current) break;
-        if (!arrived) { setCmdStatus({ ok: false, msg: `Timeout esperando llegada a ${name.replace('POSE_', '')}.` }); break; }
+        if (!arrived) { setCmdStatus({ ok: false, msg: `Timeout esperando llegada a ${step.pose.replace('POSE_', '')}.` }); break; }
+        // Gripper action at this pose (same points as the simulation).
+        if (step.grip) {
+          const gr = await postControl('/api/cobot/gripper', { closed: step.grip === 'grab' });
+          if (!gr.ok || seqAbortRef.current) break;
+          await sleep(700); // let the magnet energise/release
+        }
         await sleep(400);
         i += 1;
-        if (i >= SEQ_POSE_NAMES.length) { if (seqLoopRef.current) i = 0; else break; }
+        if (i >= TRAJECTORY.length) { if (seqLoopRef.current) i = 0; else break; }
       }
     } finally {
       setSeqPlaying(false);
@@ -967,14 +1004,16 @@ export default function CobotLiveView() {
                 <div style={{ ...statRow, marginTop: 4 }}>
                   <span>{seqIsReal ? 'robot →' : 'paso'}</span>
                   <span style={{ color: seqIsReal ? '#3b8bff' : '#22dd55' }}>
-                    {SEQ_POSE_NAMES.indexOf(selectedPose) + 1}/{SEQ_POSE_NAMES.length} · {selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
+                    {seqStep + 1}/{TRAJECTORY.length} · {selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
+                    {TRAJECTORY[seqStep]?.grip === 'grab' ? ' 🧲↓' : TRAJECTORY[seqStep]?.grip === 'release' ? ' ○↑' : ''}
                   </span>
                 </div>
               )}
               <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
                 <b style={{ color: '#7a8c9e' }}>Fantasma</b>: solo anima el preview verde.{' '}
-                <b style={{ color: '#7a8c9e' }}>Robot real</b>: mueve el cobot físico pose por pose
-                (vel {jointSpeed}%), esperando a que llegue en cada paso. STOP aborta.
+                <b style={{ color: '#7a8c9e' }}>Robot real</b>: ejecuta el ciclo completo (pick→remache→visión→bin)
+                a vel {jointSpeed}%, agarrando/soltando el imán en cada pose como en la simulación,
+                esperando la llegada en cada paso. STOP aborta.
               </div>
             </div>
           </Section>

@@ -1,13 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+// Generado desde diagramadeconexiones.dxf (diagram_tools/dxf_to_svg.py).
+// Los cables principales del DXF están sin color de función (ACI 7); se
+// muestran como "Cableado principal". El color por tipo de cable solo existe
+// en las entidades de acento + el bloque 2D insertado (GPIO/conectores/pines).
 const WIRE_GROUPS = [
-  { hex: '#22D3EE', label: 'GND',                count: 40 },
-  { hex: '#A953A0', label: 'Motores aux.',        count: 20 },
-  { hex: '#CD2027', label: '+24 V',              count: 30 },
-  { hex: '#58BA48', label: 'Switch',             count: 18 },
-  { hex: '#F26722', label: 'Señales (naranja)',  count: 13 },
-  { hex: '#2776BB', label: 'Comunicación',       count:  6 },
-  { hex: '#F8991E', label: 'Señales (ámbar)',    count:  3 },
+  { hex: '#9FB3C8', label: 'Cableado principal', count: 12636 },
+  { hex: '#6B7480', label: 'Estructura',          count:   50 },
+  { hex: '#00FF00', label: 'GPIO (bloque)',       count:   47 },
+  { hex: '#00FFFF', label: 'Conectores (bloque)', count:   41 },
+  { hex: '#A953A0', label: 'Motores aux.',        count:   20 },
+  { hex: '#FFFF00', label: 'Pines (bloque)',      count:   20 },
+  { hex: '#58BA48', label: 'Switch',              count:   18 },
+  { hex: '#CD2027', label: '+24 V',               count:   18 },
+  { hex: '#F7F281', label: 'Señal (amarillo)',    count:   12 },
+  { hex: '#2776BB', label: 'Comunicación',        count:   11 },
+  { hex: '#ED1F24', label: '+24 V (alt)',         count:   10 },
+  { hex: '#FF0000', label: 'Rojo',                count:    8 },
+  { hex: '#7AAFDF', label: 'Azul claro',          count:    5 },
+  { hex: '#F26722', label: 'Señales (naranja)',   count:    3 },
+  { hex: '#F8991E', label: 'Señales (ámbar)',     count:    3 },
 ];
 
 const ALL_HEX = new Set(WIRE_GROUPS.map(w => w.hex));

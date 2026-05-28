@@ -191,6 +191,56 @@ function ctrlBtn(enabled: boolean, c1: string, c2: string): React.CSSProperties 
     opacity: enabled ? 1 : 0.55,
   };
 }
+
+// Round to `decimals` and stringify without trailing/leading-zero noise
+// (90 → "90", 90.5 → "90.5").
+function fmtNum(n: number, decimals: number): string {
+  if (!isFinite(n)) return '0';
+  const p = 10 ** decimals;
+  return String(Math.round(n * p) / p);
+}
+function clampNum(n: number, min?: number, max?: number): number {
+  if (min !== undefined) n = Math.max(min, n);
+  if (max !== undefined) n = Math.min(max, n);
+  return n;
+}
+
+// Numeric text field that avoids the controlled-number-input quirks (leading
+// zeros, lost cursor).  Shows the raw edit string while focused, selects all
+// on focus so a fresh value replaces the old one, and normalises on blur.
+function NumField({
+  value, onChange, disabled, min, max, decimals = 2, width = 56,
+}: {
+  value: number; onChange: (n: number) => void; disabled?: boolean;
+  min?: number; max?: number; decimals?: number; width?: number | string;
+}) {
+  const [text, setText] = useState(() => fmtNum(value, decimals));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { if (!editing) setText(fmtNum(value, decimals)); }, [value, editing, decimals]);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      disabled={disabled}
+      onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        const n = parseFloat(t);
+        if (!isNaN(n)) onChange(clampNum(n, min, max));
+      }}
+      onBlur={() => {
+        setEditing(false);
+        const n = parseFloat(text);
+        const fixed = clampNum(isNaN(n) ? 0 : n, min, max);
+        onChange(fixed);
+        setText(fmtNum(fixed, decimals));
+      }}
+      style={{ ...numInput, width, textAlign: 'right' }}
+    />
+  );
+}
 function Flag({ label, on, goodWhenOn = true }: { label: string; on: boolean; goodWhenOn?: boolean }) {
   const good = goodWhenOn ? on : !on;
   return (
@@ -537,16 +587,17 @@ export default function CobotLiveView() {
                   value={v} disabled={!controlEnabled}
                   onChange={(e) => { const n = [...cmdJoints]; n[i] = parseFloat(e.target.value); setCmdJoints(n); }}
                   style={{ flex: 1, accentColor: '#3b8bff' }} />
-                <input type="number" value={Number(v.toFixed(1))} disabled={!controlEnabled}
-                  onChange={(e) => { const n = [...cmdJoints]; n[i] = parseFloat(e.target.value) || 0; setCmdJoints(n); }}
-                  style={{ ...numInput, width: 56 }} />
+                <NumField value={v} disabled={!controlEnabled}
+                  min={-JOINT_LIMITS_DEG[i]} max={JOINT_LIMITS_DEG[i]} decimals={1} width={56}
+                  onChange={(nv) => { const n = [...cmdJoints]; n[i] = nv; setCmdJoints(n); }} />
               </div>
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
               <span style={{ fontSize: 10, color: '#abc' }}>vel %</span>
               <input type="range" min={1} max={100} step={1} value={jointSpeed} disabled={!controlEnabled}
                 onChange={(e) => setJointSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 32, textAlign: 'right' }}>{jointSpeed}</span>
+              <NumField value={jointSpeed} disabled={!controlEnabled} min={1} max={100} decimals={0} width={44}
+                onChange={setJointSpeed} />
             </div>
             <button onClick={moveJoint} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
               ▸ MOVER JOINTS
@@ -560,9 +611,8 @@ export default function CobotLiveView() {
               {(['x', 'y', 'z', 'rx', 'ry', 'rz'] as const).map((k) => (
                 <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase' }}>{k}</span>
-                  <input type="number" value={Number((cart[k]).toFixed(2))} disabled={!controlEnabled}
-                    onChange={(e) => setCart({ ...cart, [k]: parseFloat(e.target.value) || 0 })}
-                    style={{ ...numInput, width: '100%' }} />
+                  <NumField value={cart[k]} disabled={!controlEnabled} decimals={2} width="100%"
+                    onChange={(nv) => setCart({ ...cart, [k]: nv })} />
                 </label>
               ))}
             </div>
@@ -570,7 +620,8 @@ export default function CobotLiveView() {
               <span style={{ fontSize: 10, color: '#abc' }}>vel mm/s</span>
               <input type="range" min={1} max={500} step={1} value={cartSpeed} disabled={!controlEnabled}
                 onChange={(e) => setCartSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 32, textAlign: 'right' }}>{cartSpeed}</span>
+              <NumField value={cartSpeed} disabled={!controlEnabled} min={1} max={500} decimals={0} width={44}
+                onChange={setCartSpeed} />
             </div>
             <button onClick={moveCartesian} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
               ▸ MOVER LINEAL

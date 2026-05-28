@@ -352,11 +352,14 @@ export default function CobotLiveView() {
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
   const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
   const [showGhost, setShowGhost] = useState(true);
-  // Ghost sequence player (visualisation only — does NOT command the robot).
+  // Sequence player. Ghost mode = visualisation only; Real mode = drives the
+  // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
+  const [seqIsReal, setSeqIsReal] = useState(false);
   const [seqStepMs, setSeqStepMs] = useState(1800);
   const [seqLoop, setSeqLoop] = useState(true);
   const seqTimerRef = useRef<number | null>(null);
+  const seqAbortRef = useRef(false);
   const seqLoopRef = useRef(seqLoop);
   seqLoopRef.current = seqLoop;
 
@@ -367,6 +370,9 @@ export default function CobotLiveView() {
   // 3D cobot reads these; default HOME, driven by telemetry only when applyToModel.
   const targetJointsRef = useRef<[number, number, number, number, number, number]>([...HOME_JOINTS]);
   const tcpWorldRef = useRef<[number, number, number]>([0, 0, 0]);
+  // Latest telemetry, readable synchronously inside the async sequence runner.
+  const telemetryRef = useRef(telemetry);
+  telemetryRef.current = telemetry;
 
   // Drive the model from telemetry: deg → rad, applying per-joint sign and
   // zero-offset (JOINT_SIGN / JOINT_OFFSET_DEG) to align with the real robot.
@@ -400,8 +406,9 @@ export default function CobotLiveView() {
   };
 
   // POST a control command to the gateway.  Surfaces errorCode "3" (Remote
-  // Control not delegated) as a clear, actionable message.
-  const postControl = async (path: string, body?: object) => {
+  // Control not delegated) as a clear, actionable message and returns the
+  // outcome so the sequence runner can decide whether to continue.
+  const postControl = async (path: string, body?: object): Promise<{ ok: boolean; error: string }> => {
     setCmdBusy(true);
     setCmdStatus(null);
     try {
@@ -414,14 +421,17 @@ export default function CobotLiveView() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const denied = String(j.errorCode) === '3' || /permission|remote control/i.test(j.error || '');
       if (denied) {
-        setCmdStatus({ ok: false, msg: 'Permiso denegado — abre EcoStruxure Cobot Expert (PC 10.5.5.101) y ponlo en Remote Control.' });
+        const msg = 'Permiso denegado — abre EcoStruxure Cobot Expert (PC 10.5.5.101) y ponlo en Remote Control.';
+        setCmdStatus({ ok: false, msg }); return { ok: false, error: msg };
       } else if (j.ok === false) {
-        setCmdStatus({ ok: false, msg: j.error || 'Comando rechazado por el cobot.' });
+        const msg = j.error || 'Comando rechazado por el cobot.';
+        setCmdStatus({ ok: false, msg }); return { ok: false, error: msg };
       } else {
-        setCmdStatus({ ok: true, msg: 'Comando aceptado.' });
+        setCmdStatus({ ok: true, msg: 'Comando aceptado.' }); return { ok: true, error: '' };
       }
     } catch (e) {
-      setCmdStatus({ ok: false, msg: `Sin respuesta del gateway (${String(e)}).` });
+      const msg = `Sin respuesta del gateway (${String(e)}).`;
+      setCmdStatus({ ok: false, msg }); return { ok: false, error: msg };
     } finally {
       setCmdBusy(false);
     }
@@ -450,16 +460,21 @@ export default function CobotLiveView() {
   const sendPoseToRobot = () =>
     postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
-  // Ghost sequence player: step selectedPose through the cycle on a timer; the
-  // ghost eases between poses so it looks like the cobot running the routine.
-  // Visualisation only — never sends to the real robot.
+  // Stop whichever player is running (ghost timer and/or the real-robot loop).
   const stopSequence = () => {
+    seqAbortRef.current = true;
     if (seqTimerRef.current) { window.clearInterval(seqTimerRef.current); seqTimerRef.current = null; }
     setSeqPlaying(false);
+    setSeqIsReal(false);
   };
+
+  // Ghost-only player: step selectedPose through the cycle on a timer; the
+  // ghost eases between poses so it looks like the cobot running the routine.
   const playSequence = () => {
     stopSequence();
+    seqAbortRef.current = false;
     setShowGhost(true);
+    setSeqIsReal(false);
     let i = 0;
     setSelectedPose(SEQ_POSE_NAMES[0]);
     setSeqPlaying(true);
@@ -471,6 +486,67 @@ export default function CobotLiveView() {
       setSelectedPose(SEQ_POSE_NAMES[i]);
     }, seqStepMs);
   };
+
+  // Smallest angular difference in degrees (handles ±180/±360 wrap).
+  const angDiffDeg = (a: number, b: number) => {
+    let d = (a - b) % 360;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return Math.abs(d);
+  };
+  const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+  // Poll telemetry until every joint is within tol of the target (controller
+  // deg), or until timeout / abort.  Resolves true on arrival.
+  const waitForArrival = (targetCtrl: number[], tolDeg: number, timeoutMs: number) =>
+    new Promise<boolean>((resolve) => {
+      const start = Date.now();
+      const id = window.setInterval(() => {
+        if (seqAbortRef.current) { window.clearInterval(id); resolve(false); return; }
+        const jp = telemetryRef.current.joint_positions_deg;
+        if (jp && jp.length === 6) {
+          let max = 0;
+          for (let i = 0; i < 6; i++) max = Math.max(max, angDiffDeg(jp[i], targetCtrl[i]));
+          if (max <= tolDeg) { window.clearInterval(id); resolve(true); return; }
+        }
+        if (Date.now() - start > timeoutMs) { window.clearInterval(id); resolve(false); return; }
+      }, 120);
+    });
+
+  // Real-robot sequence: command each pose, wait for the cobot to physically
+  // arrive (ghost holds the target meanwhile), then advance.  Moves the
+  // PHYSICAL robot through the whole cycle.
+  const playRealSequence = async () => {
+    if (!controlEnabled) return;
+    if (!window.confirm('Esto moverá el ROBOT REAL por todo el ciclo de poses (vel ' + jointSpeed + '%). El STOP lo aborta. ¿Continuar?')) return;
+    stopSequence();
+    seqAbortRef.current = false;
+    setShowGhost(true);
+    setApplyToModel(true);
+    setSeqIsReal(true);
+    setSeqPlaying(true);
+    try {
+      let i = 0;
+      while (!seqAbortRef.current) {
+        const name = SEQ_POSE_NAMES[i];
+        setSelectedPose(name);
+        const targetCtrl = urdfPoseToControllerDeg(POSE_LIB_V26[name]);
+        const res = await postControl('/api/cobot/move/joint', { joints: targetCtrl, speed: jointSpeed, relative: false });
+        if (!res.ok || seqAbortRef.current) break;
+        const arrived = await waitForArrival(targetCtrl, 2.0, 25000);
+        if (seqAbortRef.current) break;
+        if (!arrived) { setCmdStatus({ ok: false, msg: `Timeout esperando llegada a ${name.replace('POSE_', '')}.` }); break; }
+        await sleep(400);
+        i += 1;
+        if (i >= SEQ_POSE_NAMES.length) { if (seqLoopRef.current) i = 0; else break; }
+      }
+    } finally {
+      setSeqPlaying(false);
+      setSeqIsReal(false);
+    }
+  };
+
+  // STOP: abort any running sequence AND command the robot to halt.
+  const handleStop = () => { stopSequence(); cobotStop(); };
 
   const disconnect = () => {
     manualCloseRef.current = true;
@@ -686,8 +762,8 @@ export default function CobotLiveView() {
               </div>
             )}
 
-            {/* STOP — always reachable while live */}
-            <button onClick={cobotStop} disabled={!controlEnabled || cmdBusy} style={{
+            {/* STOP — always reachable while live; also aborts any sequence */}
+            <button onClick={handleStop} disabled={!controlEnabled} style={{
               width: '100%', fontFamily: SANS_FONT, fontSize: 14, fontWeight: 800, color: '#fff',
               letterSpacing: 1, cursor: controlEnabled ? 'pointer' : 'not-allowed',
               border: 'none', borderRadius: 6, padding: '12px', marginBottom: 8,
@@ -804,24 +880,45 @@ export default function CobotLiveView() {
               manda la pose directo (vel {jointSpeed}%). Usa STOP si algo sale mal.
             </div>
 
-            {/* Ghost sequence player (visualisation only) */}
+            {/* Sequence player: ghost-only or driving the real robot */}
             <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
               <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
-                Recorrer secuencia (fantasma)
+                Recorrer secuencia
               </div>
-              <button onClick={seqPlaying ? stopSequence : playSequence} style={{
-                width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
-                cursor: 'pointer', border: 'none', borderRadius: 6, padding: '9px',
-                background: seqPlaying
-                  ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
-                  : 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',
-              }}>
-                {seqPlaying ? '⏸ Detener recorrido' : '▶ Reproducir secuencia'}
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                {/* Ghost-only */}
+                <button onClick={seqPlaying && !seqIsReal ? stopSequence : playSequence}
+                  disabled={seqPlaying && seqIsReal}
+                  style={{
+                    fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
+                    cursor: (seqPlaying && seqIsReal) ? 'not-allowed' : 'pointer',
+                    border: 'none', borderRadius: 6, padding: '9px 6px',
+                    opacity: (seqPlaying && seqIsReal) ? 0.5 : 1,
+                    background: (seqPlaying && !seqIsReal)
+                      ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
+                      : 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)',
+                  }}>
+                  {seqPlaying && !seqIsReal ? '⏸ Detener' : '▶ Fantasma'}
+                </button>
+                {/* Real robot */}
+                <button onClick={seqPlaying && seqIsReal ? stopSequence : playRealSequence}
+                  disabled={!controlEnabled || (seqPlaying && !seqIsReal)}
+                  style={{
+                    fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
+                    cursor: (!controlEnabled || (seqPlaying && !seqIsReal)) ? 'not-allowed' : 'pointer',
+                    border: 'none', borderRadius: 6, padding: '9px 6px',
+                    opacity: (!controlEnabled || (seqPlaying && !seqIsReal)) ? 0.5 : 1,
+                    background: (seqPlaying && seqIsReal)
+                      ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
+                      : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                  }}>
+                  {seqPlaying && seqIsReal ? '⏸ Detener robot' : '▶ Robot real'}
+                </button>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <span style={{ fontSize: 10, color: '#abc' }}>s/paso</span>
                 <input type="range" min={500} max={4000} step={100} value={seqStepMs}
-                  onChange={(e) => setSeqStepMs(parseFloat(e.target.value))}
+                  onChange={(e) => setSeqStepMs(parseFloat(e.target.value))} disabled={seqIsReal}
                   style={{ flex: 1, accentColor: '#22cc55' }} />
                 <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 36, textAlign: 'right' }}>
                   {(seqStepMs / 1000).toFixed(1)}
@@ -833,14 +930,16 @@ export default function CobotLiveView() {
               </label>
               {seqPlaying && (
                 <div style={{ ...statRow, marginTop: 4 }}>
-                  <span>paso</span>
-                  <span style={{ color: '#22dd55' }}>
+                  <span>{seqIsReal ? 'robot →' : 'paso'}</span>
+                  <span style={{ color: seqIsReal ? '#3b8bff' : '#22dd55' }}>
                     {SEQ_POSE_NAMES.indexOf(selectedPose) + 1}/{SEQ_POSE_NAMES.length} · {selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
                   </span>
                 </div>
               )}
               <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
-                Solo anima el fantasma verde — no mueve el robot real.
+                <b style={{ color: '#7a8c9e' }}>Fantasma</b>: solo anima el preview verde.{' '}
+                <b style={{ color: '#7a8c9e' }}>Robot real</b>: mueve el cobot físico pose por pose
+                (vel {jointSpeed}%), esperando a que llegue en cada paso. STOP aborta.
               </div>
             </div>
           </Section>

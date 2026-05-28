@@ -28,12 +28,13 @@ const HOME_JOINTS: [number, number, number, number, number, number] =
 
 // Mapping from the LXM controller convention to our URDF, per joint:
 //   urdf_deg = JOINT_SIGN * controller_deg + JOINT_OFFSET_DEG
-// J2 and J4 turn the opposite way in the URDF (sign -1) and sit 90° off
-// (offset +90°).  Adjust here if a joint still looks rotated/reversed.
+// J2: inverted direction (sign -1) + +90° offset.
+// J4: same direction (sign +1) + -90° offset.
+// Adjust here if a joint still looks rotated/reversed.
 const JOINT_SIGN: [number, number, number, number, number, number] =
-  [1, -1, 1, -1, 1, 1];
+  [1, -1, 1, 1, 1, 1];
 const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
-  [0, 90, 0, 90, 0, 0];
+  [0, 90, 0, -90, 0, 0];
 
 // ── Telemetry shape (mirror of cobot_reader.py JSON) ────────────────────────
 interface JointState {

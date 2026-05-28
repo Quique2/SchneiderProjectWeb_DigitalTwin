@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import HeroSection from './components/HeroSection';
 import CellViewer3D from './components/CellViewer3D';
+import CobotLiveView from './components/CobotLiveView';
 import WiringDiagram from './components/WiringDiagram';
 import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
 
-type TabId = 'inicio' | 'wiring' | 'cell';
+type TabId = 'inicio' | 'wiring' | 'cell' | 'live';
 
 interface TabDef {
   id: TabId;
@@ -20,6 +21,7 @@ const TABS: TabDef[] = [
   { id: 'inicio',  label: 'Inicio' },
   { id: 'wiring',  label: 'Cableado' },
   { id: 'cell',    label: 'Celda 3D' },
+  { id: 'live',    label: 'Cobot en Vivo' },
 ];
 
 const TOPBAR_HEIGHT = 60;
@@ -182,6 +184,7 @@ export default function App() {
         )}
         {tab === 'wiring' && <ScrollHost><WiringDiagram /></ScrollHost>}
         {tab === 'cell'   && <CellViewer3D />}
+        {tab === 'live'   && <CobotLiveView />}
       </main>
     </div>
   );

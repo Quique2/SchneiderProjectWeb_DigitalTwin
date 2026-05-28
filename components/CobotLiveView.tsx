@@ -269,15 +269,17 @@ function NumField({
       disabled={disabled}
       onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
       onChange={(e) => {
-        const t = e.target.value;
+        // Keep only characters valid in a decimal number so stray input (e.g.
+        // AltGr+E → "€") can never land in the field and poison the command.
+        const t = e.target.value.replace(/[^0-9.\-]/g, '');
         setText(t);
         const n = parseFloat(t);
-        if (!isNaN(n)) onChange(clampNum(n, min, max));
+        if (Number.isFinite(n)) onChange(clampNum(n, min, max));
       }}
       onBlur={() => {
         setEditing(false);
         const n = parseFloat(text);
-        const fixed = clampNum(isNaN(n) ? 0 : n, min, max);
+        const fixed = clampNum(Number.isFinite(n) ? n : 0, min, max);
         onChange(fixed);
         setText(fmtNum(fixed, decimals));
       }}
@@ -399,8 +401,15 @@ export default function CobotLiveView() {
     }
   };
 
-  const moveJoint = () => postControl('/api/cobot/move/joint', { joints: cmdJoints, speed: jointSpeed, relative: false });
-  const moveCartesian = () => postControl('/api/cobot/move/cartesian', { ...cart, speed: cartSpeed });
+  const moveJoint = () => {
+    if (!cmdJoints.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: 'Hay un joint con valor inválido — corrígelo antes de mover.' }); return; }
+    postControl('/api/cobot/move/joint', { joints: cmdJoints, speed: jointSpeed, relative: false });
+  };
+  const moveCartesian = () => {
+    const vals = [cart.x, cart.y, cart.z, cart.rx, cart.ry, cart.rz];
+    if (!vals.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: 'Hay un valor cartesiano inválido (revisa X/Y/Z/RX/RY/RZ).' }); return; }
+    postControl('/api/cobot/move/cartesian', { x: cart.x, y: cart.y, z: cart.z, rx: cart.rx, ry: cart.ry, rz: cart.rz, speed: cartSpeed });
+  };
   const cobotStop = () => postControl('/api/cobot/stop');
   const cobotEnable = () => postControl('/api/cobot/enable');
   const cobotDisable = () => postControl('/api/cobot/disable');

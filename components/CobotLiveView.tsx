@@ -29,13 +29,16 @@ const HOME_JOINTS: [number, number, number, number, number, number] =
 
 // Mapping from the LXM controller convention to our URDF, per joint:
 //   urdf_deg = JOINT_SIGN * controller_deg + JOINT_OFFSET_DEG
+// J1: +90° offset.
 // J2: inverted direction (sign -1) + +90° offset.
 // J4: same direction (sign +1) + -90° offset.
-// Adjust here if a joint still looks rotated/reversed.
+// Used for the live display, the inverse pose-send, and (via raw POSE_LIB_V26)
+// kept consistent with the green ghost.  Adjust here if a joint still looks
+// rotated/reversed.
 const JOINT_SIGN: [number, number, number, number, number, number] =
   [1, -1, 1, 1, 1, 1];
 const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
-  [0, 90, 0, -90, 0, 0];
+  [90, 90, 0, -90, 0, 0];
 
 // Joint command slider bounds (deg, controller convention) from the LXM ranges
 // documented for the cell.  Sent verbatim to move_joint — NOT remapped, since

@@ -283,7 +283,7 @@ function NumField({
         onChange(fixed);
         setText(fmtNum(fixed, decimals));
       }}
-      style={{ ...numInput, width, textAlign: 'right' }}
+      style={{ ...numInput, width, textAlign: 'left' }}
     />
   );
 }

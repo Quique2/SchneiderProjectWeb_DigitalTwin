@@ -33,6 +33,7 @@ interface JointState {
 interface CobotTelemetry {
   timestamp: string;
   ok: boolean;
+  _demo?: boolean; // backend sets this true when it can't reach the real Modbus
   status: {
     protective_stop: boolean; emergency_stop: boolean; power_on: boolean;
     robot_enabled: boolean; on_soft_limit: boolean; inpos: boolean;
@@ -246,8 +247,17 @@ export default function CobotLiveView() {
   }, []);
 
   const s = telemetry.status;
-  const dotColor = mode === 'live' ? '#22dd55' : mode === 'connecting' ? '#fbbf24' : mode === 'error' ? '#ff5566' : '#5a6c84';
-  const modeLabel = mode === 'live' ? 'EN VIVO' : mode === 'connecting' ? 'CONECTANDO…' : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
+  // When connected but the gateway reports _demo, it reached the backend but
+  // not the real Modbus — surface that instead of claiming live data.
+  const backendDemo = mode === 'live' && telemetry._demo === true;
+  const dotColor = backendDemo ? '#fbbf24'
+    : mode === 'live' ? '#22dd55'
+    : mode === 'connecting' ? '#fbbf24'
+    : mode === 'error' ? '#ff5566' : '#5a6c84';
+  const modeLabel = backendDemo ? 'GATEWAY OK · Modbus en demo'
+    : mode === 'live' ? 'EN VIVO'
+    : mode === 'connecting' ? 'CONECTANDO…'
+    : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>

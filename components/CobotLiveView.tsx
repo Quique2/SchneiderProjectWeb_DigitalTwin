@@ -36,6 +36,24 @@ const JOINT_SIGN: [number, number, number, number, number, number] =
 const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
   [0, 90, 0, -90, 0, 0];
 
+// Joint command slider bounds (deg, controller convention) from the LXM ranges
+// documented for the cell.  Sent verbatim to move_joint — NOT remapped, since
+// the controller speaks its own convention.
+const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
+  [360, 360, 225, 360, 115, 360];
+
+// Derive the gateway's https/http base from the ws/wss connection URL so the
+// control POSTs hit the same origin (…/api/cobot/*).
+function gatewayBase(connUrl: string): string {
+  try {
+    const u = new URL(connUrl);
+    const proto = u.protocol === 'wss:' ? 'https:' : u.protocol === 'ws:' ? 'http:' : u.protocol;
+    return `${proto}//${u.host}`;
+  } catch {
+    return connUrl.replace(/\/(ws|api)\/.*$/, '');
+  }
+}
+
 // ── Telemetry shape (mirror of cobot_reader.py JSON) ────────────────────────
 interface JointState {
   joint: number; error: boolean; enabled: boolean; collision: boolean; current_a: number;
@@ -159,6 +177,20 @@ const statRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between',
   fontSize: 11, fontFamily: 'monospace', color: '#abc', padding: '3px 0',
 };
+const numInput: React.CSSProperties = {
+  fontFamily: 'monospace', fontSize: 11, color: '#dde4f0',
+  background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4,
+  padding: '4px 6px', outline: 'none',
+};
+function ctrlBtn(enabled: boolean, c1: string, c2: string): React.CSSProperties {
+  return {
+    fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
+    cursor: enabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
+    padding: '8px 6px',
+    background: enabled ? `linear-gradient(180deg,${c1} 0%,${c2} 100%)` : '#2a3548',
+    opacity: enabled ? 1 : 0.55,
+  };
+}
 function Flag({ label, on, goodWhenOn = true }: { label: string; on: boolean; goodWhenOn?: boolean }) {
   const good = goodWhenOn ? on : !on;
   return (
@@ -195,6 +227,15 @@ export default function CobotLiveView() {
   const [applyToModel, setApplyToModel] = useState(false);
   const [connErr, setConnErr] = useState<string | null>(null);
 
+  // ── Control state ──────────────────────────────────────────────────────
+  const [cmdJoints, setCmdJoints] = useState<number[]>([...DEMO_TELEMETRY.joint_positions_deg]);
+  const [jointSpeed, setJointSpeed] = useState(15);
+  const [cart, setCart] = useState({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 });
+  const [cartSpeed, setCartSpeed] = useState(20);
+  const [cmdBusy, setCmdBusy] = useState(false);
+  const [cmdStatus, setCmdStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
+
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
   const manualCloseRef = useRef(false);   // distinguishes user disconnect from a drop
@@ -214,6 +255,59 @@ export default function CobotLiveView() {
       targetJointsRef.current = [...HOME_JOINTS];
     }
   }, [applyToModel, telemetry]);
+
+  // Seed the command inputs from the first real (non-demo) telemetry so the
+  // operator jogs from the robot's actual pose, not zeros.
+  useEffect(() => {
+    if (mode === 'live' && !telemetry._demo && !cmdInitRef.current
+        && telemetry.joint_positions_deg?.length === 6) {
+      cmdInitRef.current = true;
+      syncCmdFromLive();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, telemetry]);
+
+  const syncCmdFromLive = () => {
+    setCmdJoints([...telemetry.joint_positions_deg]);
+    setCart({
+      x: telemetry.tcp_position.x_mm, y: telemetry.tcp_position.y_mm, z: telemetry.tcp_position.z_mm,
+      rx: telemetry.tcp_position.rx_deg, ry: telemetry.tcp_position.ry_deg, rz: telemetry.tcp_position.rz_deg,
+    });
+  };
+
+  // POST a control command to the gateway.  Surfaces errorCode "3" (Remote
+  // Control not delegated) as a clear, actionable message.
+  const postControl = async (path: string, body?: object) => {
+    setCmdBusy(true);
+    setCmdStatus(null);
+    try {
+      const res = await fetch(`${gatewayBase(url)}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const denied = String(j.errorCode) === '3' || /permission|remote control/i.test(j.error || '');
+      if (denied) {
+        setCmdStatus({ ok: false, msg: 'Permiso denegado — abre EcoStruxure Cobot Expert (PC 10.5.5.101) y ponlo en Remote Control.' });
+      } else if (j.ok === false) {
+        setCmdStatus({ ok: false, msg: j.error || 'Comando rechazado por el cobot.' });
+      } else {
+        setCmdStatus({ ok: true, msg: 'Comando aceptado.' });
+      }
+    } catch (e) {
+      setCmdStatus({ ok: false, msg: `Sin respuesta del gateway (${String(e)}).` });
+    } finally {
+      setCmdBusy(false);
+    }
+  };
+
+  const moveJoint = () => postControl('/api/cobot/move/joint', { joints: cmdJoints, speed: jointSpeed, relative: false });
+  const moveCartesian = () => postControl('/api/cobot/move/cartesian', { ...cart, speed: cartSpeed });
+  const cobotStop = () => postControl('/api/cobot/stop');
+  const cobotEnable = () => postControl('/api/cobot/enable');
+  const cobotDisable = () => postControl('/api/cobot/disable');
 
   const disconnect = () => {
     manualCloseRef.current = true;
@@ -301,6 +395,8 @@ export default function CobotLiveView() {
     : mode === 'live' ? 'EN VIVO'
     : mode === 'connecting' ? 'CONECTANDO…'
     : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
+  // Control commands only make sense against a reachable gateway.
+  const controlEnabled = mode === 'live';
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>
@@ -404,6 +500,101 @@ export default function CobotLiveView() {
           borderLeft: '1px solid #1d2c44',
           background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
         }}>
+          {/* === Control panel === */}
+          <Section title="Control del robot">
+            {!controlEnabled && (
+              <div style={{
+                fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)',
+                border: '1px solid #fbbf2433', borderRadius: 4, padding: '6px 8px', marginBottom: 8,
+              }}>
+                Conéctate al gateway (EN VIVO) para enviar comandos.
+              </div>
+            )}
+
+            {/* STOP — always reachable while live */}
+            <button onClick={cobotStop} disabled={!controlEnabled || cmdBusy} style={{
+              width: '100%', fontFamily: SANS_FONT, fontSize: 14, fontWeight: 800, color: '#fff',
+              letterSpacing: 1, cursor: controlEnabled ? 'pointer' : 'not-allowed',
+              border: 'none', borderRadius: 6, padding: '12px', marginBottom: 8,
+              background: controlEnabled ? 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)' : '#3a2530',
+              boxShadow: controlEnabled ? '0 0 14px rgba(239,68,68,0.45)' : 'none',
+            }}>■ STOP</button>
+
+            {/* Enable / Disable */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 8 }}>
+              <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#22cc55', '#15803d')}>ENABLE</button>
+              <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#f47835', '#d96416')}>DISABLE</button>
+            </div>
+
+            {/* Joint jog sliders */}
+            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '6px 0 4px' }}>
+              Joints (°, convención robot)
+            </div>
+            {cmdJoints.map((v, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#abc', width: 22 }}>J{i + 1}</span>
+                <input type="range" min={-JOINT_LIMITS_DEG[i]} max={JOINT_LIMITS_DEG[i]} step={0.5}
+                  value={v} disabled={!controlEnabled}
+                  onChange={(e) => { const n = [...cmdJoints]; n[i] = parseFloat(e.target.value); setCmdJoints(n); }}
+                  style={{ flex: 1, accentColor: '#3b8bff' }} />
+                <input type="number" value={Number(v.toFixed(1))} disabled={!controlEnabled}
+                  onChange={(e) => { const n = [...cmdJoints]; n[i] = parseFloat(e.target.value) || 0; setCmdJoints(n); }}
+                  style={{ ...numInput, width: 56 }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 10, color: '#abc' }}>vel %</span>
+              <input type="range" min={1} max={100} step={1} value={jointSpeed} disabled={!controlEnabled}
+                onChange={(e) => setJointSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 32, textAlign: 'right' }}>{jointSpeed}</span>
+            </div>
+            <button onClick={moveJoint} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
+              ▸ MOVER JOINTS
+            </button>
+
+            {/* Cartesian move */}
+            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '10px 0 4px' }}>
+              Cartesiano (mm / °)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+              {(['x', 'y', 'z', 'rx', 'ry', 'rz'] as const).map((k) => (
+                <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase' }}>{k}</span>
+                  <input type="number" value={Number((cart[k]).toFixed(2))} disabled={!controlEnabled}
+                    onChange={(e) => setCart({ ...cart, [k]: parseFloat(e.target.value) || 0 })}
+                    style={{ ...numInput, width: '100%' }} />
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 10, color: '#abc' }}>vel mm/s</span>
+              <input type="range" min={1} max={500} step={1} value={cartSpeed} disabled={!controlEnabled}
+                onChange={(e) => setCartSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 32, textAlign: 'right' }}>{cartSpeed}</span>
+            </div>
+            <button onClick={moveCartesian} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
+              ▸ MOVER LINEAL
+            </button>
+
+            <button onClick={syncCmdFromLive} disabled={!controlEnabled} style={{
+              width: '100%', marginTop: 6, fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600,
+              color: '#9bb0c8', cursor: controlEnabled ? 'pointer' : 'not-allowed',
+              border: '1px solid #1d2c44', borderRadius: 6, padding: '6px', background: 'rgba(20,30,48,0.6)',
+            }}>↺ Sincronizar con pose actual</button>
+
+            {cmdStatus && (
+              <div style={{
+                marginTop: 8, padding: '7px 9px', borderRadius: 4, fontSize: 10, lineHeight: 1.4,
+                fontFamily: 'monospace',
+                color: cmdStatus.ok ? '#22dd55' : '#ff8a98',
+                background: cmdStatus.ok ? 'rgba(20,60,30,0.4)' : 'rgba(80,20,20,0.4)',
+                border: `1px solid ${cmdStatus.ok ? '#22dd5544' : '#ff556644'}`,
+              }}>
+                {cmdStatus.ok ? '✓ ' : '⚠ '}{cmdStatus.msg}
+              </div>
+            )}
+          </Section>
+
           <Section title="Estado del robot">
             <Flag label="Power ON" on={s.power_on} />
             <Flag label="Robot enabled" on={s.robot_enabled} />

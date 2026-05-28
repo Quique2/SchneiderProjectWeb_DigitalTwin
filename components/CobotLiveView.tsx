@@ -46,6 +46,11 @@ const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
 const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
   [360, 360, 225, 360, 115, 360];
 
+// Logical cycle order for the sequence player — POSE_LIB_V26 is already
+// defined in trajectory order (HOME → conveyor → load → rivet → vision →
+// bins), so its key order is the tour.
+const SEQ_POSE_NAMES = Object.keys(POSE_LIB_V26);
+
 // Inverse of the live display map (controller_deg → urdf via sign·ctrl+offset):
 // given a simulation pose in URDF radians, recover the controller-convention
 // joint degrees to command the real robot.  ctrl = sign·(urdf_deg − offset),
@@ -181,8 +186,9 @@ function LiveCobot({
 // Loads its own URDF instance so it doesn't fight the live robot's joints.
 function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: boolean }) {
   const robot = useCobotUrdf();
-  const jointsRef = useRef(jointsRad);
-  jointsRef.current = jointsRad; // keep useFrame reading the latest target
+  const targetRef = useRef(jointsRad);
+  targetRef.current = jointsRad; // keep useFrame reading the latest target
+  const liveRef = useRef<number[]>([...jointsRad]); // eased current joints
   // Shared green translucent material applied to every mesh.
   const ghostMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#22dd55', emissive: new THREE.Color('#0e5a23'),
@@ -192,7 +198,9 @@ function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: bool
   // The URDF's STL meshes load asynchronously AFTER parse, so a one-shot
   // material swap misses them.  Re-apply every frame (no-op once a mesh
   // already carries the ghost material) so newly-loaded meshes get tinted.
-  useFrame(() => {
+  // Joints ease toward the target so changing pose (or the sequence player)
+  // shows smooth motion instead of snapping.
+  useFrame((_, dt) => {
     if (!robot) return;
     robot.traverse((c) => {
       const m = c as THREE.Mesh;
@@ -201,8 +209,12 @@ function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: bool
         m.castShadow = false; m.receiveShadow = false; m.renderOrder = 3;
       }
     });
-    const j = jointsRef.current;
-    for (let i = 0; i < 6 && i < j.length; i++) robot.setJointValue(`joint_${i + 1}`, j[i]);
+    const t = targetRef.current;
+    const k = Math.min(1, dt * 5);
+    for (let i = 0; i < 6 && i < t.length; i++) {
+      liveRef.current[i] += (t[i] - liveRef.current[i]) * k;
+      robot.setJointValue(`joint_${i + 1}`, liveRef.current[i]);
+    }
   });
   if (!robot) return null;
   return (
@@ -340,6 +352,13 @@ export default function CobotLiveView() {
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
   const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
   const [showGhost, setShowGhost] = useState(true);
+  // Ghost sequence player (visualisation only — does NOT command the robot).
+  const [seqPlaying, setSeqPlaying] = useState(false);
+  const [seqStepMs, setSeqStepMs] = useState(1800);
+  const [seqLoop, setSeqLoop] = useState(true);
+  const seqTimerRef = useRef<number | null>(null);
+  const seqLoopRef = useRef(seqLoop);
+  seqLoopRef.current = seqLoop;
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -431,6 +450,28 @@ export default function CobotLiveView() {
   const sendPoseToRobot = () =>
     postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
+  // Ghost sequence player: step selectedPose through the cycle on a timer; the
+  // ghost eases between poses so it looks like the cobot running the routine.
+  // Visualisation only — never sends to the real robot.
+  const stopSequence = () => {
+    if (seqTimerRef.current) { window.clearInterval(seqTimerRef.current); seqTimerRef.current = null; }
+    setSeqPlaying(false);
+  };
+  const playSequence = () => {
+    stopSequence();
+    setShowGhost(true);
+    let i = 0;
+    setSelectedPose(SEQ_POSE_NAMES[0]);
+    setSeqPlaying(true);
+    seqTimerRef.current = window.setInterval(() => {
+      i += 1;
+      if (i >= SEQ_POSE_NAMES.length) {
+        if (seqLoopRef.current) { i = 0; } else { stopSequence(); return; }
+      }
+      setSelectedPose(SEQ_POSE_NAMES[i]);
+    }, seqStepMs);
+  };
+
   const disconnect = () => {
     manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
@@ -503,6 +544,7 @@ export default function CobotLiveView() {
     manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
     if (pollRef.current) window.clearInterval(pollRef.current);
+    if (seqTimerRef.current) window.clearInterval(seqTimerRef.current);
   }, []);
 
   const s = telemetry.status;
@@ -760,6 +802,46 @@ export default function CobotLiveView() {
             <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
               "Cargar" llena los sliders para revisar antes de mover; "Enviar"
               manda la pose directo (vel {jointSpeed}%). Usa STOP si algo sale mal.
+            </div>
+
+            {/* Ghost sequence player (visualisation only) */}
+            <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+                Recorrer secuencia (fantasma)
+              </div>
+              <button onClick={seqPlaying ? stopSequence : playSequence} style={{
+                width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
+                cursor: 'pointer', border: 'none', borderRadius: 6, padding: '9px',
+                background: seqPlaying
+                  ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
+                  : 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',
+              }}>
+                {seqPlaying ? '⏸ Detener recorrido' : '▶ Reproducir secuencia'}
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                <span style={{ fontSize: 10, color: '#abc' }}>s/paso</span>
+                <input type="range" min={500} max={4000} step={100} value={seqStepMs}
+                  onChange={(e) => setSeqStepMs(parseFloat(e.target.value))}
+                  style={{ flex: 1, accentColor: '#22cc55' }} />
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 36, textAlign: 'right' }}>
+                  {(seqStepMs / 1000).toFixed(1)}
+                </span>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 10, color: '#abc', cursor: 'pointer' }}>
+                <input type="checkbox" checked={seqLoop} onChange={(e) => setSeqLoop(e.target.checked)} style={{ accentColor: '#22cc55' }} />
+                Repetir en bucle
+              </label>
+              {seqPlaying && (
+                <div style={{ ...statRow, marginTop: 4 }}>
+                  <span>paso</span>
+                  <span style={{ color: '#22dd55' }}>
+                    {SEQ_POSE_NAMES.indexOf(selectedPose) + 1}/{SEQ_POSE_NAMES.length} · {selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )}
+              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
+                Solo anima el fantasma verde — no mueve el robot real.
+              </div>
             </div>
           </Section>
 

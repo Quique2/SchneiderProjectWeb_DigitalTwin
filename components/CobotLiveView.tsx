@@ -95,6 +95,9 @@ interface CobotTelemetry {
   tcp_position: { x_mm: number; y_mm: number; z_mm: number; rx_deg: number; ry_deg: number; rz_deg: number };
   end_effector: { fx_n: number; fy_n: number; fz_n: number; torque_rx_nm: number; torque_ry_nm: number; torque_rz_nm: number };
   joint_temperatures_c: number[];
+  // Magnetic gripper: closed = magnet ON (holding). Reflects the last command
+  // sent from the backend (the cabinet DOs aren't read back over Modbus).
+  gripper?: { closed: boolean; do_index: number };
 }
 
 // Real snapshot captured on the RPi (CONTEXT_DIGITAL_TWIN.md).  Shown when
@@ -122,6 +125,7 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   tcp_position: { x_mm: 20.96, y_mm: 56.38, z_mm: 738.96, rx_deg: -93.077, ry_deg: -80.883, rz_deg: -109.185 },
   end_effector: { fx_n: 0, fy_n: 0, fz_n: 0, torque_rx_nm: 0, torque_ry_nm: 0, torque_rz_nm: 0 },
   joint_temperatures_c: [33, 34, 32, 35, 36, 38],
+  gripper: { closed: false, do_index: 6 },
 };
 
 type ConnMode = 'demo' | 'connecting' | 'live' | 'error';
@@ -419,7 +423,7 @@ export default function CobotLiveView() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const denied = String(j.errorCode) === '3' || /permission|remote control/i.test(j.error || '');
+      const denied = String(j.errorCode) === '3' || String(j.errorCode) === '1' || /permission|remote control/i.test(j.error || '');
       if (denied) {
         const msg = 'Permiso denegado — abre EcoStruxure Cobot Expert (PC 10.5.5.101) y ponlo en Remote Control.';
         setCmdStatus({ ok: false, msg }); return { ok: false, error: msg };
@@ -449,6 +453,8 @@ export default function CobotLiveView() {
   const cobotStop = () => postControl('/api/cobot/stop');
   const cobotEnable = () => postControl('/api/cobot/enable');
   const cobotDisable = () => postControl('/api/cobot/disable');
+  // Magnetic gripper: closed=true energises the magnet (grab), false releases.
+  const setGripper = (closed: boolean) => postControl('/api/cobot/gripper', { closed });
 
   // Simulation pose (URDF rad) → controller-convention joint degrees.
   const selectedPoseCtrlDeg = (): number[] =>
@@ -637,6 +643,8 @@ export default function CobotLiveView() {
     : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
   // Control commands only make sense against a reachable gateway.
   const controlEnabled = mode === 'live';
+  // Gripper magnet state (last commanded; see stream caveat). Drives the toggle.
+  const gripperClosed = telemetry.gripper?.closed ?? false;
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>
@@ -723,6 +731,20 @@ export default function CobotLiveView() {
             </Html>
           </Canvas>
 
+          {/* Magnet status badge */}
+          <div style={{
+            position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: 7,
+            fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700,
+            padding: '7px 12px', borderRadius: 8,
+            color: gripperClosed ? '#06101c' : '#9bb0c8',
+            background: gripperClosed ? 'linear-gradient(180deg,#ffd24d 0%,#f0a800 100%)' : 'rgba(20,30,48,0.85)',
+            border: `1px solid ${gripperClosed ? '#ffd24d' : '#1d2c44'}`,
+            boxShadow: gripperClosed ? '0 0 16px rgba(255,200,60,0.55)' : 'none',
+          }}>
+            <span style={{ fontSize: 14 }}>🧲</span>
+            {gripperClosed ? 'IMÁN ON · agarrando' : 'imán off · suelto'}
+          </div>
+
           {/* model-source toggle */}
           <button onClick={() => setApplyToModel((v) => !v)} style={{
             position: 'absolute', left: 12, bottom: 12, fontFamily: SANS_FONT,
@@ -776,6 +798,19 @@ export default function CobotLiveView() {
               <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#22cc55', '#15803d')}>ENABLE</button>
               <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#f47835', '#d96416')}>DISABLE</button>
             </div>
+
+            {/* Magnetic gripper toggle */}
+            <button onClick={() => setGripper(!gripperClosed)} disabled={!controlEnabled || cmdBusy} style={{
+              width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700,
+              cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
+              padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
+              color: gripperClosed ? '#06101c' : '#fff',
+              background: !controlEnabled ? '#2a3548'
+                : gripperClosed ? 'linear-gradient(180deg,#ffd24d 0%,#f0a800 100%)'
+                : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
+            }}>
+              🧲 {gripperClosed ? 'IMÁN ON — clic para SOLTAR' : 'IMÁN OFF — clic para AGARRAR'}
+            </button>
 
             {/* Joint jog sliders */}
             <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '6px 0 4px' }}>
@@ -953,6 +988,12 @@ export default function CobotLiveView() {
             <Flag label="Soft limit" on={s.on_soft_limit} goodWhenOn={false} />
             <div style={statRow}><span>Motion mode</span><span style={{ color: '#9bf' }}>{s.motion_mode_name}</span></div>
             <div style={statRow}><span>Error code</span><span style={{ color: '#fbbf24' }}>{s.motion_errcode}</span></div>
+            <div style={statRow}>
+              <span>Gripper (imán)</span>
+              <span style={{ color: gripperClosed ? '#ffd24d' : '#788090', fontWeight: 700 }}>
+                {gripperClosed ? 'ON · agarrando' : 'OFF · suelto'}
+              </span>
+            </div>
           </Section>
 
           <Section title="Controlador">

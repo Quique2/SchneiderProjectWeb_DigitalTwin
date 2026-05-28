@@ -178,25 +178,29 @@ function LiveCobot({
 // Loads its own URDF instance so it doesn't fight the live robot's joints.
 function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: boolean }) {
   const robot = useCobotUrdf();
-  // Override every mesh material with a shared green translucent one.
-  useEffect(() => {
+  const jointsRef = useRef(jointsRad);
+  jointsRef.current = jointsRad; // keep useFrame reading the latest target
+  // Shared green translucent material applied to every mesh.
+  const ghostMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#22dd55', emissive: new THREE.Color('#0e5a23'),
+    transparent: true, opacity: 0.32, depthWrite: false,
+    metalness: 0.1, roughness: 0.6,
+  }), []);
+  // The URDF's STL meshes load asynchronously AFTER parse, so a one-shot
+  // material swap misses them.  Re-apply every frame (no-op once a mesh
+  // already carries the ghost material) so newly-loaded meshes get tinted.
+  useFrame(() => {
     if (!robot) return;
-    const ghostMat = new THREE.MeshStandardMaterial({
-      color: '#22dd55', emissive: new THREE.Color('#0e5a23'),
-      transparent: true, opacity: 0.32, depthWrite: false,
-      metalness: 0.1, roughness: 0.6,
-    });
     robot.traverse((c) => {
       const m = c as THREE.Mesh;
-      if (m.isMesh) { m.material = ghostMat; m.castShadow = false; m.receiveShadow = false; m.renderOrder = 3; }
+      if (m.isMesh && m.material !== ghostMat) {
+        m.material = ghostMat;
+        m.castShadow = false; m.receiveShadow = false; m.renderOrder = 3;
+      }
     });
-  }, [robot]);
-  // Apply the target joints (URDF convention — exactly where the real robot
-  // ends up after the inverse mapping is commanded).
-  useEffect(() => {
-    if (!robot) return;
-    for (let i = 0; i < 6 && i < jointsRad.length; i++) robot.setJointValue(`joint_${i + 1}`, jointsRad[i]);
-  }, [robot, jointsRad]);
+    const j = jointsRef.current;
+    for (let i = 0; i < 6 && i < j.length; i++) robot.setJointValue(`joint_${i + 1}`, j[i]);
+  });
   if (!robot) return null;
   return (
     <group visible={visible}>

@@ -173,6 +173,38 @@ function LiveCobot({
   );
 }
 
+// Translucent green "ghost" of the cobot at a target pose (URDF radians),
+// overlaid on the live model to preview where a simulation pose will send it.
+// Loads its own URDF instance so it doesn't fight the live robot's joints.
+function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: boolean }) {
+  const robot = useCobotUrdf();
+  // Override every mesh material with a shared green translucent one.
+  useEffect(() => {
+    if (!robot) return;
+    const ghostMat = new THREE.MeshStandardMaterial({
+      color: '#22dd55', emissive: new THREE.Color('#0e5a23'),
+      transparent: true, opacity: 0.32, depthWrite: false,
+      metalness: 0.1, roughness: 0.6,
+    });
+    robot.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (m.isMesh) { m.material = ghostMat; m.castShadow = false; m.receiveShadow = false; m.renderOrder = 3; }
+    });
+  }, [robot]);
+  // Apply the target joints (URDF convention — exactly where the real robot
+  // ends up after the inverse mapping is commanded).
+  useEffect(() => {
+    if (!robot) return;
+    for (let i = 0; i < 6 && i < jointsRad.length; i++) robot.setJointValue(`joint_${i + 1}`, jointsRad[i]);
+  }, [robot, jointsRad]);
+  if (!robot) return null;
+  return (
+    <group visible={visible}>
+      <primitive object={robot} />
+    </group>
+  );
+}
+
 function ZUp() {
   const { camera, scene } = useThree();
   useEffect(() => {
@@ -298,6 +330,7 @@ export default function CobotLiveView() {
   const [cmdStatus, setCmdStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
   const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
+  const [showGhost, setShowGhost] = useState(true);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -545,6 +578,7 @@ export default function CobotLiveView() {
               fadeDistance={6} infiniteGrid={false} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
+              <GhostCobot jointsRad={POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME} visible={showGhost} />
             </Suspense>
             <Html position={[0, 0, 1.15]} center>
               <div style={{
@@ -563,6 +597,16 @@ export default function CobotLiveView() {
             background: applyToModel ? 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)' : 'rgba(20,30,48,0.85)',
           }}>
             {applyToModel ? '◉ 3D sigue joints en vivo' : '◯ 3D fijo en HOME'}
+          </button>
+
+          {/* ghost-preview toggle */}
+          <button onClick={() => setShowGhost((v) => !v)} style={{
+            position: 'absolute', left: 12, bottom: 50, fontFamily: SANS_FONT,
+            fontSize: 11, fontWeight: 600, color: '#fff', cursor: 'pointer',
+            border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
+            background: showGhost ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)' : 'rgba(20,30,48,0.85)',
+          }}>
+            {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
           </button>
         </div>
 

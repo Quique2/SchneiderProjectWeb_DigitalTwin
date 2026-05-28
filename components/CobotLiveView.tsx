@@ -26,6 +26,13 @@ const SANS_FONT =
 const HOME_JOINTS: [number, number, number, number, number, number] =
   [0, 0, 0, Math.PI / 2, -Math.PI / 2, 0];
 
+// Per-joint zero-offset (deg) between the LXM controller convention and our
+// URDF.  J2 and J4 read 90° off the real robot, so add +90° when mapping the
+// live telemetry onto the model.  Flip a sign here if a joint turns the wrong
+// way.
+const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
+  [0, 90, 0, 90, 0, 0];
+
 // ── Telemetry shape (mirror of cobot_reader.py JSON) ────────────────────────
 interface JointState {
   joint: number; error: boolean; enabled: boolean; collision: boolean; current_a: number;
@@ -193,12 +200,12 @@ export default function CobotLiveView() {
   const targetJointsRef = useRef<[number, number, number, number, number, number]>([...HOME_JOINTS]);
   const tcpWorldRef = useRef<[number, number, number]>([0, 0, 0]);
 
-  // Drive the model from telemetry (deg → rad direct map).  Joint zero-offsets
-  // between the LXM controller and our URDF may differ; refine per-joint here
-  // if the live pose looks rotated.
+  // Drive the model from telemetry: deg → rad, plus the per-joint zero-offset
+  // (JOINT_OFFSET_DEG) that aligns the URDF convention to the real robot.
   useEffect(() => {
     if (applyToModel && telemetry.joint_positions_deg?.length === 6) {
-      targetJointsRef.current = telemetry.joint_positions_deg.map((d) => THREE.MathUtils.degToRad(d)) as
+      targetJointsRef.current = telemetry.joint_positions_deg.map((d, i) =>
+        THREE.MathUtils.degToRad(d + JOINT_OFFSET_DEG[i])) as
         [number, number, number, number, number, number];
     } else {
       targetJointsRef.current = [...HOME_JOINTS];

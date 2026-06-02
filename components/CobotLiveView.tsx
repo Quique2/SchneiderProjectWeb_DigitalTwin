@@ -125,6 +125,16 @@ interface CobotTelemetry {
   // Magnetic gripper: closed = magnet ON (holding). Reflects the last command
   // sent from the backend (the cabinet DOs aren't read back over Modbus).
   gripper?: { closed: boolean; do_index: number };
+  // Linear table: GPIO-driven hardware on the RPi, independent of EcoStruxure
+  // Remote Control.  Reads real limit switches; moves non-blocking to a limit.
+  table?: {
+    available: boolean;
+    moving: boolean;
+    limit1_touched: boolean;
+    limit2_touched: boolean;
+    position: 'limit1' | 'limit2' | 'middle';
+    last_target: 'limit1' | 'limit2' | null;
+  };
 }
 
 // Real snapshot captured on the RPi (CONTEXT_DIGITAL_TWIN.md).  Shown when
@@ -153,6 +163,7 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   end_effector: { fx_n: 0, fy_n: 0, fz_n: 0, torque_rx_nm: 0, torque_ry_nm: 0, torque_rz_nm: 0 },
   joint_temperatures_c: [33, 34, 32, 35, 36, 38],
   gripper: { closed: false, do_index: 6 },
+  table: { available: true, moving: false, limit1_touched: true, limit2_touched: false, position: 'limit1', last_target: 'limit1' },
 };
 
 type ConnMode = 'demo' | 'connecting' | 'live' | 'error';
@@ -484,6 +495,31 @@ export default function CobotLiveView() {
   // Magnetic gripper: closed=true energises the magnet (grab), false releases.
   const setGripper = (closed: boolean) => postControl('/api/cobot/gripper', { closed });
 
+  // ── Linear table (GPIO hardware, independent of EcoStruxure) ────────────
+  // Non-blocking: the API returns immediately, the table moves until it
+  // touches the destination limit switch and stops itself.  No Remote Control
+  // needed.  Dedicated handler so we surface table-specific responses
+  // (already_there, invalid target) instead of the cobot Remote-Control text.
+  const postTable = async (path: string, body?: object) => {
+    setCmdStatus(null);
+    try {
+      const res = await fetch(`${gatewayBase(url)}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (j.ok === false) { setCmdStatus({ ok: false, msg: j.error || 'Comando de mesa rechazado.' }); return; }
+      if (j.already_there) { setCmdStatus({ ok: true, msg: `La mesa ya está en ${j.target}.` }); return; }
+      setCmdStatus({ ok: true, msg: 'Comando de mesa aceptado.' });
+    } catch (e) {
+      setCmdStatus({ ok: false, msg: `Sin respuesta del gateway (${String(e)}).` });
+    }
+  };
+  const tableMove = (target: 'limit1' | 'limit2') => postTable('/api/table/move', { target });
+  const tableStop = () => postTable('/api/table/stop', {});
+
   // Simulation pose (URDF rad) → controller-convention joint degrees.
   const selectedPoseCtrlDeg = (): number[] =>
     urdfPoseToControllerDeg(POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
@@ -682,6 +718,12 @@ export default function CobotLiveView() {
   const controlEnabled = mode === 'live';
   // Gripper magnet state (last commanded; see stream caveat). Drives the toggle.
   const gripperClosed = telemetry.gripper?.closed ?? false;
+  // Linear table — independent GPIO hardware, controllable whenever the gateway
+  // is reachable (no Remote Control gate).
+  const table = telemetry.table;
+  const tableAvailable = mode === 'live' && (table?.available ?? false);
+  const tableMoving = table?.moving ?? false;
+  const tablePos = table?.position ?? 'limit1';
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>
@@ -1015,6 +1057,89 @@ export default function CobotLiveView() {
                 a vel {jointSpeed}%, agarrando/soltando el imán en cada pose como en la simulación,
                 esperando la llegada en cada paso. STOP aborta.
               </div>
+            </div>
+          </Section>
+
+          {/* === Linear table control === */}
+          <Section title="Mesa lineal">
+            {!tableAvailable && (
+              <div style={{
+                fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)',
+                border: '1px solid #fbbf2433', borderRadius: 4, padding: '6px 8px', marginBottom: 8,
+              }}>
+                {mode === 'live' ? 'Mesa no disponible en el gateway.' : 'Conéctate al gateway (EN VIVO) para controlar la mesa.'}
+              </div>
+            )}
+
+            {/* Position bar with animated carriage + limit-switch lamps */}
+            {(() => {
+              const frac = tableMoving ? 0.5 : tablePos === 'limit1' ? 0 : tablePos === 'limit2' ? 1 : 0.5;
+              const lamp = (touched: boolean) => ({
+                width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                background: touched ? '#22dd55' : '#2a3548',
+                boxShadow: touched ? '0 0 10px #22dd55' : 'none',
+                border: `1px solid ${touched ? '#22dd55' : '#1d2c44'}`,
+                transition: 'all 0.2s',
+              });
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 10px' }}>
+                  <div style={lamp(table?.limit1_touched ?? false)} title="Límite 1" />
+                  <div style={{ flex: 1, position: 'relative', height: 10, background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 5 }}>
+                    {/* carriage */}
+                    <div style={{
+                      position: 'absolute', top: '50%', left: `${frac * 100}%`,
+                      transform: 'translate(-50%,-50%)',
+                      width: 18, height: 18, borderRadius: 4,
+                      background: tableMoving
+                        ? 'linear-gradient(180deg,#fbbf24,#d97706)'
+                        : 'linear-gradient(180deg,#3b8bff,#2563eb)',
+                      boxShadow: tableMoving ? '0 0 10px rgba(251,191,36,0.6)' : '0 0 8px rgba(59,139,255,0.5)',
+                      transition: 'left 2.5s ease-in-out',
+                    }} />
+                  </div>
+                  <div style={lamp(table?.limit2_touched ?? false)} title="Límite 2" />
+                </div>
+              );
+            })()}
+
+            {/* Move buttons + STOP */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              <button
+                onClick={() => tableMove('limit1')}
+                disabled={!tableAvailable || tableMoving || tablePos === 'limit1'}
+                style={{
+                  ...ctrlBtn(tableAvailable && !tableMoving && tablePos !== 'limit1', '#3b8bff', '#2563eb'),
+                  padding: '12px 6px', fontSize: 12,
+                }}>
+                ← LÍMITE 1
+              </button>
+              <button
+                onClick={() => tableMove('limit2')}
+                disabled={!tableAvailable || tableMoving || tablePos === 'limit2'}
+                style={{
+                  ...ctrlBtn(tableAvailable && !tableMoving && tablePos !== 'limit2', '#3b8bff', '#2563eb'),
+                  padding: '12px 6px', fontSize: 12,
+                }}>
+                LÍMITE 2 →
+              </button>
+            </div>
+            <button
+              onClick={tableStop}
+              disabled={!tableAvailable}
+              style={{
+                width: '100%', marginTop: 4, fontFamily: SANS_FONT, fontSize: 12, fontWeight: 800,
+                color: '#fff', letterSpacing: 1, cursor: tableAvailable ? 'pointer' : 'not-allowed',
+                border: 'none', borderRadius: 6, padding: '9px',
+                background: tableAvailable ? 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)' : '#3a2530',
+              }}>
+              ■ STOP MESA
+            </button>
+
+            <div style={{ ...statRow, marginTop: 8 }}>
+              <span>posición</span>
+              <span style={{ color: tableMoving ? '#fbbf24' : '#22dd55', fontWeight: 700 }}>
+                {tableMoving ? '⟳ moviendo…' : tablePos === 'limit1' ? '◄ Límite 1' : tablePos === 'limit2' ? 'Límite 2 ►' : '— centro'}
+              </span>
             </div>
           </Section>
 

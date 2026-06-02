@@ -18,7 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
-import { POSE_LIB_V26 } from './CellViewer3D';
+import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -217,7 +217,7 @@ function LiveCobot({
 
   if (!robot) return null;
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} position={COBOT_BASE}>
       <primitive object={robot} />
     </group>
   );
@@ -260,7 +260,7 @@ function GhostCobot({ jointsRad, visible }: { jointsRad: number[]; visible: bool
   });
   if (!robot) return null;
   return (
-    <group visible={visible}>
+    <group visible={visible} position={COBOT_BASE}>
       <primitive object={robot} />
     </group>
   );
@@ -271,7 +271,7 @@ function ZUp() {
   useEffect(() => {
     camera.up.set(0, 0, 1);
     scene.up.set(0, 0, 1);
-    camera.lookAt(0, 0, 0.45);
+    camera.lookAt(MESA_CENTRE[0], MESA_CENTRE[1], 1.1);
     camera.updateProjectionMatrix();
   }, [camera, scene]);
   return null;
@@ -413,6 +413,9 @@ export default function CobotLiveView() {
   // 3D cobot reads these; default HOME, driven by telemetry only when applyToModel.
   const targetJointsRef = useRef<[number, number, number, number, number, number]>([...HOME_JOINTS]);
   const tcpWorldRef = useRef<[number, number, number]>([0, 0, 0]);
+  // Turntable disc angle (static at 0 for now) + its loaded URDF handle.
+  const turntableAngleRef = useRef(0);
+  const turntableRobotRef = useRef<URDFRobot | null>(null);
   // Latest telemetry, readable synchronously inside the async sequence runner.
   const telemetryRef = useRef(telemetry);
   telemetryRef.current = telemetry;
@@ -782,7 +785,7 @@ export default function CobotLiveView() {
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           <Canvas
             shadows
-            camera={{ position: [1.5, -1.45, 1.05], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
+            camera={{ position: [MESA_CENTRE[0] + 1.6, MESA_CENTRE[1] - 1.7, 1.9], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
             style={{ background: '#07111e' }}
             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
           >
@@ -791,17 +794,24 @@ export default function CobotLiveView() {
             <directionalLight position={[3, 3, 5]} intensity={1.2} castShadow
               shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
             <directionalLight position={[-2, -2, 3]} intensity={0.3} color="#a0c0ff" />
-            <OrbitControls target={[0, 0, 0.45]} enableDamping dampingFactor={0.08}
-              minDistance={0.8} maxDistance={6} maxPolarAngle={Math.PI / 2.02} />
-            <Grid args={[4, 4]} position={[0, 0, 0.001]} rotation={[-Math.PI / 2, 0, 0]}
-              cellSize={0.2} cellThickness={0.4} cellColor="#0f1e30"
+            <OrbitControls target={[MESA_CENTRE[0], MESA_CENTRE[1], 1.1]} enableDamping dampingFactor={0.08}
+              minDistance={1.0} maxDistance={8} maxPolarAngle={Math.PI / 2.02} />
+            <Grid args={[6, 6]} position={[MESA_CENTRE[0], MESA_CENTRE[1], 0.001]} rotation={[-Math.PI / 2, 0, 0]}
+              cellSize={0.25} cellThickness={0.4} cellColor="#0f1e30"
               sectionSize={1} sectionThickness={0.8} sectionColor="#162840"
-              fadeDistance={6} infiniteGrid={false} />
+              fadeDistance={9} infiniteGrid={false} />
+            {/* Station mesa (worktop + legs) so the cobot and turntable sit on
+                the real cell furniture, in their true relative positions. */}
+            <MesaTable cx={MESA_CENTRE[0]} cy={MESA_CENTRE[1]} sx={1.620} sy={0.920}
+              topZ={1.000} thickness={0.040} legSect={0.060} legInset={0.060} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
               <GhostCobot jointsRad={POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME} visible={showGhost} />
+              {/* Rotary turntable (URDF) in its real relative position. Static
+                  disc for now (angle 0) — telemetry-driven rotation TBD. */}
+              <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef} />
             </Suspense>
-            <Html position={[0, 0, 1.15]} center>
+            <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center>
               <div style={{
                 fontSize: 9, color: '#60a5fa', background: 'rgba(6,16,28,0.82)',
                 border: '1px solid #60a5fa44', padding: '2px 7px', borderRadius: 4,

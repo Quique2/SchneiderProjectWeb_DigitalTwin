@@ -314,9 +314,9 @@ const SEQUENCE: SequenceStep[] = buildSequence('accept');
 //   - conveyor shifted +0.300 m east (anchor (1.370, 1.365) → (1.670, 1.365))
 //     so the conveyor pick X moves 1.235 → 1.535.
 //   - mesa, cobot, vision, bins, control station unchanged.
-const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
-const TURNTABLE_BASE : [number, number, number] = [0.992, 1.259, 1.000];
-const MESA_CENTRE    : [number, number, number] = [1.252205, 1.049061, 1.000];
+export const COBOT_BASE     : [number, number, number] = [1.152, 1.049, 1.000];
+export const TURNTABLE_BASE : [number, number, number] = [0.992, 1.259, 1.000];
+export const MESA_CENTRE    : [number, number, number] = [1.252205, 1.049061, 1.000];
 
 // ── Collision avoidance: AABB world boxes around every obstacle the cobot
 // must NOT enter.  Each entry is a centre + size in metres (Z-up).  Used
@@ -774,7 +774,7 @@ function SequencePlayer({
 }
 
 // ── Turntable (loaded URDF, disc-driven) ─────────────────────────────────────
-function Turntable({
+export function Turntable({
   angleRef, robotRef,
 }: {
   angleRef: React.MutableRefObject<number>;
@@ -973,7 +973,7 @@ function Nema17Motor({ x, y, z, axisYaw }: { x: number; y: number; z: number; ax
   );
 }
 
-function MesaTable({ cx, cy, sx, sy, topZ, thickness, legSect, legInset }: {
+export function MesaTable({ cx, cy, sx, sy, topZ, thickness, legSect, legInset }: {
   cx: number; cy: number; sx: number; sy: number; topZ: number; thickness: number; legSect: number; legInset: number;
 }) {
   const legH = topZ - thickness;

@@ -277,6 +277,39 @@ function ZUp() {
   return null;
 }
 
+// Drives the turntable disc angle from the linear-table telemetry.  The table
+// physically rotates the disc 180° between its two limit switches, taking ~4 s
+// switch-to-switch — so limit1 → 0 rad, limit2 → π rad at π/4 rad·s⁻¹.  While
+// moving:true the disc eases toward last_target; when settled it snaps to the
+// resting position.  No real-time angle is published, so this is a faithful
+// time-based reconstruction, not a readback.
+const TABLE_ANGLE_LIMIT2 = Math.PI;       // 180° at limit2
+const TABLE_ANGLE_SPEED  = Math.PI / 4;   // rad/s → 4 s for the full 180° sweep
+function TurntableDriver({
+  angleRef, telemetryRef,
+}: {
+  angleRef: React.MutableRefObject<number>;
+  telemetryRef: React.MutableRefObject<CobotTelemetry>;
+}) {
+  useFrame((_, dt) => {
+    const t = telemetryRef.current.table;
+    if (!t) return;
+    let target = angleRef.current;
+    if (t.moving) {
+      if (t.last_target === 'limit2') target = TABLE_ANGLE_LIMIT2;
+      else if (t.last_target === 'limit1') target = 0;
+    } else {
+      if (t.position === 'limit2') target = TABLE_ANGLE_LIMIT2;
+      else if (t.position === 'limit1') target = 0;
+    }
+    const cur = angleRef.current;
+    const diff = target - cur;
+    const step = TABLE_ANGLE_SPEED * dt;
+    angleRef.current = Math.abs(diff) <= step ? target : cur + Math.sign(diff) * step;
+  });
+  return null;
+}
+
 // ── Telemetry panel helpers ─────────────────────────────────────────────────
 const statRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between',
@@ -804,11 +837,14 @@ export default function CobotLiveView() {
                 the real cell furniture, in their true relative positions. */}
             <MesaTable cx={MESA_CENTRE[0]} cy={MESA_CENTRE[1]} sx={1.620} sy={0.920}
               topZ={1.000} thickness={0.040} legSect={0.060} legInset={0.060} />
+            {/* Animate the disc angle from the linear-table telemetry. */}
+            <TurntableDriver angleRef={turntableAngleRef} telemetryRef={telemetryRef} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
               <GhostCobot jointsRad={POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME} visible={showGhost} />
-              {/* Rotary turntable (URDF) in its real relative position. Static
-                  disc for now (angle 0) — telemetry-driven rotation TBD. */}
+              {/* Rotary turntable (URDF) in its real relative position. The
+                  disc rotates in sync with the linear-table movement (≈4 s
+                  switch-to-switch for the full 180° sweep). */}
               <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef} />
             </Suspense>
             <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center>

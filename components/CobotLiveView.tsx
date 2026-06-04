@@ -18,7 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
-import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable } from './CellViewer3D';
+import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -429,6 +429,22 @@ export default function CobotLiveView() {
   const [applyToModel, setApplyToModel] = useState(false);
   const [connErr, setConnErr] = useState<string | null>(null);
 
+  // ── Camera live-feed state ─────────────────────────────────────────────
+  // Inject the spinner keyframe once (inline styles can't define @keyframes).
+  useEffect(() => {
+    const id = 'cam-spin-kf';
+    if (document.getElementById(id)) return;
+    const st = document.createElement('style');
+    st.id = id;
+    st.textContent = '@keyframes cam-spin { to { transform: rotate(360deg); } }';
+    document.head.appendChild(st);
+  }, []);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraGifUrl, setCameraGifUrl] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [shutterUs, setShutterUs] = useState(200000);
+
   // ── Control state ──────────────────────────────────────────────────────
   const [cmdJoints, setCmdJoints] = useState<number[]>([...DEMO_TELEMETRY.joint_positions_deg]);
   const [jointSpeed, setJointSpeed] = useState(15);
@@ -549,6 +565,43 @@ export default function CobotLiveView() {
   // Pneumatic gripper: 3-state (open valve A / close valve B / off both).
   const setPneumaticGripper = (action: 'open' | 'close' | 'off') =>
     postControl('/api/cobot/pneumatic_gripper', { action });
+
+  // ── Camera ────────────────────────────────────────────────────────────
+  // Fetch a fresh 5 s live GIF.  ~6 s round trip; cache-busted per click.
+  // Reads the blob so we can distinguish HTTP 503 (camera busy) and free the
+  // previous object URL.
+  const fetchCameraFeed = async () => {
+    setCameraLoading(true);
+    setCameraError(null);
+    try {
+      const res = await fetch(`${gatewayBase(url)}/api/camera/live5?t=${Date.now()}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+        cache: 'no-store',
+      });
+      if (res.status === 503) { setCameraError('La cámara está ocupada, intenta de nuevo en unos segundos.'); return; }
+      if (!res.ok) { setCameraError(`Error ${res.status} al obtener el feed de la cámara.`); return; }
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      setCameraGifUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objUrl; });
+    } catch (e) {
+      setCameraError(`Sin respuesta del gateway (${String(e)}).`);
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+  // Change camera shutter speed (µs).  Fire-and-forget; updates the local
+  // preset highlight immediately.
+  const setShutter = async (microseconds: number) => {
+    setShutterUs(microseconds);
+    try {
+      await fetch(`${gatewayBase(url)}/api/camera/shutter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({ microseconds }),
+      });
+    } catch { /* non-critical */ }
+  };
+  const openCamera = () => { setCameraOpen(true); if (!cameraGifUrl && !cameraLoading) fetchCameraFeed(); };
 
   // ── Linear table (GPIO hardware, independent of EcoStruxure) ────────────
   // Non-blocking: the API returns immediately, the table moves until it
@@ -752,11 +805,16 @@ export default function CobotLiveView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Track the live GIF object URL so unmount can revoke it without re-running
+  // the cleanup every time the URL changes.
+  const cameraGifUrlRef = useRef<string | null>(null);
+  cameraGifUrlRef.current = cameraGifUrl;
   useEffect(() => () => { // cleanup on unmount
     manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
     if (pollRef.current) window.clearInterval(pollRef.current);
     if (seqTimerRef.current) window.clearInterval(seqTimerRef.current);
+    if (cameraGifUrlRef.current) URL.revokeObjectURL(cameraGifUrlRef.current);
   }, []);
 
   const s = telemetry.status;
@@ -869,6 +927,12 @@ export default function CobotLiveView() {
               topZ={1.000} thickness={0.040} legSect={0.060} legInset={0.060} />
             {/* Animate the disc angle from the linear-table telemetry. */}
             <TurntableDriver angleRef={turntableAngleRef} telemetryRef={telemetryRef} />
+            {/* Outer aluminium cabin (4 posts + perimeter) — the external
+                supports that frame the cell. */}
+            <AluminumCabin xMin={0.30} xMax={2.20} yMin={0.30} yMax={1.80}
+              topZ={2.070} postSection={0.050} cobotMountX={0.950} cobotMountY={0.972} />
+            {/* Cognex 2800 camera + its suspension column (camera mount). */}
+            <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
               <GhostCobot jointsRad={ghostJointsRad} visible={showGhost} />
@@ -876,6 +940,8 @@ export default function CobotLiveView() {
                   disc rotates in sync with the linear-table movement (≈4 s
                   switch-to-switch for the full 180° sweep). */}
               <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef} />
+              {/* Vision fixture plate under the camera (STL). */}
+              <VisionFixture x={0.750} y={0.804} z={1.000} />
             </Suspense>
             <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center>
               <div style={{
@@ -883,6 +949,13 @@ export default function CobotLiveView() {
                 border: '1px solid #60a5fa44', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
               }}>Lexium Cobot {applyToModel ? '· live joints' : '· HOME'}</div>
+            </Html>
+            <Html position={[0.750, 0.804, 1.62]} center>
+              <div style={{
+                fontSize: 9, color: '#e879f9', background: 'rgba(6,16,28,0.82)',
+                border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,
+                whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
+              }}>Cámara Datalogic</div>
             </Html>
           </Canvas>
 
@@ -997,6 +1070,16 @@ export default function CobotLiveView() {
                 );
               })}
             </div>
+
+            {/* Camera live feed launcher */}
+            <button onClick={openCamera} disabled={!controlEnabled} style={{
+              width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
+              cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
+              padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
+              background: controlEnabled ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : '#2a3548',
+            }}>
+              📷 Ver cámara (live 5 s)
+            </button>
 
             {/* Joint jog sliders — editing any joint previews the pose on the
                 green ghost (tagged PERSONALIZADO) before MOVER JOINTS is sent. */}
@@ -1336,6 +1419,109 @@ export default function CobotLiveView() {
           </div>
         </div>
       </div>
+
+      {/* === Camera live-feed modal === */}
+      {cameraOpen && (
+        <div
+          onClick={() => setCameraOpen(false)}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 50,
+            background: 'rgba(4,10,18,0.86)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+          }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(680px, 96vw)', maxHeight: '94vh', overflowY: 'auto',
+              background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
+              border: '1px solid #1d2c44', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+            }}>
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 18px', borderBottom: '1px solid #1a2c44',
+              background: 'linear-gradient(90deg,#0c1a2c,#071420)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', boxShadow: '0 0 8px #8b5cf6' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Cámara Datalogic · live 5 s</span>
+              </div>
+              <button onClick={() => setCameraOpen(false)} style={{
+                fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: '#9bb0c8',
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: 4,
+              }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: 18 }}>
+              {/* Shutter presets */}
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+                Velocidad de obturación (µs)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 4, marginBottom: 14 }}>
+                {([
+                  { us: 8000,   label: '8k · oscuro' },
+                  { us: 100000, label: '100k · medio' },
+                  { us: 200000, label: '200k · brillante' },
+                  { us: 300000, label: '300k · máx' },
+                ] as const).map(({ us, label }) => {
+                  const active = shutterUs === us;
+                  return (
+                    <button key={us} onClick={() => setShutter(us)} disabled={cameraLoading} style={{
+                      fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600, color: '#fff',
+                      cursor: cameraLoading ? 'wait' : 'pointer',
+                      border: active ? '2px solid #fff' : '1px solid #1d2c44', borderRadius: 6, padding: '7px 4px',
+                      background: active ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.7)',
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+
+              {/* Viewport */}
+              <div style={{
+                position: 'relative', width: '100%', aspectRatio: '640 / 512',
+                background: '#05080f', border: '1px solid #1a2c44', borderRadius: 8,
+                overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {cameraLoading ? (
+                  <div style={{ textAlign: 'center', color: '#8b5cf6' }}>
+                    <div style={{
+                      width: 44, height: 44, margin: '0 auto 12px',
+                      border: '4px solid #1d2c44', borderTopColor: '#8b5cf6', borderRadius: '50%',
+                      animation: 'cam-spin 0.9s linear infinite',
+                    }} />
+                    <div style={{ fontSize: 12, color: '#9bb0c8' }}>Capturando 5 s… (~6 s)</div>
+                  </div>
+                ) : cameraError ? (
+                  <div style={{ textAlign: 'center', padding: 24 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
+                    <div style={{ fontSize: 13, color: '#ff8a98', lineHeight: 1.5, maxWidth: 360 }}>{cameraError}</div>
+                  </div>
+                ) : cameraGifUrl ? (
+                  <img src={cameraGifUrl} alt="Live feed cámara Datalogic"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                ) : (
+                  <div style={{ fontSize: 12, color: '#5a6c84' }}>Pulsa “Capturar” para iniciar el feed.</div>
+                )}
+              </div>
+
+              {/* Recapture */}
+              <button onClick={fetchCameraFeed} disabled={cameraLoading} style={{
+                width: '100%', marginTop: 14, fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: '#fff',
+                cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px',
+                background: cameraLoading
+                  ? 'linear-gradient(180deg,#3a4f6a,#2a3548)'
+                  : 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)',
+              }}>
+                {cameraLoading ? '⏳ Capturando…' : '🔴 Capturar 5 s'}
+              </button>
+              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 8, textAlign: 'center', lineHeight: 1.4 }}>
+                640×512 · GIF animado de 5 s · cada captura toma ~6 s y ocupa la cámara.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

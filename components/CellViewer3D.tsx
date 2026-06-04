@@ -888,7 +888,7 @@ function CellPrimitives() {
 // Vision fixture: real V53 STL plate.  The xacro applies Rx(+π/2) so the
 // mesh's Y axis (15 mm thickness) becomes link Z, then centres the bbox via
 // xyz (-0.079329, 0.058950, 0).  We replicate both in three.js (Z-up scene).
-function VisionFixture({ x, y, z }: { x: number; y: number; z: number }) {
+export function VisionFixture({ x, y, z }: { x: number; y: number; z: number }) {
   const geom = useLoader(STLLoader, '/meshes/v53/cell/Fixture_para_camara_final.STL');
   return (
     <group position={[x, y, z]}>
@@ -1060,7 +1060,7 @@ function HollowBin({ x, y, sx, sy, h, color }: { x: number; y: number; sx: numbe
   );
 }
 
-function CognexCamera({ x, y, z, cabinTopZ }: { x: number; y: number; z: number; cabinTopZ: number }) {
+export function CognexCamera({ x, y, z, cabinTopZ }: { x: number; y: number; z: number; cabinTopZ: number }) {
   const colH = cabinTopZ - z;
   return (
     <>
@@ -1311,7 +1311,7 @@ function OperatorChair({ x, y, sx, sy, seatTopZ, backH, legR }: {
 //   - Bottom perimeter (2 bars on N/S, low)
 //   - 3 cobot ceiling cross-beams (2 X-bars at cobot_y ± 0.150, 1 Y-bar at cobot_x)
 //   - Cobot mount flange (cylinder + accent disc) at the cobot mount XY
-function AluminumCabin({ xMin, xMax, yMin, yMax, topZ, postSection, cobotMountX, cobotMountY }: {
+export function AluminumCabin({ xMin, xMax, yMin, yMax, topZ, postSection, cobotMountX, cobotMountY }: {
   xMin: number; xMax: number; yMin: number; yMax: number;
   topZ: number; postSection: number;
   cobotMountX: number; cobotMountY: number;

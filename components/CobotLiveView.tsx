@@ -89,6 +89,14 @@ function urdfPoseToControllerDeg(poseRad: number[]): number[] {
   });
 }
 
+// Forward of the above: controller-convention joint degrees → URDF radians,
+// for previewing a custom slider pose on the green ghost before sending it.
+// urdf_deg = sign·ctrl + offset (since sign ∈ {+1,−1}, 1/sign = sign).
+function controllerDegToUrdfRad(ctrlDeg: number[]): number[] {
+  return ctrlDeg.map((deg, i) =>
+    THREE.MathUtils.degToRad(JOINT_SIGN[i] * deg + JOINT_OFFSET_DEG[i]));
+}
+
 // Derive the gateway's https/http base from the ws/wss connection URL so the
 // control POSTs hit the same origin (…/api/cobot/*).
 function gatewayBase(connUrl: string): string {
@@ -427,6 +435,10 @@ export default function CobotLiveView() {
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
   const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
   const [showGhost, setShowGhost] = useState(true);
+  // Ghost source: 'pose' = the dropdown POSE_LIB selection; 'custom' = the live
+  // jog sliders (cmdJoints).  Moving a slider switches to 'custom' so the green
+  // ghost previews exactly where the robot will go before MOVER JOINTS is sent.
+  const [ghostSource, setGhostSource] = useState<'pose' | 'custom'>('pose');
   // Sequence player. Ghost mode = visualisation only; Real mode = drives the
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
@@ -580,6 +592,7 @@ export default function CobotLiveView() {
     stopSequence();
     seqAbortRef.current = false;
     setShowGhost(true);
+    setGhostSource('pose');
     setSeqIsReal(false);
     let i = 0;
     setSelectedPose(TRAJECTORY[0].pose);
@@ -629,6 +642,7 @@ export default function CobotLiveView() {
     stopSequence();
     seqAbortRef.current = false;
     setShowGhost(true);
+    setGhostSource('pose');
     setApplyToModel(true);
     setSeqIsReal(true);
     setSeqPlaying(true);
@@ -754,6 +768,13 @@ export default function CobotLiveView() {
   const controlEnabled = mode === 'live';
   // Gripper magnet state (last commanded; see stream caveat). Drives the toggle.
   const gripperClosed = telemetry.gripper?.closed ?? false;
+  // Ghost target: custom slider pose (controller→URDF) or the dropdown pose.
+  const ghostJointsRad = ghostSource === 'custom'
+    ? controllerDegToUrdfRad(cmdJoints)
+    : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+  const ghostLabel = ghostSource === 'custom'
+    ? 'PERSONALIZADO'
+    : selectedPose.replace('POSE_', '').replace(/_/g, ' ');
   // Linear table — independent GPIO hardware, controllable whenever the gateway
   // is reachable (no Remote Control gate).
   const table = telemetry.table;
@@ -841,7 +862,7 @@ export default function CobotLiveView() {
             <TurntableDriver angleRef={turntableAngleRef} telemetryRef={telemetryRef} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
-              <GhostCobot jointsRad={POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME} visible={showGhost} />
+              <GhostCobot jointsRad={ghostJointsRad} visible={showGhost} />
               {/* Rotary turntable (URDF) in its real relative position. The
                   disc rotates in sync with the linear-table movement (≈4 s
                   switch-to-switch for the full 180° sweep). */}
@@ -887,7 +908,7 @@ export default function CobotLiveView() {
             border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
             background: showGhost ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)' : 'rgba(20,30,48,0.85)',
           }}>
-            {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
+            {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{ghostLabel}
           </button>
         </div>
 
@@ -937,22 +958,34 @@ export default function CobotLiveView() {
               🧲 {gripperClosed ? 'IMÁN ON — clic para SOLTAR' : 'IMÁN OFF — clic para AGARRAR'}
             </button>
 
-            {/* Joint jog sliders */}
-            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '6px 0 4px' }}>
-              Joints (°, convención robot)
+            {/* Joint jog sliders — editing any joint previews the pose on the
+                green ghost (tagged PERSONALIZADO) before MOVER JOINTS is sent. */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '6px 0 4px' }}>
+              <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                Joints (°, convención robot)
+              </span>
+              {ghostSource === 'custom' && (
+                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>● PERSONALIZADO</span>
+              )}
             </div>
-            {cmdJoints.map((v, i) => (
+            {cmdJoints.map((v, i) => {
+              const editJoint = (nv: number) => {
+                const n = [...cmdJoints]; n[i] = nv; setCmdJoints(n);
+                setGhostSource('custom'); setShowGhost(true);
+              };
+              return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                 <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#abc', width: 22 }}>J{i + 1}</span>
                 <input type="range" min={-JOINT_LIMITS_DEG[i]} max={JOINT_LIMITS_DEG[i]} step={0.5}
                   value={v} disabled={!controlEnabled}
-                  onChange={(e) => { const n = [...cmdJoints]; n[i] = parseFloat(e.target.value); setCmdJoints(n); }}
+                  onChange={(e) => editJoint(parseFloat(e.target.value))}
                   style={{ flex: 1, accentColor: '#3b8bff' }} />
                 <NumField value={v} disabled={!controlEnabled}
                   min={-JOINT_LIMITS_DEG[i]} max={JOINT_LIMITS_DEG[i]} decimals={1} width={56}
-                  onChange={(nv) => { const n = [...cmdJoints]; n[i] = nv; setCmdJoints(n); }} />
+                  onChange={editJoint} />
               </div>
-            ))}
+              );
+            })}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
               <span style={{ fontSize: 10, color: '#abc' }}>vel %</span>
               <input type="range" min={1} max={100} step={1} value={jointSpeed} disabled={!controlEnabled}
@@ -1009,7 +1042,8 @@ export default function CobotLiveView() {
 
           {/* === Probar poses de la simulación en el robot real === */}
           <Section title="Pose de simulación → real">
-            <select value={selectedPose} onChange={(e) => setSelectedPose(e.target.value)}
+            <select value={selectedPose}
+              onChange={(e) => { setSelectedPose(e.target.value); setGhostSource('pose'); }}
               style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
               {Object.keys(POSE_LIB_V26).map((name) => (
                 <option key={name} value={name}>{name.replace('POSE_', '').replace(/_/g, ' ')}</option>

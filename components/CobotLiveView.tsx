@@ -133,6 +133,9 @@ interface CobotTelemetry {
   // Magnetic gripper: closed = magnet ON (holding). Reflects the last command
   // sent from the backend (the cabinet DOs aren't read back over Modbus).
   gripper?: { closed: boolean; do_index: number };
+  // Pneumatic gripper (cabinet CN2, DO7/DO8): open valve A, close valve B,
+  // off keeps the last position. Reflects the last commanded state.
+  pneumatic_gripper?: { state: 'off' | 'open' | 'close'; open_do_index: number; close_do_index: number };
   // Linear table: GPIO-driven hardware on the RPi, independent of EcoStruxure
   // Remote Control.  Reads real limit switches; moves non-blocking to a limit.
   table?: {
@@ -171,6 +174,7 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   end_effector: { fx_n: 0, fy_n: 0, fz_n: 0, torque_rx_nm: 0, torque_ry_nm: 0, torque_rz_nm: 0 },
   joint_temperatures_c: [33, 34, 32, 35, 36, 38],
   gripper: { closed: false, do_index: 6 },
+  pneumatic_gripper: { state: 'off', open_do_index: 7, close_do_index: 8 },
   table: { available: true, moving: false, limit1_touched: true, limit2_touched: false, position: 'limit1', last_target: 'limit1' },
 };
 
@@ -542,6 +546,9 @@ export default function CobotLiveView() {
   const cobotDisable = () => postControl('/api/cobot/disable');
   // Magnetic gripper: closed=true energises the magnet (grab), false releases.
   const setGripper = (closed: boolean) => postControl('/api/cobot/gripper', { closed });
+  // Pneumatic gripper: 3-state (open valve A / close valve B / off both).
+  const setPneumaticGripper = (action: 'open' | 'close' | 'off') =>
+    postControl('/api/cobot/pneumatic_gripper', { action });
 
   // ── Linear table (GPIO hardware, independent of EcoStruxure) ────────────
   // Non-blocking: the API returns immediately, the table moves until it
@@ -768,6 +775,8 @@ export default function CobotLiveView() {
   const controlEnabled = mode === 'live';
   // Gripper magnet state (last commanded; see stream caveat). Drives the toggle.
   const gripperClosed = telemetry.gripper?.closed ?? false;
+  // Pneumatic gripper state (last commanded), drives the 3-button selector.
+  const pneuState = telemetry.pneumatic_gripper?.state ?? 'off';
   // Ghost target: custom slider pose (controller→URDF) or the dropdown pose.
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
@@ -957,6 +966,37 @@ export default function CobotLiveView() {
             }}>
               🧲 {gripperClosed ? 'IMÁN ON — clic para SOLTAR' : 'IMÁN OFF — clic para AGARRAR'}
             </button>
+
+            {/* Pneumatic gripper — 3-state selector (open / close / off) */}
+            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '2px 0 4px' }}>
+              Gripper Neumático
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
+              {([
+                { action: 'open',  label: '⊟ Abrir',  c1: '#22cc55', c2: '#15803d' },
+                { action: 'close', label: '⊡ Cerrar', c1: '#3b8bff', c2: '#2563eb' },
+                { action: 'off',   label: '○ Apagar', c1: '#f47835', c2: '#d96416' },
+              ] as const).map(({ action, label, c1, c2 }) => {
+                const active = pneuState === action;
+                return (
+                  <button key={action}
+                    onClick={() => setPneumaticGripper(action)}
+                    disabled={!controlEnabled || cmdBusy}
+                    style={{
+                      fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
+                      cursor: controlEnabled ? 'pointer' : 'not-allowed',
+                      border: active ? '2px solid #fff' : 'none', borderRadius: 6, padding: '8px 4px',
+                      opacity: controlEnabled ? 1 : 0.55,
+                      boxShadow: active ? `0 0 12px ${c1}88` : 'none',
+                      background: !controlEnabled ? '#2a3548'
+                        : active ? `linear-gradient(180deg,${c1} 0%,${c2} 100%)`
+                        : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
+                    }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Joint jog sliders — editing any joint previews the pose on the
                 green ghost (tagged PERSONALIZADO) before MOVER JOINTS is sent. */}
@@ -1236,6 +1276,15 @@ export default function CobotLiveView() {
               <span>Gripper (imán)</span>
               <span style={{ color: gripperClosed ? '#ffd24d' : '#788090', fontWeight: 700 }}>
                 {gripperClosed ? 'ON · agarrando' : 'OFF · suelto'}
+              </span>
+            </div>
+            <div style={statRow}>
+              <span>Gripper neumático</span>
+              <span style={{
+                color: pneuState === 'open' ? '#22dd55' : pneuState === 'close' ? '#3b8bff' : '#788090',
+                fontWeight: 700,
+              }}>
+                {pneuState === 'open' ? 'ABIERTO' : pneuState === 'close' ? 'CERRADO' : 'OFF · mantiene'}
               </span>
             </div>
           </Section>

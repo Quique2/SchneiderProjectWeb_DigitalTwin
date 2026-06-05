@@ -113,12 +113,23 @@ const POSE_LIBRARY_DEG: Record<string, [number, number, number, number, number, 
   RECOVERY_REJECT_RETREAT: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
   RECOVERY_HOME_SLOW: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
 };
-// Joints actually sent to the robot for a library pose.  Two steps, IN ORDER:
+// Base controller joints for a library pose.  Two steps, IN ORDER:
 //   1) wrap each raw sim angle (base 0-360) to ±180   — e.g. 335° → -25°,
 //   2) apply the V26 sim→real sign/offset transform   — sign·(x − offset).
-function lib2PoseCtrlDeg(name: string): number[] {
+function lib2BaseCtrlDeg(name: string): number[] {
   const sim = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
   return sim.map((deg, i) => JOINT_SIGN[i] * (wrapTo180(deg) - JOINT_OFFSET_DEG[i]));
+}
+
+// Tuned overrides for library-2 poses (saved by the cartesian tuner), stored
+// as raw controller-convention joints and sent verbatim.  Persisted locally.
+const LIB2_OVERRIDE_KEY = 'schneider_lib2_overrides_v1';
+function loadLib2Overrides(): Record<string, number[]> {
+  try {
+    const raw = localStorage.getItem(LIB2_OVERRIDE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch { return {}; }
 }
 
 // Faithful pick→rivet→vision→accept-bin cycle (accept branch), mirroring the
@@ -566,6 +577,11 @@ export default function CobotLiveView() {
   // ghost previews exactly where the robot will go before MOVER JOINTS is sent.
   const [ghostSource, setGhostSource] = useState<'pose' | 'custom' | 'lib2'>('pose');
   const [selectedLib2, setSelectedLib2] = useState<string>('HOME');
+  // Cartesian tuner + saved overrides for the library-2 poses.
+  const [lib2Overrides, setLib2Overrides] = useState<Record<string, number[]>>(loadLib2Overrides);
+  const [tunerStepMm, setTunerStepMm] = useState(5);
+  const [tunerStepDeg, setTunerStepDeg] = useState(2);
+  const [saveName, setSaveName] = useState('HOME');
   // Sequence player. Ghost mode = visualisation only; Real mode = drives the
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
@@ -800,11 +816,49 @@ export default function CobotLiveView() {
   const sendPoseToRobot = () =>
     postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
-  // Second pose library (controller-convention, wrapped to ±180): load into the
-  // jog sliders for review, or send straight to the robot.
-  const loadLib2ToSliders = () => { setCmdJoints(lib2PoseCtrlDeg(selectedLib2)); setGhostSource('lib2'); setShowGhost(true); };
+  // Effective controller joints for a library-2 pose: a saved override (raw
+  // joints from the tuner) wins; otherwise the base transform.
+  const lib2CtrlDeg = (name: string): number[] => lib2Overrides[name] ?? lib2BaseCtrlDeg(name);
+  const hasOverride = (name: string): boolean => !!lib2Overrides[name];
+
+  // Second pose library: load into the jog sliders for review, or send to robot.
+  const loadLib2ToSliders = () => { setCmdJoints(lib2CtrlDeg(selectedLib2)); setGhostSource('lib2'); setShowGhost(true); };
   const sendLib2ToRobot = () =>
-    postControl('/api/cobot/move/joint', { joints: lib2PoseCtrlDeg(selectedLib2), speed: jointSpeed, relative: false });
+    postControl('/api/cobot/move/joint', { joints: lib2CtrlDeg(selectedLib2), speed: jointSpeed, relative: false });
+
+  // ── Cartesian tuner ─────────────────────────────────────────────────────
+  // Nudge the real TCP along one axis: read the live TCP pose, apply the step,
+  // and send an absolute moveL.  Translation in mm, rotation in degrees.
+  const nudgeTcp = (axis: 'x' | 'y' | 'z' | 'rx' | 'ry' | 'rz', dir: 1 | -1) => {
+    const t = telemetry.tcp_position;
+    if (!t) return;
+    const stepT = tunerStepMm * dir;
+    const stepR = tunerStepDeg * dir;
+    const next = {
+      x: t.x_mm + (axis === 'x' ? stepT : 0),
+      y: t.y_mm + (axis === 'y' ? stepT : 0),
+      z: t.z_mm + (axis === 'z' ? stepT : 0),
+      rx: t.rx_deg + (axis === 'rx' ? stepR : 0),
+      ry: t.ry_deg + (axis === 'ry' ? stepR : 0),
+      rz: t.rz_deg + (axis === 'rz' ? stepR : 0),
+    };
+    postControl('/api/cobot/move/cartesian', { ...next, speed: cartSpeed });
+  };
+  // Save the robot's CURRENT real joints as the override for a library-2 pose.
+  const saveLib2Pose = (name: string) => {
+    const jp = telemetry.joint_positions_deg;
+    if (!jp || jp.length !== 6) { setCmdStatus({ ok: false, msg: 'Sin telemetría de joints para guardar.' }); return; }
+    const next = { ...lib2Overrides, [name]: [...jp] };
+    setLib2Overrides(next);
+    try { localStorage.setItem(LIB2_OVERRIDE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+    setCmdStatus({ ok: true, msg: `Pose "${name}" guardada con los joints actuales.` });
+  };
+  const deleteLib2Override = (name: string) => {
+    const next = { ...lib2Overrides }; delete next[name];
+    setLib2Overrides(next);
+    try { localStorage.setItem(LIB2_OVERRIDE_KEY, JSON.stringify(next)); } catch { /* quota */ }
+    setCmdStatus({ ok: true, msg: `Override de "${name}" eliminado (vuelve a la pose original).` });
+  };
 
   // Stop whichever player is running (ghost timer and/or the real-robot loop).
   const stopSequence = () => {
@@ -1017,7 +1071,7 @@ export default function CobotLiveView() {
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
     : ghostSource === 'lib2'
-      ? controllerDegToUrdfRad(lib2PoseCtrlDeg(selectedLib2))
+      ? controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2))
       : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
@@ -1448,21 +1502,26 @@ export default function CobotLiveView() {
           {/* === Second pose library (teammate, controller-convention) === */}
           <Section title="Poses (librería 2)">
             <select value={selectedLib2}
-              onChange={(e) => { setSelectedLib2(e.target.value); setGhostSource('lib2'); setShowGhost(true); }}
+              onChange={(e) => { setSelectedLib2(e.target.value); setSaveName(e.target.value); setGhostSource('lib2'); setShowGhost(true); }}
               style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
               {Object.keys(POSE_LIBRARY_DEG).map((name) => (
-                <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
+                <option key={name} value={name}>{hasOverride(name) ? '✎ ' : ''}{name.replace(/_/g, ' ')}</option>
               ))}
             </select>
 
             {/* Preview of the wrapped controller-convention joint targets */}
-            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 4px' }}>
-              Joints a enviar (°, robot · ±180)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '8px 0 4px' }}>
+              <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                Joints a enviar (°, robot)
+              </span>
+              {hasOverride(selectedLib2) && (
+                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>✎ AJUSTADA</span>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
-              {lib2PoseCtrlDeg(selectedLib2).map((d, i) => {
+              {lib2CtrlDeg(selectedLib2).map((d, i) => {
                 const raw = (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)[i];
-                const wrapped = Math.abs(wrapTo180(raw) - raw) > 0.01; // base-360 angle was normalised
+                const wrapped = !hasOverride(selectedLib2) && Math.abs(wrapTo180(raw) - raw) > 0.01;
                 return (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: `1px solid ${wrapped ? '#fbbf2455' : '#1d2c44'}`, borderRadius: 4, padding: '3px 5px' }}>
                     <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
@@ -1478,10 +1537,78 @@ export default function CobotLiveView() {
               <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
                 style={ctrlBtn(controlEnabled, '#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
             </div>
-            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
-              Poses crudas de la simulación, en convención del robot. Los ángulos
-              &gt;180° se envían como su equivalente negativo (en <span style={{ color: '#fbbf24' }}>ámbar</span>).
-              "Cargar" revisa en sliders antes de mover; "Enviar" manda directo (vel {jointSpeed}%). STOP aborta.
+
+            {/* ── Cartesian tuner ── */}
+            <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+                Tuner cartesiano (TCP real)
+              </div>
+
+              {/* Live TCP readout */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 9, fontFamily: 'monospace', marginBottom: 8 }}>
+                {([
+                  ['X', telemetry.tcp_position.x_mm, 'mm'], ['Y', telemetry.tcp_position.y_mm, 'mm'], ['Z', telemetry.tcp_position.z_mm, 'mm'],
+                  ['RX', telemetry.tcp_position.rx_deg, '°'], ['RY', telemetry.tcp_position.ry_deg, '°'], ['RZ', telemetry.tcp_position.rz_deg, '°'],
+                ] as const).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
+                    <span style={{ color: '#5a6c84' }}>{k}</span>
+                    <span style={{ color: '#9bf' }}>{v.toFixed(1)}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Step sizes */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span style={{ fontSize: 10, color: '#abc' }}>paso</span>
+                <NumField value={tunerStepMm} disabled={!controlEnabled} min={0.5} max={100} decimals={1} width={50}
+                  onChange={setTunerStepMm} />
+                <span style={{ fontSize: 10, color: '#5a6c84' }}>mm</span>
+                <NumField value={tunerStepDeg} disabled={!controlEnabled} min={0.5} max={30} decimals={1} width={50}
+                  onChange={setTunerStepDeg} />
+                <span style={{ fontSize: 10, color: '#5a6c84' }}>°</span>
+              </div>
+
+              {/* Nudge buttons per axis */}
+              {([
+                { axis: 'x',  label: 'X', unit: 'mm' }, { axis: 'y', label: 'Y', unit: 'mm' }, { axis: 'z', label: 'Z', unit: 'mm' },
+                { axis: 'rx', label: 'RX', unit: '°' }, { axis: 'ry', label: 'RY', unit: '°' }, { axis: 'rz', label: 'RZ', unit: '°' },
+              ] as const).map(({ axis, label }) => (
+                <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#abc', width: 26 }}>{label}</span>
+                  <button onClick={() => nudgeTcp(axis, -1)} disabled={!controlEnabled || cmdBusy}
+                    style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), flex: 1, padding: '7px 4px', fontSize: 13 }}>−</button>
+                  <button onClick={() => nudgeTcp(axis, +1)} disabled={!controlEnabled || cmdBusy}
+                    style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), flex: 1, padding: '7px 4px', fontSize: 13 }}>+</button>
+                </div>
+              ))}
+
+              {/* Save as pose */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+                <select value={saveName} onChange={(e) => setSaveName(e.target.value)}
+                  style={{ ...numInput, flex: 1, textAlign: 'left', cursor: 'pointer' }}>
+                  {Object.keys(POSE_LIBRARY_DEG).map((name) => (
+                    <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+                <button onClick={() => saveLib2Pose(saveName)} disabled={!controlEnabled}
+                  style={{ ...ctrlBtn(controlEnabled, '#22cc55', '#15803d'), padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                  💾 Guardar
+                </button>
+              </div>
+              {hasOverride(selectedLib2) && (
+                <button onClick={() => deleteLib2Override(selectedLib2)}
+                  style={{ width: '100%', marginTop: 4, fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600,
+                    color: '#ff8a98', cursor: 'pointer', border: '1px solid #ff556644', borderRadius: 6,
+                    padding: '6px', background: 'rgba(80,20,20,0.3)' }}>
+                  ↺ Restaurar "{selectedLib2.replace(/_/g, ' ')}" original
+                </button>
+              )}
+            </div>
+
+            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 8, lineHeight: 1.4 }}>
+              Poses de la simulación (transformadas a convención robot). El tuner
+              mueve el TCP real por ejes (vel {cartSpeed} mm/s); "Guardar" fija los
+              joints reales actuales como la pose elegida. STOP aborta.
             </div>
           </Section>
 

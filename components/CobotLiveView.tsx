@@ -55,9 +55,10 @@ function wrapTo180(deg: number): number {
   return d;
 }
 
-// Second pose library — authored in the simulation by a teammate, in the
-// robot-controller convention (absolute degrees).  Sent verbatim (after a
-// wrap-to-180 per joint), NOT through the sim→real sign/offset transform.
+// Second pose library — authored in the SIMULATION by a teammate (URDF
+// convention, in degrees), same as the V26 library before translation.  Each
+// joint is first wrapped from base 0-360 to ±180 (335° → -25°), THEN run
+// through the SAME sim→real sign/offset transform as the V26 library.
 const POSE_LIBRARY_DEG: Record<string, [number, number, number, number, number, number]> = {
   HOME: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
 
@@ -112,9 +113,12 @@ const POSE_LIBRARY_DEG: Record<string, [number, number, number, number, number, 
   RECOVERY_REJECT_RETREAT: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
   RECOVERY_HOME_SLOW: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
 };
-// Joints actually sent to the robot for a library pose (wrapped to ±180).
+// Joints actually sent to the robot for a library pose.  Two steps, IN ORDER:
+//   1) wrap each raw sim angle (base 0-360) to ±180   — e.g. 335° → -25°,
+//   2) apply the V26 sim→real sign/offset transform   — sign·(x − offset).
 function lib2PoseCtrlDeg(name: string): number[] {
-  return (POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME).map(wrapTo180);
+  const sim = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
+  return sim.map((deg, i) => JOINT_SIGN[i] * (wrapTo180(deg) - JOINT_OFFSET_DEG[i]));
 }
 
 // Faithful pick→rivet→vision→accept-bin cycle (accept branch), mirroring the
@@ -1458,7 +1462,7 @@ export default function CobotLiveView() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
               {lib2PoseCtrlDeg(selectedLib2).map((d, i) => {
                 const raw = (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)[i];
-                const wrapped = Math.abs(raw - d) > 0.01; // angle was normalised
+                const wrapped = Math.abs(wrapTo180(raw) - raw) > 0.01; // base-360 angle was normalised
                 return (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: `1px solid ${wrapped ? '#fbbf2455' : '#1d2c44'}`, borderRadius: 4, padding: '3px 5px' }}>
                     <span style={{ color: '#5a6c84' }}>J{i + 1}</span>

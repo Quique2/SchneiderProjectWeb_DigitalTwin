@@ -582,6 +582,9 @@ export default function CobotLiveView() {
   const [tunerStepMm, setTunerStepMm] = useState(5);
   const [tunerStepDeg, setTunerStepDeg] = useState(2);
   const [saveName, setSaveName] = useState('HOME');
+  // Auto-stop the conveyor when its photoelectric sensor detects an object.
+  const [autoStopConveyor, setAutoStopConveyor] = useState(true);
+  const autoStopFiredRef = useRef(false);
   // Sequence player. Ghost mode = visualisation only; Real mode = drives the
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
@@ -1066,6 +1069,18 @@ export default function CobotLiveView() {
   const conveyorOn = telemetry.conveyor_motor?.on ?? false;
   const fixtureA = telemetry.fixtures?.fixtureA ?? false;
   const fixtureB = telemetry.fixtures?.fixtureB ?? false;
+
+  // Auto-stop: when the conveyor sensor detects an object while the belt is
+  // running, turn the motor off once.  Re-arms when the sensor clears.
+  useEffect(() => {
+    if (!autoStopConveyor || mode !== 'live') return;
+    if (sensorConveyor && conveyorOn && !autoStopFiredRef.current) {
+      autoStopFiredRef.current = true;
+      setConveyorMotor(false);
+    }
+    if (!sensorConveyor) autoStopFiredRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorConveyor, conveyorOn, autoStopConveyor, mode]);
   // Ghost target: custom slider pose, the V26 dropdown pose, or a library-2
   // pose (both custom and lib2 are controller degrees → URDF for the ghost).
   const ghostJointsRad = ghostSource === 'custom'
@@ -1733,6 +1748,12 @@ export default function CobotLiveView() {
             }}>
               ⥁ {conveyorOn ? 'MOTOR ON — clic para APAGAR' : 'MOTOR OFF — clic para ENCENDER'}
             </button>
+
+            {/* Auto-stop on sensor detection */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 10, color: '#abc', cursor: 'pointer' }}>
+              <input type="checkbox" checked={autoStopConveyor} onChange={(e) => setAutoStopConveyor(e.target.checked)} style={{ accentColor: '#22cc55' }} />
+              Auto-detener al detectar objeto en el sensor
+            </label>
           </Section>
 
           <Section title="Estado del robot">

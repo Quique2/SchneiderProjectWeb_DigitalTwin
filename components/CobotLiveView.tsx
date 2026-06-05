@@ -46,6 +46,77 @@ const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
 const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
   [360, 360, 225, 360, 115, 360];
 
+// Normalise an angle to (-180, 180].  Used for the second pose library, whose
+// J1 values run up to 335° — we send the equivalent negative angle (335 → -25)
+// so the controller takes the short way and stays within range.
+function wrapTo180(deg: number): number {
+  let d = ((deg + 180) % 360 + 360) % 360 - 180;
+  if (d === -180) d = 180;
+  return d;
+}
+
+// Second pose library — authored in the simulation by a teammate, in the
+// robot-controller convention (absolute degrees).  Sent verbatim (after a
+// wrap-to-180 per joint), NOT through the sim→real sign/offset transform.
+const POSE_LIBRARY_DEG: Record<string, [number, number, number, number, number, number]> = {
+  HOME: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
+
+  SAFE_CONVEYOR: [93.9, -14.4, 57.3, 22.8, -90.1, -86.1],
+  APPROACH_CONVEYOR: [95.1, -14.6, 91.0, -10.8, -90.1, -85.0],
+  PRE_PICK_CONVEYOR: [95.0, -20.4, 100.3, -25.8, -90.1, -85.1],
+  PICK_CONVEYOR: [95.0, -22.4, 102.1, -29.6, -90.1, -85.1],
+  LIFT_CONVEYOR: [95.1, -14.6, 91.0, -10.8, -90.1, -85.0],
+  RETREAT_CONVEYOR: [93.9, -14.4, 57.3, 22.8, -90.1, -86.1],
+
+  SAFE_RIVET: [171.3, -14.4, 57.3, 22.8, -90.1, -10.0],
+  APPROACH_RIVET: [177.1, -62.0, -1.9, 32.9, -90.6, -3.8],
+  PRE_PLACE_RIVET: [177.0, -73.8, -2.2, 20.2, -90.8, -3.7],
+  PLACE_RIVET: [176.9, -76.4, -2.3, 17.8, -90.8, -3.9],
+  LIFT_RIVET: [177.1, -62.0, -1.9, 32.9, -90.6, -3.8],
+  RETREAT_RIVET: [171.3, -14.4, 57.3, 22.8, -90.1, -10.0],
+
+  PRE_PICK_RIVET: [177.0, -73.8, -2.2, 20.2, -90.8, -3.7],
+  PICK_RIVET: [176.5, -75.9, -2.5, 18.5, -90.7, -4.2],
+  LIFT_PICK_RIVET: [177.1, -62.0, -1.9, 32.9, -90.6, -3.8],
+  RETREAT_PICK_RIVET: [171.3, -14.4, 57.3, 22.8, -90.1, -10.0],
+
+  SAFE_CAMERA: [223.5, -14.4, 57.3, 22.8, -90.1, 45.0],
+  APPROACH_PLACE_CAMERA: [211.1, -80.0, -2.0, 17.3, -91.6, 32.1],
+  PRE_PLACE_CAMERA: [210.0, -84.1, -2.1, 13.4, -89.0, 31.0],
+  PLACE_CAMERA: [208.7, -87.2, -2.2, 10.6, -89.1, 29.2],
+  LIFT_PLACE_CAMERA: [211.1, -80.0, -2.0, 17.3, -91.6, 32.1],
+  RETREAT_PLACE_CAMERA: [223.5, -14.4, 57.3, 22.8, -90.1, 45.0],
+
+  INSPECTION_POSE: [223.5, -14.4, 57.3, 22.8, -90.1, 45.0],
+
+  APPROACH_PICK_CAMERA: [211.1, -80.0, -2.0, 17.3, -91.6, 32.1],
+  PRE_PICK_CAMERA: [210.0, -84.1, -2.1, 13.4, -89.0, 31.0],
+  PICK_CAMERA: [208.7, -87.2, -2.2, 10.6, -89.1, 29.2],
+  LIFT_PICK_CAMERA: [211.1, -80.0, -2.0, 17.3, -91.6, 32.1],
+  RETREAT_PICK_CAMERA: [223.5, -14.4, 57.3, 22.8, -90.1, 45.0],
+
+  SAFE_BINS: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
+
+  APPROACH_REJECTED: [294.1, 10.7, 79.8, 25.5, -89.8, -67.5],
+  PRE_REJECTED: [293.8, 8.4, 125.6, -22.4, -89.9, -67.7],
+  REJECTED_PLACE: [293.9, -0.1, 133.6, -38.7, -89.9, -67.6],
+  RETREAT_REJECTED: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
+
+  APPROACH_ACCEPTED: [335.4, -26.9, 42.8, 24.1, -88.7, -26.2],
+  PRE_PLACE_ACCEPTED: [333.9, -27.5, 84.0, -17.3, -88.7, -27.7],
+  ACCEPTED_PLACE: [333.9, -34.3, 90.4, -30.5, -88.7, -27.8],
+  RETREAT_ACCEPTED: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
+
+  RECOVERY_REJECT_APPROACH: [294.1, 10.7, 79.8, 25.5, -89.8, -67.5],
+  RECOVERY_REJECT_DROP: [293.9, -0.1, 133.6, -38.7, -89.9, -67.6],
+  RECOVERY_REJECT_RETREAT: [245.9, -14.4, 57.3, 22.8, -90.1, -90.0],
+  RECOVERY_HOME_SLOW: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
+};
+// Joints actually sent to the robot for a library pose (wrapped to ±180).
+function lib2PoseCtrlDeg(name: string): number[] {
+  return (POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME).map(wrapTo180);
+}
+
 // Faithful pick→rivet→vision→accept-bin cycle (accept branch), mirroring the
 // simulation's SEQUENCE incl. the double vision pass and HOME traversals.
 // `grip` fires the magnet AFTER arriving at that pose: grab = magnet ON,
@@ -489,7 +560,8 @@ export default function CobotLiveView() {
   // Ghost source: 'pose' = the dropdown POSE_LIB selection; 'custom' = the live
   // jog sliders (cmdJoints).  Moving a slider switches to 'custom' so the green
   // ghost previews exactly where the robot will go before MOVER JOINTS is sent.
-  const [ghostSource, setGhostSource] = useState<'pose' | 'custom'>('pose');
+  const [ghostSource, setGhostSource] = useState<'pose' | 'custom' | 'lib2'>('pose');
+  const [selectedLib2, setSelectedLib2] = useState<string>('HOME');
   // Sequence player. Ghost mode = visualisation only; Real mode = drives the
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
   const [seqPlaying, setSeqPlaying] = useState(false);
@@ -724,6 +796,12 @@ export default function CobotLiveView() {
   const sendPoseToRobot = () =>
     postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
+  // Second pose library (controller-convention, wrapped to ±180): load into the
+  // jog sliders for review, or send straight to the robot.
+  const loadLib2ToSliders = () => { setCmdJoints(lib2PoseCtrlDeg(selectedLib2)); setGhostSource('lib2'); setShowGhost(true); };
+  const sendLib2ToRobot = () =>
+    postControl('/api/cobot/move/joint', { joints: lib2PoseCtrlDeg(selectedLib2), speed: jointSpeed, relative: false });
+
   // Stop whichever player is running (ghost timer and/or the real-robot loop).
   const stopSequence = () => {
     seqAbortRef.current = true;
@@ -930,13 +1008,18 @@ export default function CobotLiveView() {
   const conveyorOn = telemetry.conveyor_motor?.on ?? false;
   const fixtureA = telemetry.fixtures?.fixtureA ?? false;
   const fixtureB = telemetry.fixtures?.fixtureB ?? false;
-  // Ghost target: custom slider pose (controller→URDF) or the dropdown pose.
+  // Ghost target: custom slider pose, the V26 dropdown pose, or a library-2
+  // pose (both custom and lib2 are controller degrees → URDF for the ghost).
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
-    : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+    : ghostSource === 'lib2'
+      ? controllerDegToUrdfRad(lib2PoseCtrlDeg(selectedLib2))
+      : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
-    : selectedPose.replace('POSE_', '').replace(/_/g, ' ');
+    : ghostSource === 'lib2'
+      ? selectedLib2.replace(/_/g, ' ')
+      : selectedPose.replace('POSE_', '').replace(/_/g, ' ');
   // Linear table — independent GPIO hardware, controllable whenever the gateway
   // is reachable (no Remote Control gate).
   const table = telemetry.table;
@@ -1355,6 +1438,46 @@ export default function CobotLiveView() {
                 a vel {jointSpeed}%, agarrando/soltando el imán en cada pose como en la simulación,
                 esperando la llegada en cada paso. STOP aborta.
               </div>
+            </div>
+          </Section>
+
+          {/* === Second pose library (teammate, controller-convention) === */}
+          <Section title="Poses (librería 2)">
+            <select value={selectedLib2}
+              onChange={(e) => { setSelectedLib2(e.target.value); setGhostSource('lib2'); setShowGhost(true); }}
+              style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+              {Object.keys(POSE_LIBRARY_DEG).map((name) => (
+                <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+
+            {/* Preview of the wrapped controller-convention joint targets */}
+            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 4px' }}>
+              Joints a enviar (°, robot · ±180)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
+              {lib2PoseCtrlDeg(selectedLib2).map((d, i) => {
+                const raw = (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)[i];
+                const wrapped = Math.abs(raw - d) > 0.01; // angle was normalised
+                return (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: `1px solid ${wrapped ? '#fbbf2455' : '#1d2c44'}`, borderRadius: 4, padding: '3px 5px' }}>
+                    <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
+                    <span style={{ color: wrapped ? '#fbbf24' : '#dde4f0' }}>{d.toFixed(1)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
+              <button onClick={loadLib2ToSliders} disabled={!controlEnabled}
+                style={ctrlBtn(controlEnabled, '#475569', '#334155')}>↧ Cargar en sliders</button>
+              <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
+                style={ctrlBtn(controlEnabled, '#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
+            </div>
+            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
+              Poses crudas de la simulación, en convención del robot. Los ángulos
+              &gt;180° se envían como su equivalente negativo (en <span style={{ color: '#fbbf24' }}>ámbar</span>).
+              "Cargar" revisa en sliders antes de mover; "Enviar" manda directo (vel {jointSpeed}%). STOP aborta.
             </div>
           </Section>
 

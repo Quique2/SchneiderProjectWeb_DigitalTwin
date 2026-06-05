@@ -109,6 +109,23 @@ function gatewayBase(connUrl: string): string {
   }
 }
 
+// ── Datalogic P15 inspection result ─────────────────────────────────────────
+interface InspectHole {
+  label: string; name: string; found: boolean;
+  actual_x?: number; actual_y?: number; off_center_px?: number;
+  area_px?: number; darkness?: number;
+}
+interface InspectResult {
+  ok: boolean;
+  verdict: 'PASS' | 'FAIL';
+  holes_found: number;
+  holes_expected: number;
+  holes: InspectHole[];
+  cafi_detected: boolean;
+  error?: string;
+  image_url?: string;
+}
+
 // ── Telemetry shape (mirror of cobot_reader.py JSON) ────────────────────────
 interface JointState {
   joint: number; error: boolean; enabled: boolean; collision: boolean; current_a: number;
@@ -440,10 +457,15 @@ export default function CobotLiveView() {
     document.head.appendChild(st);
   }, []);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);   // global camera lock
+  const [cameraBusyLabel, setCameraBusyLabel] = useState('');  // what op is running
   const [cameraGifUrl, setCameraGifUrl] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [shutterUs, setShutterUs] = useState(200000);
+  const [shutterUs, setShutterUs] = useState(200000);          // slider value
+  const [appliedShutter, setAppliedShutter] = useState<number | null>(null); // last applied
+  const [camView, setCamView] = useState<'none' | 'feed' | 'inspect'>('none');
+  const [inspectImgUrl, setInspectImgUrl] = useState<string | null>(null);
+  const [inspectResult, setInspectResult] = useState<InspectResult | null>(null);
 
   // ── Control state ──────────────────────────────────────────────────────
   const [cmdJoints, setCmdJoints] = useState<number[]>([...DEMO_TELEMETRY.joint_positions_deg]);
@@ -566,42 +588,89 @@ export default function CobotLiveView() {
   const setPneumaticGripper = (action: 'open' | 'close' | 'off') =>
     postControl('/api/cobot/pneumatic_gripper', { action });
 
-  // ── Camera ────────────────────────────────────────────────────────────
-  // Fetch a fresh 5 s live GIF.  ~6 s round trip; cache-busted per click.
-  // Reads the blob so we can distinguish HTTP 503 (camera busy) and free the
-  // previous object URL.
+  // ── Camera (Datalogic P15) ──────────────────────────────────────────────
+  // The backend serialises all camera ops with a lock, so the panel keeps a
+  // single global busy flag (cameraLoading) and disables every camera button
+  // while one is running.  Friendly "camera busy" handling throughout.
+
+  // Live 5 s GIF.  ~6 s round trip; cache-busted; blob → object URL.
   const fetchCameraFeed = async () => {
-    setCameraLoading(true);
-    setCameraError(null);
+    if (cameraLoading) return;
+    setCameraLoading(true); setCameraBusyLabel('Capturando 5 s…'); setCameraError(null); setCamView('feed');
     try {
       const res = await fetch(`${gatewayBase(url)}/api/camera/live5?t=${Date.now()}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-        cache: 'no-store',
+        headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store',
       });
-      if (res.status === 503) { setCameraError('La cámara está ocupada, intenta de nuevo en unos segundos.'); return; }
-      if (!res.ok) { setCameraError(`Error ${res.status} al obtener el feed de la cámara.`); return; }
+      if (res.status === 503) { setCameraError('La cámara está ocupada, espera unos segundos.'); return; }
+      if (!res.ok) { setCameraError(`Error ${res.status} al obtener el live feed.`); return; }
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       setCameraGifUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objUrl; });
     } catch (e) {
       setCameraError(`Sin respuesta del gateway (${String(e)}).`);
     } finally {
-      setCameraLoading(false);
+      setCameraLoading(false); setCameraBusyLabel('');
     }
   };
-  // Change camera shutter speed (µs).  Fire-and-forget; updates the local
-  // preset highlight immediately.
-  const setShutter = async (microseconds: number) => {
-    setShutterUs(microseconds);
+
+  // Run a CAFI inspection: POST /inspect → JSON verdict, then fetch the
+  // annotated PNG.  "camera busy" arrives as ok:false; a missing CAFI arrives
+  // as ok:true + cafi_detected:false + error.
+  const runInspection = async () => {
+    if (cameraLoading) return;
+    setCameraLoading(true); setCameraBusyLabel('Inspeccionando…'); setCameraError(null); setCamView('inspect');
     try {
-      await fetch(`${gatewayBase(url)}/api/camera/shutter`, {
+      const res = await fetch(`${gatewayBase(url)}/api/camera/inspect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-        body: JSON.stringify({ microseconds }),
       });
-    } catch { /* non-critical */ }
+      const j: InspectResult = await res.json().catch(() => ({} as InspectResult));
+      if (!res.ok || j.ok === false) {
+        const msg = /busy/i.test(j.error || '') ? 'La cámara está ocupada, espera unos segundos.'
+          : (j.error || `Error ${res.status} en la inspección.`);
+        setCameraError(msg); return;
+      }
+      setInspectResult(j);
+      // Annotated image (cache-busted blob).
+      const imgRes = await fetch(`${gatewayBase(url)}/api/camera/inspect/last_image?t=${Date.now()}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store',
+      });
+      if (imgRes.ok) {
+        const blob = await imgRes.blob();
+        const objUrl = URL.createObjectURL(blob);
+        setInspectImgUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objUrl; });
+      }
+    } catch (e) {
+      setCameraError(`Sin respuesta del gateway (${String(e)}).`);
+    } finally {
+      setCameraLoading(false); setCameraBusyLabel('');
+    }
   };
-  const openCamera = () => { setCameraOpen(true); if (!cameraGifUrl && !cameraLoading) fetchCameraFeed(); };
+
+  // Apply the shutter slider value (µs) via CORBA on the backend.
+  const applyShutter = async () => {
+    if (cameraLoading) return;
+    setCameraLoading(true); setCameraBusyLabel('Aplicando obturación…'); setCameraError(null);
+    try {
+      const res = await fetch(`${gatewayBase(url)}/api/camera/shutter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({ microseconds: shutterUs }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok || j.ok === false) {
+        setCameraError(/busy/i.test(j.error || '') ? 'La cámara está ocupada, espera unos segundos.'
+          : (j.error || `Error ${res.status} al cambiar la obturación.`));
+        return;
+      }
+      setAppliedShutter(typeof j.microseconds === 'number' ? j.microseconds : shutterUs);
+    } catch (e) {
+      setCameraError(`Sin respuesta del gateway (${String(e)}).`);
+    } finally {
+      setCameraLoading(false); setCameraBusyLabel('');
+    }
+  };
+  const openCamera = () => setCameraOpen(true);
 
   // ── Linear table (GPIO hardware, independent of EcoStruxure) ────────────
   // Non-blocking: the API returns immediately, the table moves until it
@@ -805,16 +874,19 @@ export default function CobotLiveView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track the live GIF object URL so unmount can revoke it without re-running
-  // the cleanup every time the URL changes.
+  // Track camera object URLs so unmount can revoke them without re-running the
+  // cleanup every time a URL changes.
   const cameraGifUrlRef = useRef<string | null>(null);
   cameraGifUrlRef.current = cameraGifUrl;
+  const inspectImgUrlRef = useRef<string | null>(null);
+  inspectImgUrlRef.current = inspectImgUrl;
   useEffect(() => () => { // cleanup on unmount
     manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
     if (pollRef.current) window.clearInterval(pollRef.current);
     if (seqTimerRef.current) window.clearInterval(seqTimerRef.current);
     if (cameraGifUrlRef.current) URL.revokeObjectURL(cameraGifUrlRef.current);
+    if (inspectImgUrlRef.current) URL.revokeObjectURL(inspectImgUrlRef.current);
   }, []);
 
   const s = telemetry.status;
@@ -1078,7 +1150,7 @@ export default function CobotLiveView() {
               padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
               background: controlEnabled ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : '#2a3548',
             }}>
-              📷 Ver cámara (live 5 s)
+              📷 Panel de Cámara
             </button>
 
             {/* Joint jog sliders — editing any joint previews the pose on the
@@ -1444,7 +1516,7 @@ export default function CobotLiveView() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', boxShadow: '0 0 8px #8b5cf6' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Cámara Datalogic · live 5 s</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Panel de Cámara · Datalogic P15</span>
               </div>
               <button onClick={() => setCameraOpen(false)} style={{
                 fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: '#9bb0c8',
@@ -1454,32 +1526,78 @@ export default function CobotLiveView() {
 
             {/* Body */}
             <div style={{ padding: 18 }}>
-              {/* Shutter presets */}
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
-                Velocidad de obturación (µs)
+              {/* ── Shutter control ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                  Obturación (µs)
+                </span>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: appliedShutter != null ? '#22dd55' : '#5a6c84' }}>
+                  {appliedShutter != null ? `aplicado: ${appliedShutter.toLocaleString()}` : 'sin aplicar'}
+                </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 4, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <input type="range" min={8000} max={300000} step={1000} value={shutterUs} disabled={cameraLoading}
+                  onChange={(e) => setShutterUs(parseInt(e.target.value))}
+                  style={{ flex: 1, accentColor: '#8b5cf6' }} />
+                <NumField value={shutterUs} disabled={cameraLoading} min={8000} max={300000} decimals={0} width={66}
+                  onChange={(v) => setShutterUs(Math.round(v))} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
                 {([
-                  { us: 8000,   label: '8k · oscuro' },
-                  { us: 100000, label: '100k · medio' },
-                  { us: 200000, label: '200k · brillante' },
-                  { us: 300000, label: '300k · máx' },
-                ] as const).map(({ us, label }) => {
-                  const active = shutterUs === us;
-                  return (
-                    <button key={us} onClick={() => setShutter(us)} disabled={cameraLoading} style={{
-                      fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600, color: '#fff',
-                      cursor: cameraLoading ? 'wait' : 'pointer',
-                      border: active ? '2px solid #fff' : '1px solid #1d2c44', borderRadius: 6, padding: '7px 4px',
-                      background: active ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.7)',
-                    }}>{label}</button>
-                  );
-                })}
+                  { us: 8000,   label: 'Oscuro 8k' },
+                  { us: 100000, label: 'Medio 100k' },
+                  { us: 200000, label: 'Brillante 200k' },
+                ] as const).map(({ us, label }) => (
+                  <button key={us} onClick={() => setShutterUs(us)} disabled={cameraLoading} style={{
+                    fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600, color: '#fff',
+                    cursor: cameraLoading ? 'wait' : 'pointer',
+                    border: shutterUs === us ? '2px solid #fff' : '1px solid #1d2c44', borderRadius: 6, padding: '6px 4px',
+                    background: shutterUs === us ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.7)',
+                  }}>{label}</button>
+                ))}
+              </div>
+              <button onClick={applyShutter} disabled={cameraLoading} style={{
+                width: '100%', marginBottom: 14, fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
+                cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 6, padding: '9px',
+                background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#6d28d9 0%,#4c1d95 100%)',
+              }}>
+                ⚙ Aplicar obturación
+              </button>
+
+              {/* ── Action buttons ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 14 }}>
+                <button onClick={fetchCameraFeed} disabled={cameraLoading} style={{
+                  fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
+                  cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px 6px',
+                  background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)',
+                }}>📷 Live Feed (5s)</button>
+                <button onClick={runInspection} disabled={cameraLoading} style={{
+                  fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
+                  cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px 6px',
+                  background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                }}>🔍 Inspección</button>
               </div>
 
-              {/* Viewport */}
+              {/* ── Verdict banner (inspection only) ── */}
+              {camView === 'inspect' && inspectResult && !cameraLoading && !cameraError && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                  padding: '12px', borderRadius: 8, marginBottom: 12, fontSize: 18, fontWeight: 800,
+                  color: inspectResult.verdict === 'PASS' ? '#06101c' : '#fff',
+                  background: inspectResult.verdict === 'PASS'
+                    ? 'linear-gradient(180deg,#22dd55,#15803d)'
+                    : 'linear-gradient(180deg,#ef4444,#b91c1c)',
+                }}>
+                  {inspectResult.verdict === 'PASS' ? '🟢' : '🔴'} {inspectResult.verdict} {inspectResult.holes_found}/{inspectResult.holes_expected}
+                  {!inspectResult.cafi_detected && (
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>· CAFI no detectado</span>
+                  )}
+                </div>
+              )}
+
+              {/* ── Viewport ── */}
               <div style={{
-                position: 'relative', width: '100%', aspectRatio: '640 / 512',
+                position: 'relative', width: '100%', aspectRatio: camView === 'inspect' ? '1280 / 1024' : '640 / 512',
                 background: '#05080f', border: '1px solid #1a2c44', borderRadius: 8,
                 overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
@@ -1490,33 +1608,53 @@ export default function CobotLiveView() {
                       border: '4px solid #1d2c44', borderTopColor: '#8b5cf6', borderRadius: '50%',
                       animation: 'cam-spin 0.9s linear infinite',
                     }} />
-                    <div style={{ fontSize: 12, color: '#9bb0c8' }}>Capturando 5 s… (~6 s)</div>
+                    <div style={{ fontSize: 12, color: '#9bb0c8' }}>{cameraBusyLabel || 'Procesando…'} (~6 s)</div>
                   </div>
                 ) : cameraError ? (
                   <div style={{ textAlign: 'center', padding: 24 }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
                     <div style={{ fontSize: 13, color: '#ff8a98', lineHeight: 1.5, maxWidth: 360 }}>{cameraError}</div>
                   </div>
-                ) : cameraGifUrl ? (
+                ) : camView === 'inspect' && inspectImgUrl ? (
+                  <img src={inspectImgUrl} alt="Inspección anotada CAFI"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                ) : camView === 'feed' && cameraGifUrl ? (
                   <img src={cameraGifUrl} alt="Live feed cámara Datalogic"
                     style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 ) : (
-                  <div style={{ fontSize: 12, color: '#5a6c84' }}>Pulsa “Capturar” para iniciar el feed.</div>
+                  <div style={{ fontSize: 12, color: '#5a6c84', textAlign: 'center', padding: 24 }}>
+                    Usa <b style={{ color: '#8b5cf6' }}>Live Feed</b> o <b style={{ color: '#3b8bff' }}>Inspección</b> para empezar.
+                  </div>
                 )}
               </div>
 
-              {/* Recapture */}
-              <button onClick={fetchCameraFeed} disabled={cameraLoading} style={{
-                width: '100%', marginTop: 14, fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: '#fff',
-                cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px',
-                background: cameraLoading
-                  ? 'linear-gradient(180deg,#3a4f6a,#2a3548)'
-                  : 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)',
-              }}>
-                {cameraLoading ? '⏳ Capturando…' : '🔴 Capturar 5 s'}
-              </button>
-              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 8, textAlign: 'center', lineHeight: 1.4 }}>
-                640×512 · GIF animado de 5 s · cada captura toma ~6 s y ocupa la cámara.
+              {/* ── Hole list (inspection only) ── */}
+              {camView === 'inspect' && inspectResult && inspectResult.holes.length > 0 && !cameraLoading && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+                    Huecos del CAFI
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    {inspectResult.holes.map((h) => (
+                      <div key={h.label} style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 6,
+                        background: 'rgba(20,30,48,0.6)', border: `1px solid ${h.found ? '#22dd5544' : '#ff556644'}`,
+                      }}>
+                        <span style={{ fontSize: 14, color: h.found ? '#22dd55' : '#ff5566', fontWeight: 800 }}>
+                          {h.found ? '✓' : '✗'}
+                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#dde4f0' }}>{h.label}</span>
+                          <span style={{ fontSize: 9, color: '#788090', whiteSpace: 'nowrap' }}>{h.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 12, textAlign: 'center', lineHeight: 1.4 }}>
+                Datalogic P15 · 1280×1024 grayscale · una operación a la vez (~3–6 s c/u).
               </div>
             </div>
           </div>

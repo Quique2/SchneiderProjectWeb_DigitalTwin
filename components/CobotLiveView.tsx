@@ -153,6 +153,10 @@ interface CobotTelemetry {
   // Pneumatic gripper (cabinet CN2, DO7/DO8): open valve A, close valve B,
   // off keeps the last position. Reflects the last commanded state.
   pneumatic_gripper?: { state: 'off' | 'open' | 'close'; open_do_index: number; close_do_index: number };
+  // Photoelectric sensors (live read): true = object detected at that station.
+  sensors?: { conveyor: boolean; vision: boolean };
+  // Conveyor belt motor (DO13): reflects the last commanded on/off state.
+  conveyor_motor?: { on: boolean; do_index: number };
   // Linear table: GPIO-driven hardware on the RPi, independent of EcoStruxure
   // Remote Control.  Reads real limit switches; moves non-blocking to a limit.
   table?: {
@@ -192,6 +196,8 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   joint_temperatures_c: [33, 34, 32, 35, 36, 38],
   gripper: { closed: false, do_index: 6 },
   pneumatic_gripper: { state: 'off', open_do_index: 7, close_do_index: 8 },
+  sensors: { conveyor: false, vision: false },
+  conveyor_motor: { on: false, do_index: 13 },
   table: { available: true, moving: false, limit1_touched: true, limit2_touched: false, position: 'limit1', last_target: 'limit1' },
 };
 
@@ -587,6 +593,8 @@ export default function CobotLiveView() {
   // Pneumatic gripper: 3-state (open valve A / close valve B / off both).
   const setPneumaticGripper = (action: 'open' | 'close' | 'off') =>
     postControl('/api/cobot/pneumatic_gripper', { action });
+  // Conveyor belt motor (DO13): on/off.
+  const setConveyorMotor = (on: boolean) => postControl('/api/cobot/conveyor', { on });
 
   // ── Camera (Datalogic P15) ──────────────────────────────────────────────
   // The backend serialises all camera ops with a lock, so the panel keeps a
@@ -907,6 +915,10 @@ export default function CobotLiveView() {
   const gripperClosed = telemetry.gripper?.closed ?? false;
   // Pneumatic gripper state (last commanded), drives the 3-button selector.
   const pneuState = telemetry.pneumatic_gripper?.state ?? 'off';
+  // Photoelectric sensors (live) + conveyor motor (last commanded).
+  const sensorConveyor = telemetry.sensors?.conveyor ?? false;
+  const sensorVision = telemetry.sensors?.vision ?? false;
+  const conveyorOn = telemetry.conveyor_motor?.on ?? false;
   // Ghost target: custom slider pose (controller→URDF) or the dropdown pose.
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
@@ -1416,6 +1428,44 @@ export default function CobotLiveView() {
                 {tableMoving ? '⟳ moviendo…' : tablePos === 'limit1' ? '◄ Límite 1' : tablePos === 'limit2' ? 'Límite 2 ►' : '— centro'}
               </span>
             </div>
+          </Section>
+
+          {/* === Sensors + conveyor belt === */}
+          <Section title="Sensores y banda">
+            {/* Live photoelectric sensor LEDs (read-only from the WS stream) */}
+            {([
+              { label: 'Sensor Conveyor', on: sensorConveyor },
+              { label: 'Sensor Visión',   on: sensorVision },
+            ] as const).map(({ label, on }) => (
+              <div key={label} style={{ ...statRow, alignItems: 'center' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                    background: on ? '#22dd55' : '#2a3548',
+                    boxShadow: on ? '0 0 10px #22dd55' : 'none',
+                    border: `1px solid ${on ? '#22dd55' : '#1d2c44'}`,
+                    transition: 'all 0.12s',
+                  }} />
+                  {label}
+                </span>
+                <span style={{ color: on ? '#22dd55' : '#788090', fontWeight: 700 }}>
+                  {on ? 'DETECTA' : '— libre'}
+                </span>
+              </div>
+            ))}
+
+            {/* Conveyor motor toggle (same pattern as the grippers) */}
+            <button onClick={() => setConveyorMotor(!conveyorOn)} disabled={!controlEnabled || cmdBusy} style={{
+              width: '100%', marginTop: 8, fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700,
+              cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
+              padding: '10px', opacity: controlEnabled ? 1 : 0.55,
+              color: conveyorOn ? '#06101c' : '#fff',
+              background: !controlEnabled ? '#2a3548'
+                : conveyorOn ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)'
+                : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
+            }}>
+              ⥁ {conveyorOn ? 'MOTOR ON — clic para APAGAR' : 'MOTOR OFF — clic para ENCENDER'}
+            </button>
           </Section>
 
           <Section title="Estado del robot">

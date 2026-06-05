@@ -155,6 +155,8 @@ interface CobotTelemetry {
   pneumatic_gripper?: { state: 'off' | 'open' | 'close'; open_do_index: number; close_do_index: number };
   // Photoelectric sensors (live read): true = object detected at that station.
   sensors?: { conveyor: boolean; vision: boolean };
+  // Turntable fixture presence (live): true = CAFI loaded on that fixture.
+  fixtures?: { fixtureA: boolean; fixtureB: boolean };
   // Conveyor belt motor (DO13): reflects the last commanded on/off state.
   conveyor_motor?: { on: boolean; do_index: number };
   // Linear table: GPIO-driven hardware on the RPi, independent of EcoStruxure
@@ -197,6 +199,7 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   gripper: { closed: false, do_index: 6 },
   pneumatic_gripper: { state: 'off', open_do_index: 7, close_do_index: 8 },
   sensors: { conveyor: false, vision: false },
+  fixtures: { fixtureA: false, fixtureB: false },
   conveyor_motor: { on: false, do_index: 13 },
   table: { available: true, moving: false, limit1_touched: true, limit2_touched: false, position: 'limit1', last_target: 'limit1' },
 };
@@ -925,6 +928,8 @@ export default function CobotLiveView() {
   const sensorConveyor = telemetry.sensors?.conveyor ?? false;
   const sensorVision = telemetry.sensors?.vision ?? false;
   const conveyorOn = telemetry.conveyor_motor?.on ?? false;
+  const fixtureA = telemetry.fixtures?.fixtureA ?? false;
+  const fixtureB = telemetry.fixtures?.fixtureB ?? false;
   // Ghost target: custom slider pose (controller→URDF) or the dropdown pose.
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
@@ -1440,8 +1445,10 @@ export default function CobotLiveView() {
           <Section title="Sensores y banda">
             {/* Live photoelectric sensor LEDs (read-only from the WS stream) */}
             {([
-              { label: 'Sensor Conveyor', on: sensorConveyor },
-              { label: 'Sensor Visión',   on: sensorVision },
+              { label: 'Sensor Conveyor',  on: sensorConveyor },
+              { label: 'Sensor Visión',    on: sensorVision },
+              { label: 'Fixture A (CAFI)', on: fixtureA },
+              { label: 'Fixture B (CAFI)', on: fixtureB },
             ] as const).map(({ label, on }) => (
               <div key={label} style={{ ...statRow, alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

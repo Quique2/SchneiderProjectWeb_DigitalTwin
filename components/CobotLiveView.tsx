@@ -639,14 +639,20 @@ export default function CobotLiveView() {
         setCameraError(msg); return;
       }
       setInspectResult(j);
-      // Annotated image (cache-busted blob).
-      const imgRes = await fetch(`${gatewayBase(url)}/api/camera/inspect/last_image?t=${Date.now()}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store',
-      });
-      if (imgRes.ok) {
-        const blob = await imgRes.blob();
-        const objUrl = URL.createObjectURL(blob);
-        setInspectImgUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objUrl; });
+      if (!j.cafi_detected) {
+        // No CAFI in frame: the backend keeps the previous annotated image, so
+        // don't show a stale photo — clear it and let the panel show a notice.
+        setInspectImgUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+      } else {
+        // Annotated image (cache-busted blob).
+        const imgRes = await fetch(`${gatewayBase(url)}/api/camera/inspect/last_image?t=${Date.now()}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store',
+        });
+        if (imgRes.ok) {
+          const blob = await imgRes.blob();
+          const objUrl = URL.createObjectURL(blob);
+          setInspectImgUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objUrl; });
+        }
       }
     } catch (e) {
       setCameraError(`Sin respuesta del gateway (${String(e)}).`);
@@ -1664,6 +1670,13 @@ export default function CobotLiveView() {
                   <div style={{ textAlign: 'center', padding: 24 }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
                     <div style={{ fontSize: 13, color: '#ff8a98', lineHeight: 1.5, maxWidth: 360 }}>{cameraError}</div>
+                  </div>
+                ) : camView === 'inspect' && inspectResult && !inspectResult.cafi_detected ? (
+                  <div style={{ textAlign: 'center', padding: 24 }}>
+                    <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
+                    <div style={{ fontSize: 13, color: '#9bb0c8', lineHeight: 1.5, maxWidth: 320 }}>
+                      No se detectó ningún CAFI en el fixture.<br/>Coloca la pieza y vuelve a inspeccionar.
+                    </div>
                   </div>
                 ) : camView === 'inspect' && inspectImgUrl ? (
                   <img src={inspectImgUrl} alt="Inspección anotada CAFI"

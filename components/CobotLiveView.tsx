@@ -1065,12 +1065,17 @@ export default function CobotLiveView() {
     if (!sensorConveyor) autoStopFiredRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sensorConveyor, conveyorOn, autoStopConveyor, mode]);
-  // Ghost target: custom slider pose, the V26 dropdown pose, or a library-2
-  // pose (both custom and lib2 are controller degrees → URDF for the ghost).
+  // Ghost target: custom slider pose, the V26 dropdown pose, or a library-2 pose.
+  // For lib2: use sim degrees directly as URDF radians (identity: urdf=sim).
+  // This avoids the discontinuity caused by wrapTo180 flipping J1 values near
+  // ±180° (e.g. 185.8° → -174.2°, a 341° visual jump from 167°). Values
+  // slightly above 180° are clamped by the URDF renderer, which is invisible
+  // compared to the jarring spin. Robot commands still use wrap→transform.
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
     : ghostSource === 'lib2'
-      ? controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2))
+      ? (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)
+          .map(d => THREE.MathUtils.degToRad(d))
       : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'

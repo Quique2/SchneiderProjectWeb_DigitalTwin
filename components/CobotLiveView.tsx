@@ -1432,7 +1432,7 @@ export default function CobotLiveView() {
             {/* Cycle speed slider */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>vel. cobot</span>
-              <input type="range" min={5} max={50} step={1} value={cycleSpeed}
+              <input type="range" min={5} max={100} step={1} value={cycleSpeed}
                 disabled={cycleRunning}
                 onChange={(e) => setCycleSpeed(parseInt(e.target.value))}
                 style={{ flex: 1, accentColor: '#22c55e' }} />

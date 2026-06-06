@@ -46,58 +46,67 @@ const JOINT_OFFSET_DEG: [number, number, number, number, number, number] =
 const JOINT_LIMITS_DEG: [number, number, number, number, number, number] =
   [360, 360, 225, 360, 115, 360];
 
-// Second pose library — real TCP poses (mm / °) captured on the physical cell.
-// Sent verbatim via moveL (move_cartesian). No joint transform needed.
-interface TcpPose { x: number; y: number; z: number; rx: number; ry: number; rz: number; }
-const POSE_LIBRARY_TCP: Record<string, TcpPose> = {
-  HOME: { x: 1344, y: 1081, z: 1448, rx: -177.1, ry: -0.0, rz: 90.1 },
+// Second pose library — sim joint angles (URDF degrees), same pipeline as V26:
+//   1) wrap each angle to ±180,  2) apply sign·(x − offset) transform.
+// Sent via move_joint.
+function wrapTo180(deg: number): number {
+  let d = ((deg + 180) % 360 + 360) % 360 - 180;
+  if (d === -180) d = 180;
+  return d;
+}
+const POSE_LIBRARY_DEG: Record<string, [number,number,number,number,number,number]> = {
+  HOME: [90.0, 0.0, 0.0, 90.0, -90.0, -89.9],
 
-  APPROACH_CONVEYOR: { x: 1485, y: 1320, z: 1146, rx: -179.0, ry: 2.4, rz: 91.5 },
-  SAFE_CONVEYOR: { x: 1480, y: 1255, z: 1309, rx: -178.8, ry: 2.5, rz: 91.5 },
-  PICK_CONVEYOR: { x: 1494, y: 1334, z: 1071, rx: -178.7, ry: 2.0, rz: 91.1 },
-  LIFT_CONVEYOR: { x: 1487, y: 1323, z: 1279, rx: -178.3, ry: 2.1, rz: 91.1 },
+  APPROACH_CONVEYOR: [69.2, -19.3, 86.7, -15.0, -91.9, -109.3],
+  SAFE_CONVEYOR: [66.0, -9.1, 57.5, 24.2, -91.8, -112.4],
+  PICK_CONVEYOR: [68.5, -30.1, 91.9, -31.1, -91.4, -110.4],
+  LIFT_CONVEYOR: [69.0, -21.5, 50.3, 18.7, -91.4, -109.9],
 
-  SAFE_RIVET: { x: 1072, y: 1081, z: 1354, rx: -178.3, ry: -1.3, rz: -6.9 },
+  SAFE_RIVET: [167.0, -1.8, 51.9, 37.6, -91.4, -109.9],
 
-  APPROACH_PLACE_FIXTURE_1: { x: 930, y: 1064, z: 1256, rx: -177.6, ry: -2.8, rz: -90.8 },
-  PLACE_FIXTURE_1: { x: 917, y: 1066, z: 1160, rx: -177.6, ry: -2.6, rz: -90.8 },
-  LIFT_PLACE_FIXTURE_1: { x: 924, y: 1066, z: 1219, rx: -177.6, ry: -2.7, rz: -90.8 },
+  APPROACH_PLACE_FIXTURE_1: [185.8, -35.3, 36.0, 19.0, -92.7, -175.1],
+  PLACE_FIXTURE_1: [185.3, -35.3, 60.5, -5.3, -92.7, -175.6],
+  LIFT_PLACE_FIXTURE_1: [185.5, -34.2, 47.5, 8.7, -92.7, -175.5],
 
-  APPROACH_PLACE_FIXTURE_2: { x: 930, y: 1064, z: 1256, rx: -177.6, ry: -2.8, rz: -90.8 },
-  PLACE_FIXTURE_2: { x: 917, y: 1066, z: 1151, rx: -177.6, ry: -2.6, rz: -90.8 },
-  LIFT_FIXTURE_2: { x: 929, y: 1065, z: 1253, rx: -177.6, ry: -2.8, rz: -90.8 },
+  APPROACH_PLACE_FIXTURE_2: [185.8, -35.3, 36.0, 19.0, -92.7, -175.1],
+  PLACE_FIXTURE_2: [185.3, -35.7, 62.1, -7.3, -92.7, -175.6],
+  LIFT_FIXTURE_2: [185.6, -35.0, 37.3, 18.0, -92.7, -175.3],
 
-  APPROACH_PICK_FIXTURE_1: { x: 930, y: 1064, z: 1256, rx: -177.6, ry: -2.8, rz: -90.8 },
-  PICK_FIXTURE_1: { x: 916, y: 1066, z: 1133, rx: -177.6, ry: -2.6, rz: -90.8 },
-  LIFT_PICK_FIXTURE_1: { x: 920, y: 1066, z: 1187, rx: -177.6, ry: -2.7, rz: -90.8 },
+  APPROACH_PICK_FIXTURE_1: [185.8, -35.3, 36.0, 19.0, -92.7, -175.1],
+  PICK_FIXTURE_1: [185.3, -36.7, 65.0, -11.2, -92.7, -175.7],
+  LIFT_PICK_FIXTURE_1: [185.4, -34.4, 55.1, 1.0, -92.7, -175.6],
 
-  APPROACH_PICK_FIXTURE_2: { x: 930, y: 1064, z: 1256, rx: -177.6, ry: -2.8, rz: -90.8 },
-  PICK_FIXTURE_2: { x: 916, y: 1066, z: 1133, rx: -177.6, ry: -2.6, rz: -90.8 },
-  LIFT_PICK_FIXTURE_2: { x: 920, y: 1066, z: 1187, rx: -177.6, ry: -2.7, rz: -90.8 },
+  APPROACH_PICK_FIXTURE_2: [185.8, -35.3, 36.0, 19.0, -92.7, -175.1],
+  PICK_FIXTURE_2: [185.3, -36.7, 65.0, -11.2, -92.7, -175.7],
+  LIFT_PICK_FIXTURE_2: [185.4, -34.4, 55.1, 1.0, -92.7, -175.6],
 
-  SAFE_CAMERA: { x: 1183, y: 863, z: 1223, rx: 179.4, ry: -2.3, rz: -91.5 },
-  APPROACH_CAMERA: { x: 943, y: 789, z: 1117, rx: 177.2, ry: -4.0, rz: -92.4 },
-  PLACE_CAMERA: { x: 940, y: 788, z: 1038, rx: 177.2, ry: -3.9, rz: -92.4 },
-  PICK_CAMERA: { x: 940, y: 788, z: 1038, rx: 177.2, ry: -3.9, rz: -92.4 },
-  LIFT_PLACE_CAMERA: { x: 943, y: 789, z: 1117, rx: 177.2, ry: -4.0, rz: -92.4 },
+  SAFE_CAMERA: [238.7, 25.9, 107.2, 9.9, -91.6, -122.8],
+  APPROACH_CAMERA: [217.0, -38.3, 67.3, -17.6, -90.1, -145.3],
+  PLACE_CAMERA: [216.9, -46.2, 74.8, -32.9, -90.1, -145.4],
+  PICK_CAMERA: [216.9, -46.2, 74.8, -32.9, -90.1, -145.4],
+  LIFT_PLACE_CAMERA: [217.0, -38.3, 67.3, -17.6, -90.1, -145.3],
 
-  SAFE_BINS: { x: 1182, y: 862, z: 1223, rx: 179.4, ry: -2.3, rz: -91.5 },
+  SAFE_BINS: [238.6, 25.7, 107.0, 9.8, -91.6, -122.9],
 
-  APPROACH_REJECTED: { x: 1242, y: 707, z: 1201, rx: -178.7, ry: -3.1, rz: -91.5 },
-  FIRST_PLACE_REJECTED: { x: 1242, y: 706, z: 1025, rx: 176.8, ry: -1.8, rz: -91.4 },
-  LIFT_REJECTED: { x: 1242, y: 707, z: 1201, rx: -178.7, ry: -3.1, rz: -91.5 },
+  APPROACH_REJECTED: [263.6, 5.6, 97.7, 1.8, -93.2, -97.9],
+  FIRST_PLACE_REJECTED: [262.4, -14.8, 131.5, -56.7, -91.4, -99.0],
+  LIFT_REJECTED: [263.6, 5.6, 97.7, 1.8, -93.2, -97.9],
 
-  APPROACH_ACCEPTED: { x: 1497, y: 686, z: 1196, rx: -179.1, ry: 0.6, rz: -91.2 },
-  FIRST_PLACE_ACCEPTED: { x: 1502, y: 688, z: 1002, rx: -179.0, ry: -0.1, rz: -91.2 },
-  LIFT_PLACE_ACCEPTED: { x: 1502, y: 688, z: 1223, rx: -179.4, ry: -0.0, rz: -91.2 },
+  APPROACH_ACCEPTED: [87.4, -17.6, -108.9, 3.3, 90.6, -93.8],
+  FIRST_PLACE_ACCEPTED: [88.8, 11.3, -139.3, 62.5, 89.9, -92.4],
+  LIFT_PLACE_ACCEPTED: [88.7, -17.7, -102.0, -3.5, 90.0, -92.5],
 
-  SAFE_RETURN: { x: 1074, y: 1024, z: 1310, rx: -179.6, ry: -2.3, rz: 1.6 },
+  SAFE_RETURN: [177.9, 14.8, 79.0, 26.4, -90.3, -90.5],
 };
+// 1) wrap to ±180,  2) sign·(x − offset)
+function lib2BaseCtrlDeg(name: string): number[] {
+  const sim = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
+  return sim.map((deg, i) => JOINT_SIGN[i] * (wrapTo180(deg) - JOINT_OFFSET_DEG[i]));
+}
 
-// Tuned overrides for library-2 TCP poses (saved by the cartesian tuner).
-// Stored as {x,y,z,rx,ry,rz} and sent verbatim via moveL.
-const LIB2_OVERRIDE_KEY = 'schneider_lib2_tcp_overrides_v1';
-function loadLib2Overrides(): Record<string, TcpPose> {
+// Tuned overrides saved by the cartesian tuner (current robot joints).
+const LIB2_OVERRIDE_KEY = 'schneider_lib2_overrides_v2';
+function loadLib2Overrides(): Record<string, number[]> {
   try {
     const raw = localStorage.getItem(LIB2_OVERRIDE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
@@ -551,7 +560,7 @@ export default function CobotLiveView() {
   const [ghostSource, setGhostSource] = useState<'pose' | 'custom' | 'lib2'>('pose');
   const [selectedLib2, setSelectedLib2] = useState<string>('HOME');
   // Cartesian tuner + saved overrides for the library-2 poses.
-  const [lib2Overrides, setLib2Overrides] = useState<Record<string, TcpPose>>(loadLib2Overrides);
+  const [lib2Overrides, setLib2Overrides] = useState<Record<string, number[]>>(loadLib2Overrides);
   const [tunerStepMm, setTunerStepMm] = useState(5);
   const [tunerStepDeg, setTunerStepDeg] = useState(2);
   const [saveName, setSaveName] = useState('HOME');
@@ -792,15 +801,13 @@ export default function CobotLiveView() {
   const sendPoseToRobot = () =>
     postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
-  // Effective TCP pose for a library-2 entry: saved override wins over base.
-  const lib2Tcp = (name: string): TcpPose => lib2Overrides[name] ?? POSE_LIBRARY_TCP[name] ?? POSE_LIBRARY_TCP.HOME;
+  // Effective controller joints for a library-2 pose: override wins over base.
+  const lib2CtrlDeg = (name: string): number[] => lib2Overrides[name] ?? lib2BaseCtrlDeg(name);
   const hasOverride = (name: string): boolean => !!lib2Overrides[name];
 
-  // Send the selected library-2 pose via moveL (all poses are cartesian TCP).
-  const sendLib2ToRobot = () => {
-    const p = lib2Tcp(selectedLib2);
-    postControl('/api/cobot/move/cartesian', { x: p.x, y: p.y, z: p.z, rx: p.rx, ry: p.ry, rz: p.rz, speed: cartSpeed });
-  };
+  // Send the selected library-2 pose via move_joint.
+  const sendLib2ToRobot = () =>
+    postControl('/api/cobot/move/joint', { joints: lib2CtrlDeg(selectedLib2), speed: jointSpeed, relative: false });
 
   // ── Cartesian tuner ─────────────────────────────────────────────────────
   // Nudge the real TCP along one axis: read the live TCP pose, apply the step,
@@ -820,15 +827,14 @@ export default function CobotLiveView() {
     };
     postControl('/api/cobot/move/cartesian', { ...next, speed: cartSpeed });
   };
-  // Save the robot's CURRENT real TCP as the override for a library-2 pose.
+  // Save the robot's CURRENT real joints as the override for a library-2 pose.
   const saveLib2Pose = (name: string) => {
-    const t = telemetry.tcp_position;
-    if (!t) { setCmdStatus({ ok: false, msg: 'Sin telemetría TCP para guardar.' }); return; }
-    const tcp: TcpPose = { x: t.x_mm, y: t.y_mm, z: t.z_mm, rx: t.rx_deg, ry: t.ry_deg, rz: t.rz_deg };
-    const next = { ...lib2Overrides, [name]: tcp };
+    const jp = telemetry.joint_positions_deg;
+    if (!jp || jp.length !== 6) { setCmdStatus({ ok: false, msg: 'Sin telemetría de joints para guardar.' }); return; }
+    const next = { ...lib2Overrides, [name]: [...jp] };
     setLib2Overrides(next);
     try { localStorage.setItem(LIB2_OVERRIDE_KEY, JSON.stringify(next)); } catch { /* quota */ }
-    setCmdStatus({ ok: true, msg: `Pose "${name}" guardada con el TCP actual.` });
+    setCmdStatus({ ok: true, msg: `Pose "${name}" guardada con los joints actuales.` });
   };
   const deleteLib2Override = (name: string) => {
     const next = { ...lib2Overrides }; delete next[name];
@@ -1492,37 +1498,40 @@ export default function CobotLiveView() {
             <select value={selectedLib2}
               onChange={(e) => { setSelectedLib2(e.target.value); setSaveName(e.target.value); setGhostSource('lib2'); }}
               style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-              {Object.keys(POSE_LIBRARY_TCP).map((name) => (
+              {Object.keys(POSE_LIBRARY_DEG).map((name) => (
                 <option key={name} value={name}>{hasOverride(name) ? '✎ ' : ''}{name.replace(/_/g, ' ')}</option>
               ))}
             </select>
 
-            {/* TCP preview */}
+            {/* Joint preview (wrapped + transformed) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '8px 0 4px' }}>
               <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
-                TCP a enviar (mm / °)
+                Joints a enviar (°, robot)
               </span>
               {hasOverride(selectedLib2) && (
                 <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>✎ AJUSTADA</span>
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
-              {(['x','y','z','rx','ry','rz'] as const).map((k) => {
-                const p = lib2Tcp(selectedLib2);
-                const unit = k.startsWith('r') ? '°' : 'mm';
+              {lib2CtrlDeg(selectedLib2).map((d, i) => {
+                const raw = (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)[i];
+                const wrapped = !hasOverride(selectedLib2) && Math.abs(wrapTo180(raw) - raw) > 0.01;
                 return (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
-                    <span style={{ color: '#5a6c84' }}>{k.toUpperCase()}</span>
-                    <span style={{ color: '#dde4f0' }}>{p[k].toFixed(1)}{unit}</span>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: `1px solid ${wrapped ? '#fbbf2455' : '#1d2c44'}`, borderRadius: 4, padding: '3px 5px' }}>
+                    <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
+                    <span style={{ color: wrapped ? '#fbbf24' : '#dde4f0' }}>{d.toFixed(1)}</span>
                   </div>
                 );
               })}
             </div>
 
-            <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
-              style={{ ...ctrlBtn(controlEnabled, '#8b5cf6', '#6d28d9'), width: '100%', marginTop: 8, padding: '10px', fontSize: 12 }}>
-              ▸ Mover a esta pose (moveL)
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
+              <button onClick={() => { setCmdJoints(lib2CtrlDeg(selectedLib2)); setGhostSource('custom'); setShowGhost(true); }}
+                disabled={!controlEnabled}
+                style={ctrlBtn(controlEnabled, '#475569', '#334155')}>↧ Cargar en sliders</button>
+              <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
+                style={ctrlBtn(controlEnabled, '#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
+            </div>
 
             {/* ── Cartesian tuner ── */}
             <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
@@ -1572,7 +1581,7 @@ export default function CobotLiveView() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
                 <select value={saveName} onChange={(e) => setSaveName(e.target.value)}
                   style={{ ...numInput, flex: 1, textAlign: 'left', cursor: 'pointer' }}>
-                  {Object.keys(POSE_LIBRARY_TCP).map((name) => (
+                  {Object.keys(POSE_LIBRARY_DEG).map((name) => (
                     <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
                   ))}
                 </select>
@@ -1592,8 +1601,9 @@ export default function CobotLiveView() {
             </div>
 
             <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 8, lineHeight: 1.4 }}>
-              Poses TCP reales (mm/°), enviadas por moveL. El tuner mueve por eje
-              (vel {cartSpeed} mm/s) y "Guardar" fija el TCP actual como la pose elegida. STOP aborta.
+              Poses de la simulación (wrap ±180 → transform V26). El tuner mueve
+              por eje cartesiano (vel {cartSpeed} mm/s) y "Guardar" fija los joints
+              actuales como la pose elegida. STOP aborta.
             </div>
           </Section>
 

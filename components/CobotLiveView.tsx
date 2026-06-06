@@ -98,10 +98,14 @@ const POSE_LIBRARY_DEG: Record<string, [number,number,number,number,number,numbe
 
   SAFE_RETURN: [177.9, 14.8, 79.0, 26.4, -90.3, -90.5],
 };
-// 1) wrap to ±180,  2) sign·(x − offset)
+// Apply only the V26 sign·(x − offset) transform — NO wrap to ±180.
+// All raw values in this library are within ±360° so wrapping is not needed,
+// and wrapping J1 values near 185° would cause a spurious ~360° rotation
+// (e.g. SAFE_RIVET 167° → 257° but APPROACH_FIXTURE 185.8°wrap→-174.2° → -84°,
+//  a 341° jump; without wrap: 185.8° → 275.8°, only 18.8° from SAFE_RIVET).
 function lib2BaseCtrlDeg(name: string): number[] {
   const sim = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
-  return sim.map((deg, i) => JOINT_SIGN[i] * (wrapTo180(deg) - JOINT_OFFSET_DEG[i]));
+  return sim.map((deg, i) => JOINT_SIGN[i] * (deg - JOINT_OFFSET_DEG[i]));
 }
 
 // Tuned overrides saved by the cartesian tuner (current robot joints).
@@ -1515,12 +1519,10 @@ export default function CobotLiveView() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
               {lib2CtrlDeg(selectedLib2).map((d, i) => {
-                const raw = (POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME)[i];
-                const wrapped = !hasOverride(selectedLib2) && Math.abs(wrapTo180(raw) - raw) > 0.01;
                 return (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: `1px solid ${wrapped ? '#fbbf2455' : '#1d2c44'}`, borderRadius: 4, padding: '3px 5px' }}>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
                     <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
-                    <span style={{ color: wrapped ? '#fbbf24' : '#dde4f0' }}>{d.toFixed(1)}</span>
+                    <span style={{ color: '#dde4f0' }}>{d.toFixed(1)}</span>
                   </div>
                 );
               })}

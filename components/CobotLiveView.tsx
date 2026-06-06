@@ -1083,7 +1083,7 @@ export default function CobotLiveView() {
           // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
           // looked correct with the plain wrap—they sit consistently on the
           // negative side and should not be shifted.
-          return rads.map((rad, i) => (raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
+          return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
         })()
       : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'

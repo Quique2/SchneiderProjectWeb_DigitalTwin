@@ -1078,7 +1078,12 @@ export default function CobotLiveView() {
       ? (() => {
           const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
           const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
-          return rads.map((rad, i) => raw[i] > 180 ? rad + 2 * Math.PI : rad);
+          // Only correct joints that are just above 180° (≤200°): these wrap to
+          // near -180° creating a false 341° jump from poses like SAFE_RIVET at
+          // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
+          // looked correct with the plain wrap—they sit consistently on the
+          // negative side and should not be shifted.
+          return rads.map((rad, i) => (raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
         })()
       : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'

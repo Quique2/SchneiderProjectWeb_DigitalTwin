@@ -565,6 +565,20 @@ export default function CobotLiveView() {
   const [selectedLib2, setSelectedLib2] = useState<string>('HOME');
   // Cartesian tuner + saved overrides for the library-2 poses.
   const [lib2Overrides, setLib2Overrides] = useState<Record<string, number[]>>(loadLib2Overrides);
+  // Panel tabs for the side panel.
+  const [panelTab, setPanelTab] = useState<'hmi' | 'control'>('hmi');
+  // Demonstration cycle state.
+  const CYCLE_TOTAL = 32;
+  const RIVET_SECS  = 30;
+  const INSPECT_WAIT_SECS = 5;
+  const CYCLE_SPEED = 15; // % speed for demo
+  const [cycleRunning, setCycleRunning] = useState(false);
+  const [cycleStep, setCycleStep] = useState('— en espera');
+  const [cycleStepIdx, setCycleStepIdx] = useState(0);
+  const [cycleRivetSecs, setCycleRivetSecs] = useState(0);
+  const [cycleVerdict, setCycleVerdict] = useState<'PASS' | 'FAIL' | null>(null);
+  const [cycleError, setCycleError] = useState<string | null>(null);
+  const cycleAbortRef = useRef(false);
   const [tunerStepMm, setTunerStepMm] = useState(5);
   const [tunerStepDeg, setTunerStepDeg] = useState(2);
   const [saveName, setSaveName] = useState('HOME');
@@ -845,6 +859,134 @@ export default function CobotLiveView() {
     setLib2Overrides(next);
     try { localStorage.setItem(LIB2_OVERRIDE_KEY, JSON.stringify(next)); } catch { /* quota */ }
     setCmdStatus({ ok: true, msg: `Override de "${name}" eliminado (vuelve al TCP original).` });
+  };
+
+  // ── Demonstration cycle ──────────────────────────────────────────────────
+  const runDemoCycle = async () => {
+    if (cycleRunning || mode !== 'live') return;
+    cycleAbortRef.current = false;
+    setCycleRunning(true); setCycleVerdict(null); setCycleError(null);
+    setCycleStepIdx(0); setCycleRivetSecs(0); setCycleStep('Iniciando…');
+
+    const gBase = gatewayBase(url);
+    const chk = () => { if (cycleAbortRef.current) throw new Error('DETENIDO'); };
+    const sleepChk = async (ms: number) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { chk(); await new Promise(r => window.setTimeout(r, Math.min(120, end - Date.now()))); }
+    };
+    const waitFor = async (cond: () => boolean, timeoutMs: number, label: string) => {
+      const end = Date.now() + timeoutMs;
+      while (!cond()) { chk(); if (Date.now() > end) throw new Error(`Timeout: ${label}`); await new Promise(r => window.setTimeout(r, 200)); }
+    };
+    const cycleFetch = async (path: string, body?: object) => {
+      chk();
+      const res = await fetch(`${gBase}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: body ? JSON.stringify(body) : undefined });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok || j.ok === false) throw new Error(j.error || `HTTP ${res.status}`);
+      return j;
+    };
+    const st = (label: string, idx: number) => { chk(); setCycleStep(label); setCycleStepIdx(idx); };
+    const moveR = async (pose: string, label: string, idx: number) => {
+      st(label, idx); setSelectedLib2(pose); setGhostSource('lib2');
+      await cycleFetch('/api/cobot/move/joint', { joints: lib2CtrlDeg(pose), speed: CYCLE_SPEED, relative: false });
+      await sleepChk(400);
+      await waitFor(() => telemetryRef.current.status?.inpos === true, 30000, `inpos ${pose}`);
+    };
+    const grip = async (action: 'open' | 'close' | 'off') => { await cycleFetch('/api/cobot/pneumatic_gripper', { action }); await sleepChk(800); };
+    const tblMove = async (target: 'limit1' | 'limit2') => { await cycleFetch('/api/table/move', { target }); };
+    const waitTbl = async (pos: 'limit1' | 'limit2') => { await waitFor(() => telemetryRef.current.table?.position === pos, 20000, `mesa ${pos}`); };
+
+    try {
+      // 1. Turntable homing: nudge to limit2 then immediately back to limit1
+      st('Alineando turntable…', 1);
+      await tblMove('limit2'); await sleepChk(500); await tblMove('limit1'); await waitTbl('limit1');
+
+      // 2-7. Pick CAFI from conveyor
+      await moveR('HOME',             'HOME',              2);
+      await moveR('SAFE_CONVEYOR',    'Safe conveyor',     3);
+      await moveR('APPROACH_CONVEYOR','Approach conveyor', 4);
+      await moveR('PICK_CONVEYOR',    'Pick conveyor',     5);
+      await grip('close');
+      await moveR('LIFT_CONVEYOR',    'Lift conveyor',     6);
+
+      // 8-11. Place on fixture A (table at limit1 → fixture A accessible)
+      await moveR('SAFE_RIVET',               'Tránsito → fixture', 7);
+      await moveR('APPROACH_PLACE_FIXTURE_1', 'Approach fixture A',  8);
+      await moveR('PLACE_FIXTURE_1',          'Place fixture A',     9);
+      await grip('open');
+      await moveR('LIFT_PLACE_FIXTURE_1',     'Lift fixture A',     10);
+      await moveR('SAFE_RIVET',               'Esperando turntable…',11);
+
+      // 12. Rotate to limit2 for riveting → wait 30s → return
+      st('Girando a posición remache…', 12);
+      await tblMove('limit2'); await waitTbl('limit2');
+      for (let s = 1; s <= RIVET_SECS; s++) { chk(); setCycleRivetSecs(s); setCycleStep(`Remachando… ${s}/${RIVET_SECS}s`); await sleepChk(1000); }
+      st('Retornando turntable…', 13);
+      await tblMove('limit1'); await waitTbl('limit1');
+
+      // 14-16. Pick riveted CAFI from fixture A
+      await moveR('APPROACH_PICK_FIXTURE_1', 'Approach pick fixture A', 14);
+      await moveR('PICK_FIXTURE_1',          'Pick fixture A',           15);
+      await grip('close');
+      await moveR('LIFT_PICK_FIXTURE_1',     'Lift fixture A',           16);
+
+      // 17-22. Carry to vision plate
+      await moveR('SAFE_RIVET',         'Tránsito → cámara',    17);
+      await moveR('SAFE_CAMERA',        'Safe camera',           18);
+      await moveR('APPROACH_CAMERA',    'Approach cámara',       19);
+      await moveR('PLACE_CAMERA',       'Place placa visión',    20);
+      await grip('open');
+      await moveR('LIFT_PLACE_CAMERA',  'Lift placa visión',     21);
+      await moveR('SAFE_CAMERA',        'Esperando inspección…', 22);
+
+      // 23. Wait 5s then inspect
+      for (let s = 1; s <= INSPECT_WAIT_SECS; s++) { chk(); setCycleStep(`Esperando inspección… ${s}/${INSPECT_WAIT_SECS}s`); await sleepChk(1000); }
+      st('Capturando imagen…', 23);
+      const inspRes = await fetch(`${gBase}/api/camera/inspect`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' } });
+      const inspJson: InspectResult = await inspRes.json().catch(() => ({} as InspectResult));
+      const verdict = inspJson.ok ? (inspJson.verdict ?? 'FAIL') : 'FAIL';
+      setCycleVerdict(verdict);
+
+      // 24-27. Pick from plate and go to bins
+      await moveR('APPROACH_CAMERA',   'Approach cámara (pick)', 24);
+      await moveR('PICK_CAMERA',       'Pick placa visión',       25);
+      await grip('close');
+      await moveR('LIFT_PLACE_CAMERA', 'Lift placa visión',       26);
+      await moveR('SAFE_BINS',         'Safe bins',               27);
+
+      // 28-30. Route by verdict
+      if (verdict === 'PASS') {
+        await moveR('APPROACH_ACCEPTED',     'Approach bin aceptado', 28);
+        await moveR('FIRST_PLACE_ACCEPTED',  'Place bin aceptado',    29);
+        await grip('open');
+        await moveR('LIFT_PLACE_ACCEPTED',   'Lift bin aceptado',     30);
+      } else {
+        await moveR('APPROACH_REJECTED',     'Approach bin rechazado', 28);
+        await moveR('FIRST_PLACE_REJECTED',  'Place bin rechazado',    29);
+        await grip('open');
+        await moveR('LIFT_REJECTED',         'Lift bin rechazado',     30);
+      }
+
+      // 31-32. Return home
+      await moveR('SAFE_RETURN', 'Safe return', 31);
+      await moveR('HOME',        'HOME',         32);
+      st('✓ Ciclo completo', 32);
+
+    } catch (e) {
+      if (cycleAbortRef.current) { setCycleStep('— Detenido por operador'); }
+      else { setCycleError(String(e).replace('Error: ', '')); }
+    } finally { setCycleRunning(false); }
+  };
+
+  const stopCycle = () => {
+    cycleAbortRef.current = true;
+    fetch(`${gatewayBase(url)}/api/cobot/stop`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' } }).catch(() => {});
+    fetch(`${gatewayBase(url)}/api/table/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, body: '{}' }).catch(() => {});
+  };
+  const resetCycle = () => {
+    cycleAbortRef.current = true;
+    setCycleRunning(false); setCycleStep('— en espera');
+    setCycleStepIdx(0); setCycleRivetSecs(0); setCycleVerdict(null); setCycleError(null);
   };
 
   // Stop whichever player is running (ghost timer and/or the real-robot loop).
@@ -1250,6 +1392,154 @@ export default function CobotLiveView() {
           borderLeft: '1px solid #1d2c44',
           background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
         }}>
+          {/* Panel tabs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, flexShrink: 0 }}>
+            {(['hmi', 'control'] as const).map((t) => (
+              <button key={t} onClick={() => setPanelTab(t)} style={{
+                fontFamily: SANS_FONT, fontSize: 11, fontWeight: 600, padding: '8px 4px',
+                border: 'none', cursor: 'pointer', letterSpacing: 0.5,
+                background: panelTab === t ? 'linear-gradient(180deg,#1d2c44,#152236)' : 'transparent',
+                color: panelTab === t ? '#f1f5f9' : '#5a6c84',
+                borderBottom: panelTab === t ? '2px solid #22c55e' : '2px solid transparent',
+              }}>{t === 'hmi' ? 'HMI Ciclo' : 'Control'}</button>
+            ))}
+          </div>
+
+          {/* ══ HMI CICLO TAB ══ */}
+          {panelTab === 'hmi' && (<>
+            {/* Status banner */}
+            <div style={{
+              padding: '12px 14px', borderRadius: 8, textAlign: 'center',
+              background: cycleError ? 'rgba(239,68,68,0.15)' : cycleRunning ? 'rgba(34,197,94,0.1)' : cycleVerdict ? 'rgba(59,139,255,0.1)' : 'rgba(20,30,48,0.6)',
+              border: `1px solid ${cycleError ? '#ef444444' : cycleRunning ? '#22dd5533' : '#1d2c44'}`,
+            }}>
+              <div style={{ fontSize: 10, letterSpacing: 2, fontWeight: 700, textTransform: 'uppercase',
+                color: cycleError ? '#ff8a98' : cycleRunning ? '#22dd55' : cycleVerdict ? '#3b8bff' : '#5a6c84' }}>
+                {cycleError ? 'ERROR' : cycleRunning ? '● EJECUTANDO' : cycleStepIdx === CYCLE_TOTAL ? '✓ COMPLETO' : '○ EN ESPERA'}
+              </div>
+              <div style={{ fontSize: 11, color: '#dde4f0', marginTop: 4, fontFamily: 'monospace', lineHeight: 1.4 }}>
+                {cycleError ?? cycleStep}
+              </div>
+            </div>
+
+            {/* START / STOP / RESET */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+              <button onClick={runDemoCycle} disabled={cycleRunning || mode !== 'live'}
+                style={{ ...ctrlBtn(!cycleRunning && mode === 'live', '#22cc55', '#15803d'), padding: '11px 4px', fontSize: 12 }}>
+                ▶ START
+              </button>
+              <button onClick={stopCycle} disabled={!cycleRunning}
+                style={{ ...ctrlBtn(cycleRunning, '#ef4444', '#b91c1c'), padding: '11px 4px', fontSize: 12 }}>
+                ■ STOP
+              </button>
+              <button onClick={resetCycle}
+                style={{ ...ctrlBtn(true, '#475569', '#334155'), padding: '11px 4px', fontSize: 12 }}>
+                ↺ RESET
+              </button>
+            </div>
+
+            {/* Overall progress */}
+            <Section title="Progreso del ciclo">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                <span style={{ color: '#abc' }}>Paso {cycleStepIdx} / {CYCLE_TOTAL}</span>
+                <span style={{ color: '#abc' }}>{Math.round(cycleStepIdx / CYCLE_TOTAL * 100)}%</span>
+              </div>
+              <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{ height: '100%', width: `${cycleStepIdx / CYCLE_TOTAL * 100}%`, background: 'linear-gradient(90deg,#22dd55,#3b8bff)', transition: 'width 0.4s' }} />
+              </div>
+
+              {/* Rivet countdown */}
+              {cycleRivetSecs > 0 && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
+                    <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
+                    <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{cycleRivetSecs}/{RIVET_SECS}s</span>
+                  </div>
+                  <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{ height: '100%', width: `${cycleRivetSecs / RIVET_SECS * 100}%`, background: 'linear-gradient(90deg,#fb923c,#f59e0b)', transition: 'width 0.9s' }} />
+                  </div>
+                </>
+              )}
+
+              {/* Verdict */}
+              {cycleVerdict && (
+                <div style={{
+                  padding: '10px', borderRadius: 6, textAlign: 'center', fontSize: 15, fontWeight: 800, marginTop: 4,
+                  color: cycleVerdict === 'PASS' ? '#06101c' : '#fff',
+                  background: cycleVerdict === 'PASS' ? 'linear-gradient(180deg,#22dd55,#15803d)' : 'linear-gradient(180deg,#ef4444,#b91c1c)',
+                }}>
+                  {cycleVerdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
+                </div>
+              )}
+            </Section>
+
+            {/* System LEDs */}
+            <Section title="Estado del sistema">
+              {/* Sensors */}
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>Sensores</div>
+              {([
+                { label: 'Conveyor',       on: sensorConveyor,    color: '#22dd55' },
+                { label: 'Fixture A (L1)', on: fixtureA,          color: '#22dd55' },
+                { label: 'Fixture B (L2)', on: fixtureB,          color: '#22dd55' },
+              ]).map(({ label, on, color }) => (
+                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
+                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
+                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
+                    {label}
+                  </span>
+                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{on ? 'DETECTA' : '—'}</span>
+                </div>
+              ))}
+
+              {/* Table */}
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 6px' }}>Mesa rotatoria</div>
+              {([
+                { label: 'Límite 1 (carga)', on: table?.limit1_touched ?? false, color: '#3b8bff' },
+                { label: 'Límite 2 (rivet)', on: table?.limit2_touched ?? false, color: '#fb923c' },
+                { label: 'En movimiento',    on: tableMoving,                    color: '#fbbf24' },
+              ]).map(({ label, on, color }) => (
+                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
+                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
+                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
+                    {label}
+                  </span>
+                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{on ? 'SÍ' : '—'}</span>
+                </div>
+              ))}
+
+              {/* Actuators */}
+              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 6px' }}>Actuadores</div>
+              {([
+                { label: 'Gripper neumático', on: pneuState === 'close', color: '#ffd24d',
+                  text: pneuState === 'close' ? 'CERRADO' : pneuState === 'open' ? 'ABIERTO' : 'OFF' },
+                { label: 'Motor conveyor', on: conveyorOn, color: '#22dd55', text: conveyorOn ? 'ON' : 'OFF' },
+              ]).map(({ label, on, color, text }) => (
+                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
+                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
+                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
+                    {label}
+                  </span>
+                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{text}</span>
+                </div>
+              ))}
+            </Section>
+
+            {!controlEnabled && (
+              <div style={{ fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)', border: '1px solid #fbbf2433', borderRadius: 4, padding: '8px 10px', textAlign: 'center' }}>
+                Conéctate al gateway (EN VIVO) para ejecutar el ciclo.
+              </div>
+            )}
+          </>)}
+
+          {/* ══ CONTROL TAB ══ */}
+          {panelTab === 'control' && <>
+
           {/* === Control panel === */}
           <Section title="Control del robot">
             {!controlEnabled && (
@@ -1824,6 +2114,7 @@ export default function CobotLiveView() {
           <div style={{ fontSize: 9, color: '#5a6c84', fontFamily: 'monospace', textAlign: 'center' }}>
             {telemetry.timestamp} · 10.5.5.100:6502 · FC04
           </div>
+          </>}  {/* end control tab */}
         </div>
       </div>
 

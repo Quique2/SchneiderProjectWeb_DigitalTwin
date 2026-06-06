@@ -1063,10 +1063,11 @@ export default function CobotLiveView() {
   }, [sensorConveyor, conveyorOn, autoStopConveyor, mode]);
   // Ghost target: custom slider pose, the V26 dropdown pose, or a library-2
   // pose (both custom and lib2 are controller degrees → URDF for the ghost).
-  // Ghost: lib2 poses are TCP-only (no IK), so ghost stays at HOME for lib2.
   const ghostJointsRad = ghostSource === 'custom'
     ? controllerDegToUrdfRad(cmdJoints)
-    : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+    : ghostSource === 'lib2'
+      ? controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2))
+      : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'

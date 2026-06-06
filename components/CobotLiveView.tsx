@@ -571,7 +571,7 @@ export default function CobotLiveView() {
   const CYCLE_TOTAL = 32;
   const RIVET_SECS  = 30;
   const INSPECT_WAIT_SECS = 5;
-  const CYCLE_SPEED = 15; // % speed for demo
+  const [cycleSpeed, setCycleSpeed] = useState(15); // % speed for demo, user-adjustable
   const [cycleRunning, setCycleRunning] = useState(false);
   const [cycleStep, setCycleStep] = useState('— en espera');
   const [cycleStepIdx, setCycleStepIdx] = useState(0);
@@ -888,7 +888,7 @@ export default function CobotLiveView() {
     const st = (label: string, idx: number) => { chk(); setCycleStep(label); setCycleStepIdx(idx); };
     const moveR = async (pose: string, label: string, idx: number) => {
       st(label, idx); setSelectedLib2(pose); setGhostSource('lib2');
-      await cycleFetch('/api/cobot/move/joint', { joints: lib2CtrlDeg(pose), speed: CYCLE_SPEED, relative: false });
+      await cycleFetch('/api/cobot/move/joint', { joints: lib2CtrlDeg(pose), speed: cycleSpeed, relative: false });
       await sleepChk(400);
       await waitFor(() => telemetryRef.current.status?.inpos === true, 30000, `inpos ${pose}`);
     };
@@ -1427,6 +1427,18 @@ export default function CobotLiveView() {
               <div style={{ fontSize: 11, color: '#dde4f0', marginTop: 4, fontFamily: 'monospace', lineHeight: 1.4 }}>
                 {cycleError ?? cycleStep}
               </div>
+            </div>
+
+            {/* Cycle speed slider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>vel. cobot</span>
+              <input type="range" min={5} max={50} step={1} value={cycleSpeed}
+                disabled={cycleRunning}
+                onChange={(e) => setCycleSpeed(parseInt(e.target.value))}
+                style={{ flex: 1, accentColor: '#22c55e' }} />
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: cycleRunning ? '#5a6c84' : '#22c55e', fontWeight: 700, width: 38, textAlign: 'right' }}>
+                {cycleSpeed}%
+              </span>
             </div>
 
             {/* START / STOP / RESET */}

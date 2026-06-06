@@ -903,6 +903,13 @@ export default function CobotLiveView() {
 
       // 2-7. Pick CAFI from conveyor
       await moveR('HOME',             'HOME',              2);
+      // Start conveyor belt and wait for the sensor to detect the CAFI.
+      st('Encendiendo banda…', 3);
+      await cycleFetch('/api/cobot/conveyor', { on: true });
+      await waitFor(() => telemetryRef.current.sensors?.conveyor === true, 30000, 'CAFI en sensor');
+      // Stop the belt (auto-stop may have already done it, but be explicit).
+      await cycleFetch('/api/cobot/conveyor', { on: false });
+      await sleepChk(300); // let the part settle
       await moveR('SAFE_CONVEYOR',    'Safe conveyor',     3);
       await moveR('APPROACH_CONVEYOR','Approach conveyor', 4);
       await moveR('PICK_CONVEYOR',    'Pick conveyor',     5);

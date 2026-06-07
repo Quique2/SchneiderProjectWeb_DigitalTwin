@@ -1499,7 +1499,7 @@ export default function CobotLiveView() {
               <div style={{ fontSize: 11, color: '#dde4f0', fontFamily: 'monospace', lineHeight: 1.4 }}>
                 {rpiCycle?.error
                   ? <span style={{ color: '#ff8a98' }}>⚠ {rpiCycle.error}</span>
-                  : (rpiCycle?.label ?? '— en espera')}
+                  : (rpiCycle?.label ?? '— en espera :)')}
               </div>
             </div>
 

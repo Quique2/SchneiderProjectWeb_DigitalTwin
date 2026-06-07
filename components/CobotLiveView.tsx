@@ -551,7 +551,7 @@ export default function CobotLiveView() {
   // Ghost source: 'pose' = the dropdown POSE_LIB selection; 'custom' = the live
   // jog sliders (cmdJoints).  Moving a slider switches to 'custom' so the green
   // ghost previews exactly where the robot will go before MOVER JOINTS is sent.
-  const [ghostSource, setGhostSource] = useState<'pose' | 'custom' | 'lib2'>('pose');
+  const [ghostSource, setGhostSource] = useState<'lib2' | 'custom'>('lib2');
   const [selectedLib2, setSelectedLib2] = useState<string>('HOME');
   // Cartesian tuner + saved overrides for the library-2 poses.
   const [lib2Overrides, setLib2Overrides] = useState<Record<string, number[]>>(loadLib2Overrides);

@@ -18,7 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
-import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
+import { COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -32,7 +32,7 @@ const HOME_JOINTS: [number, number, number, number, number, number] =
 // J1: same direction (sign +1) + -90° offset.
 // J2: inverted direction (sign -1) + +90° offset.
 // J4: same direction (sign +1) + -90° offset.
-// Used for the live display, the inverse pose-send, and (via raw POSE_LIB_V26)
+// Used for the live display, the inverse pose-send, and (via POSE_LIBRARY_DEG)
 // kept consistent with the green ghost.  Adjust here if a joint still looks
 // rotated/reversed.
 const JOINT_SIGN: [number, number, number, number, number, number] =
@@ -916,7 +916,7 @@ export default function CobotLiveView() {
 
   // Simulation pose (URDF rad) → controller-convention joint degrees.
   const selectedPoseCtrlDeg = (): number[] =>
-    urdfPoseToControllerDeg(POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+    urdfPoseToControllerDeg(POSE_LIBRARY_DEG[selectedPose] ?? POSE_LIBRARY_DEG.HOME);
   // Load the converted pose into the jog sliders so the operator can review
   // the exact joint values before sending.
   const loadPoseToSliders = () => setCmdJoints(selectedPoseCtrlDeg());
@@ -1175,7 +1175,7 @@ export default function CobotLiveView() {
         const step = TRAJECTORY[i];
         setSelectedPose(step.pose);
         setSeqStep(i);
-        const targetCtrl = urdfPoseToControllerDeg(POSE_LIB_V26[step.pose]);
+        const targetCtrl = urdfPoseToControllerDeg(POSE_LIBRARY_DEG[step.pose]);
         const res = await postControl('/api/cobot/move/joint', { joints: targetCtrl, speed: jointSpeed, relative: false });
         if (!res.ok || seqAbortRef.current) break;
         const arrived = await waitForArrival(targetCtrl, 2.0, 25000);
@@ -1360,7 +1360,7 @@ export default function CobotLiveView() {
               // negative side and should not be shifted.
               return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
             })()
-          : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+          : (POSE_LIBRARY_DEG[selectedPose] ?? POSE_LIBRARY_DEG.HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'
@@ -1945,8 +1945,8 @@ export default function CobotLiveView() {
             <select value={selectedPose}
               onChange={(e) => { setSelectedPose(e.target.value); setGhostSource('pose'); }}
               style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-              {Object.keys(POSE_LIB_V26).map((name) => (
-                <option key={name} value={name}>{name.replace('POSE_', '').replace(/_/g, ' ')}</option>
+              {Object.keys(POSE_LIBRARY_DEG).map((name) => (
+                <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
               ))}
             </select>
 

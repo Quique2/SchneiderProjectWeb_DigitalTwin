@@ -843,7 +843,10 @@ export default function CobotLiveView() {
       setCmdStatus({ ok: false, msg: `Sin respuesta del gateway (${String(e)}).` });
     }
   };
-  const rpiCycleStart = () => postCycle('/api/cycle/start', { dry_run: true });
+  const rpiCycleStart = async () => {
+    await postCycle('/api/cycle/speed', { speed: cycleSpeed });
+    postCycle('/api/cycle/start', { dry_run: true });
+  };
   const rpiCycleStop  = () => postCycle('/api/cycle/stop');
   const rpiCycleReset = () => postCycle('/api/cycle/reset');
 
@@ -1460,90 +1463,22 @@ export default function CobotLiveView() {
             ))}
           </div>
 
-          {/* ══ HMI CICLO TAB ══ */}
+          {/* ══ HMI CICLO TAB ══ — primary interface: RPi-side cycle machine ══ */}
           {panelTab === 'hmi' && (<>
-            {/* Status banner */}
+            {/* Status banner — reflects RPi cycle state */}
             <div style={{
               padding: '12px 14px', borderRadius: 8, textAlign: 'center',
-              background: cycleError ? 'rgba(239,68,68,0.15)' : cycleRunning ? 'rgba(34,197,94,0.1)' : cycleVerdict ? 'rgba(59,139,255,0.1)' : 'rgba(20,30,48,0.6)',
-              border: `1px solid ${cycleError ? '#ef444444' : cycleRunning ? '#22dd5533' : '#1d2c44'}`,
+              background:
+                rpiState === 'alarm'   ? 'rgba(239,68,68,0.15)' :
+                rpiState === 'running' ? 'rgba(139,92,246,0.12)' :
+                rpiState === 'done'    ? 'rgba(59,139,255,0.10)' :
+                'rgba(20,30,48,0.6)',
+              border: `1px solid ${
+                rpiState === 'alarm'   ? '#ef444444' :
+                rpiState === 'running' ? '#8b5cf633' : '#1d2c44'}`,
             }}>
-              <div style={{ fontSize: 10, letterSpacing: 2, fontWeight: 700, textTransform: 'uppercase',
-                color: cycleError ? '#ff8a98' : cycleRunning ? '#22dd55' : cycleVerdict ? '#3b8bff' : '#5a6c84' }}>
-                {cycleError ? 'ERROR' : cycleRunning ? '● EJECUTANDO' : cycleStepIdx === CYCLE_TOTAL ? '✓ COMPLETO' : '○ EN ESPERA'}
-              </div>
-              <div style={{ fontSize: 11, color: '#dde4f0', marginTop: 4, fontFamily: 'monospace', lineHeight: 1.4 }}>
-                {cycleError ?? cycleStep}
-              </div>
-            </div>
-
-            {/* Cycle speed slider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>vel. cobot</span>
-              <input type="range" min={5} max={100} step={1} value={cycleSpeed}
-                disabled={cycleRunning}
-                onChange={(e) => setCycleSpeed(parseInt(e.target.value))}
-                style={{ flex: 1, accentColor: '#22c55e' }} />
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: cycleRunning ? '#5a6c84' : '#22c55e', fontWeight: 700, width: 38, textAlign: 'right' }}>
-                {cycleSpeed}%
-              </span>
-            </div>
-
-            {/* START / STOP / RESET */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-              <button onClick={runDemoCycle} disabled={cycleRunning || mode !== 'live'}
-                style={{ ...ctrlBtn(!cycleRunning && mode === 'live', '#22cc55', '#15803d'), padding: '11px 4px', fontSize: 12 }}>
-                ▶ START
-              </button>
-              <button onClick={stopCycle} disabled={!cycleRunning}
-                style={{ ...ctrlBtn(cycleRunning, '#ef4444', '#b91c1c'), padding: '11px 4px', fontSize: 12 }}>
-                ■ STOP
-              </button>
-              <button onClick={resetCycle}
-                style={{ ...ctrlBtn(true, '#475569', '#334155'), padding: '11px 4px', fontSize: 12 }}>
-                ↺ RESET
-              </button>
-            </div>
-
-            {/* Overall progress */}
-            <Section title="Progreso del ciclo">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
-                <span style={{ color: '#abc' }}>Paso {cycleStepIdx} / {CYCLE_TOTAL}</span>
-                <span style={{ color: '#abc' }}>{Math.round(cycleStepIdx / CYCLE_TOTAL * 100)}%</span>
-              </div>
-              <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
-                <div style={{ height: '100%', width: `${cycleStepIdx / CYCLE_TOTAL * 100}%`, background: 'linear-gradient(90deg,#22dd55,#3b8bff)', transition: 'width 0.4s' }} />
-              </div>
-
-              {/* Rivet countdown */}
-              {cycleRivetSecs > 0 && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
-                    <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
-                    <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{cycleRivetSecs}/{RIVET_SECS}s</span>
-                  </div>
-                  <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
-                    <div style={{ height: '100%', width: `${cycleRivetSecs / RIVET_SECS * 100}%`, background: 'linear-gradient(90deg,#fb923c,#f59e0b)', transition: 'width 0.9s' }} />
-                  </div>
-                </>
-              )}
-
-              {/* Verdict */}
-              {cycleVerdict && (
-                <div style={{
-                  padding: '10px', borderRadius: 6, textAlign: 'center', fontSize: 15, fontWeight: 800, marginTop: 4,
-                  color: cycleVerdict === 'PASS' ? '#06101c' : '#fff',
-                  background: cycleVerdict === 'PASS' ? 'linear-gradient(180deg,#22dd55,#15803d)' : 'linear-gradient(180deg,#ef4444,#b91c1c)',
-                }}>
-                  {cycleVerdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
-                </div>
-              )}
-            </Section>
-
-            {/* ── RPi cycle (dry-run) ── */}
-            <Section title="Ciclo RPi">
-              {/* Mode pill + state banner */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              {/* Mode pills */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
                 <span style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: 1.5, padding: '2px 7px',
                   borderRadius: 10, textTransform: 'uppercase',
@@ -1555,91 +1490,80 @@ export default function CobotLiveView() {
                   background: `${rpiStateColor}22`, color: rpiStateColor,
                   border: `1px solid ${rpiStateColor}44`,
                 }}>
-                  {rpiState === 'idle'    ? '○ IDLE'     :
-                   rpiState === 'running' ? '● RUNNING'  :
-                   rpiState === 'stopped' ? '■ STOPPED'  :
-                   rpiState === 'alarm'   ? '⚠ ALARM'   : '✓ DONE'}
+                  {rpiState === 'idle'    ? '○ IDLE'    :
+                   rpiState === 'running' ? '● RUNNING' :
+                   rpiState === 'stopped' ? '■ STOPPED' :
+                   rpiState === 'alarm'   ? '⚠ ALARM'  : '✓ DONE'}
                 </span>
               </div>
-
-              {/* Step label */}
-              <div style={{ fontSize: 11, color: '#dde4f0', fontFamily: 'monospace', marginBottom: 8, minHeight: 16, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 11, color: '#dde4f0', fontFamily: 'monospace', lineHeight: 1.4 }}>
                 {rpiCycle?.error
                   ? <span style={{ color: '#ff8a98' }}>⚠ {rpiCycle.error}</span>
                   : (rpiCycle?.label ?? '— en espera')}
               </div>
+            </div>
 
-              {/* Progress bar — visible once cycle has started */}
-              {rpiCycle && rpiState !== 'idle' && (
+            {/* Cycle speed slider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>vel. cobot</span>
+              <input type="range" min={5} max={100} step={1} value={cycleSpeed}
+                disabled={rpiRunning}
+                onChange={(e) => setCycleSpeed(parseInt(e.target.value))}
+                style={{ flex: 1, accentColor: '#8b5cf6' }} />
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: rpiRunning ? '#5a6c84' : '#c084fc', fontWeight: 700, width: 38, textAlign: 'right' }}>
+                {cycleSpeed}%
+              </span>
+            </div>
+
+            {/* ▶ START (RPi) / ■ STOP / ↺ RESET */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+              <button onClick={rpiCycleStart} disabled={rpiRunning || !controlEnabled}
+                style={{ ...ctrlBtn(!rpiRunning && controlEnabled, '#8b5cf6', '#6d28d9'), padding: '11px 4px', fontSize: 12 }}>
+                ▶ START
+              </button>
+              <button onClick={rpiCycleStop} disabled={!rpiRunning || !controlEnabled}
+                style={{ ...ctrlBtn(rpiRunning && controlEnabled, '#ef4444', '#b91c1c'), padding: '11px 4px', fontSize: 12 }}>
+                ■ STOP
+              </button>
+              <button onClick={rpiCycleReset} disabled={!controlEnabled}
+                style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), padding: '11px 4px', fontSize: 12 }}>
+                ↺ RESET
+              </button>
+            </div>
+
+            {/* Progress — RPi cycle */}
+            <Section title="Progreso del ciclo">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                <span style={{ color: '#abc' }}>Paso {rpiCycle?.step ?? 0} / {rpiCycle?.total ?? 32}</span>
+                <span style={{ color: '#abc' }}>{Math.round(rpiCycle?.pct ?? 0)}%</span>
+              </div>
+              <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{ height: '100%', width: `${rpiCycle?.pct ?? 0}%`, background: 'linear-gradient(90deg,#8b5cf6,#3b8bff)', transition: 'width 0.4s' }} />
+              </div>
+
+              {/* Rivet countdown */}
+              {(rpiCycle?.rivet_secs ?? 0) > 0 && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
-                    <span style={{ color: '#abc' }}>Paso {rpiCycle.step} / {rpiCycle.total}</span>
-                    <span style={{ color: '#abc' }}>{Math.round(rpiCycle.pct)}%</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
+                    <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
+                    <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{rpiCycle!.rivet_secs}/{rpiCycle!.rivet_total}s</span>
                   </div>
-                  <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
-                    <div style={{
-                      height: '100%', width: `${rpiCycle.pct}%`,
-                      background: 'linear-gradient(90deg,#8b5cf6,#3b8bff)',
-                      transition: 'width 0.4s',
-                    }} />
+                  <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{ height: '100%', width: `${rpiCycle!.rivet_secs / rpiCycle!.rivet_total * 100}%`, background: 'linear-gradient(90deg,#fb923c,#f59e0b)', transition: 'width 0.9s' }} />
                   </div>
-
-                  {/* Rivet countdown */}
-                  {rpiCycle.rivet_secs > 0 && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
-                        <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
-                        <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{rpiCycle.rivet_secs}/{rpiCycle.rivet_total}s</span>
-                      </div>
-                      <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${rpiCycle.rivet_secs / rpiCycle.rivet_total * 100}%`,
-                          background: 'linear-gradient(90deg,#fb923c,#f59e0b)',
-                          transition: 'width 0.9s',
-                        }} />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Verdict */}
-                  {rpiCycle.verdict && (
-                    <div style={{
-                      padding: '10px', borderRadius: 6, textAlign: 'center',
-                      fontSize: 15, fontWeight: 800, marginBottom: 8,
-                      color: rpiCycle.verdict === 'PASS' ? '#06101c' : '#fff',
-                      background: rpiCycle.verdict === 'PASS'
-                        ? 'linear-gradient(180deg,#22dd55,#15803d)'
-                        : 'linear-gradient(180deg,#ef4444,#b91c1c)',
-                    }}>
-                      {rpiCycle.verdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
-                    </div>
-                  )}
                 </>
               )}
 
-              {/* RUN Rpy button */}
-              <button
-                onClick={rpiCycleStart}
-                disabled={rpiRunning || !controlEnabled}
-                style={{
-                  ...ctrlBtn(!rpiRunning && controlEnabled, '#8b5cf6', '#6d28d9'),
-                  width: '100%', padding: '11px 4px', fontSize: 12, marginBottom: 4,
+              {/* Verdict */}
+              {rpiCycle?.verdict && (
+                <div style={{
+                  padding: '10px', borderRadius: 6, textAlign: 'center', fontSize: 15, fontWeight: 800, marginTop: 4,
+                  color: rpiCycle.verdict === 'PASS' ? '#06101c' : '#fff',
+                  background: rpiCycle.verdict === 'PASS' ? 'linear-gradient(180deg,#22dd55,#15803d)' : 'linear-gradient(180deg,#ef4444,#b91c1c)',
                 }}>
-                ▶ RUN Rpy (dry run)
-              </button>
-
-              {/* STOP RPi / RESET RPi */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                <button onClick={rpiCycleStop} disabled={!rpiRunning || !controlEnabled}
-                  style={{ ...ctrlBtn(rpiRunning && controlEnabled, '#ef4444', '#b91c1c'), padding: '9px 4px', fontSize: 11 }}>
-                  ■ STOP RPi
-                </button>
-                <button onClick={rpiCycleReset} disabled={!controlEnabled}
-                  style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), padding: '9px 4px', fontSize: 11 }}>
-                  ↺ RESET RPi
-                </button>
-              </div>
+                  {rpiCycle.verdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
+                </div>
+              )}
             </Section>
 
             {/* System LEDs */}

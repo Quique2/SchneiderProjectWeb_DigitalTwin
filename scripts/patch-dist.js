@@ -58,6 +58,14 @@ if (fs.existsSync(urdfSrc)) {
   console.log(`✓ URDF files copied to dist/urdf/ (${n} files).`);
 }
 
+// Copy public/models → dist/models (feeder + turntable_v43 STL meshes for CellViewer3D)
+const modelsSrc = path.join(__dirname, '..', 'public', 'models');
+const modelsDst = path.join(__dirname, '..', 'dist', 'models');
+if (fs.existsSync(modelsSrc)) {
+  const n = copyDirRec(modelsSrc, modelsDst);
+  console.log(`✓ Model STLs copied to dist/models/ (${n} files, recursive).`);
+}
+
 // Copy public/diagram.svg → dist/diagram.svg (wiring diagram)
 const diagSrc = path.join(__dirname, '..', 'public', 'diagram.svg');
 const diagDst = path.join(__dirname, '..', 'dist', 'diagram.svg');

@@ -1,0 +1,623 @@
+<?xml version="1.0"?>
+<robot name="turntable_rivet_cell">
+
+  <!--
+    URDF generated for RViz/ROS.
+    Units: all STL meshes are modeled in millimeters and scaled to meters.
+    Main moving joint: table_rotation_joint rotates the indexing disc around Z+ with limits from 0 to -180 degrees. The timing belt is visually attached to nema17_motor_link and to the lower sprocket under the rotating table via turntable_link, with the whole belt assembly raised in Z to sit closer to the rotating table.
+    Axis correction: the turntable/base meshes already had the correct orientation,
+    so they are kept with rpy=0 0 0. The rivet fixtures, CAFI and piston meshes keep the Y+ to Z+ correction where needed.
+    The old rivet fixture top/bottom/piston visuals were replaced by the user-supplied integrated fixture-with-switch STL set. The external photoelectric sensor and its pedestal/base were removed completely. Two mirrored limit-switch tower bases were added to base_link: lower plate 30 x 47 x 3 mm, tower 20 x 30 x 69 mm total height with a 3 mm deep top groove for the switch, with the external X face referenced 275 mm from the lower-left corner of the main base plate. The two assemblies were later shifted +10 mm in global Y; the limit switch mesh was rotated -90 deg about X and +90 deg about Z, with its lower/base-facing face aligned to the tower top surface. In V28, both switch meshes were shifted +16.812 mm in X so the lower-left edge of the switch body aligns with the upper base/tower X edge, and the right switch was shifted in Y to leave a 10 mm physical gap to its base edge, matching the intended left-side spacing. The extra end-effector/pusher links remain removed in this version. In V30, the CAFI part mesh/visuals/collisions were removed from both fixtures, while CAFI target/pick/grasp frames were kept. In V31, the red CAFI pick-frame visual spheres were removed while keeping all CAFI placement frames unchanged. In V32, two underside striker/cam pieces were added under the rotating disc, aligned with the fixture centerlines, so they rotate with the table and mechanically actuate the external limit switches. In V33, the striker/cam pieces were moved radially outward in Y only, keeping X unchanged, so the rectangular base/root of each cam sits as close as possible to the turntable disc edge. In V34, the striker/cam for fixture 2 was removed completely, leaving only the fixture 1 striker/cam. In V35, table_rotation_joint was limited to rotate only from 0 to -180 degrees. In V39, both rivet fixtures were moved radially outward to sit as close as possible to the disc edge without any fixture geometry protruding outside the 400 mm disc envelope: fixture 1 y = -0.050141 m, fixture 2 y = +0.050141 m. In V40, the fixture/Cafi target assemblies were moved farther radially so the CAFI grasp-volume outer corners sit flush with the 400 mm turntable disc perimeter: fixture 1 y = -0.072310 m, fixture 2 y = +0.072310 m. In V41, the fixtures were corrected slightly inward so the intended lower-left/lower-right CAFI corners are the ones aligned with the disc edge: fixture 1 y = -0.062310 m, fixture 2 y = +0.062310 m. In V42, both fixture/CAFI target assemblies were moved another 10.000 mm inward radially to align those lower CAFI corners closer to the disc edge: fixture 1 y = -0.052310 m, fixture 2 y = +0.052310 m. In V43, the fixture/CAFI target assemblies were adjusted slightly back outward by 5.000 mm to fine-tune the lower-corner alignment: fixture 1 y = -0.057310 m, fixture 2 y = +0.057310 m.
+    CAFI drop frames follow the gripper debug-frame convention so the cobot can align its CAFI/grasp frame to the fixture.
+    NEMA 17 STEP is included in meshes as reference, but RViz cannot display STEP directly,
+    so the motor is represented with primitive URDF geometry.
+  -->
+
+  <material name="dark_gray"><color rgba="0.15 0.15 0.15 1"/></material>
+  <material name="industrial_gray"><color rgba="0.45 0.45 0.45 1"/></material>
+  <material name="silver"><color rgba="0.78 0.78 0.78 1"/></material>
+  <material name="motor_black"><color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="cafi_blue"><color rgba="0.10 0.35 0.95 1"/></material>
+  <material name="switch_black"><color rgba="0.02 0.02 0.02 1"/></material>
+  <material name="limit_switch_base"><color rgba="0.28 0.28 0.28 1"/></material>
+  <material name="striker_cam_metal"><color rgba="0.18 0.18 0.18 1"/></material>
+  <material name="belt_black"><color rgba="0.01 0.01 0.01 1"/></material>
+  <material name="mount_center_green"><color rgba="0.05 1.0 0.25 1.0"/></material>
+  <material name="grasp_volume_debug"><color rgba="0.1 0.8 1.0 0.25"/></material>
+
+  <link name="world"/>
+
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual name="gearbase.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/gearbase.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="gearbase.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/gearbase.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingbase.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingbase.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingbase.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingbase.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="nema_base.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/nema_base.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="nema_base.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/nema_base.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingstand_1.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingstand_1.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingstand_2.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingstand_2.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingstand_3.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingstand_3.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingstand_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="ballbearing_1.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="ballbearing_1.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="ballbearing_2.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="ballbearing_2.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="ballbearing_3.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="ballbearing_3.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="ballbearing_center.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_center.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="ballbearing_center.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/ballbearing_center.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingnut_1.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingnut_1.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingnut_2.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingnut_2.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingnut_4.stl_visual">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_4.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision name="bearingnut_4.stl_collision">
+      <origin xyz="-0.268973 -0.252455 -0.001530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingnut_4.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- NEMA 17 visual placeholder. The original STEP is stored in /meshes as reference. -->
+  <joint name="base_to_nema17_motor" type="fixed">
+    <parent link="base_link"/>
+    <child link="nema17_motor_link"/>
+    <origin xyz="0.22936 0.00000 0.05000" rpy="0 0 0"/>
+  </joint>
+
+  <link name="nema17_motor_link">
+    <visual name="nema17_body_visual">
+      <origin xyz="0 0 -0.03" rpy="0 0 0"/>
+      <geometry><box size="0.042 0.042 0.040"/></geometry>
+      <material name="motor_black"/>
+    </visual>
+    <visual name="nema17_shaft_visual">
+      <origin xyz="0 0 0.0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.0025" length="0.025"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+
+
+  <!-- External photoelectric sensor and its pedestal/base removed completely. -->
+
+  <!-- Visual timing belt explicitly connected to the NEMA output side and to the lower sprocket under the rotating table.
+       The small drive pulley is attached to nema17_motor_link.
+       The large driven pulley is attached to turntable_link and is placed below the table at the lower sprocket location.
+       The two belt runs are drawn from the motor side toward that lower turntable sprocket. -->
+  <joint name="nema17_motor_to_belt_drive_visual" type="fixed">
+    <parent link="nema17_motor_link"/>
+    <child link="nema_belt_drive_visual_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="nema_belt_drive_visual_link">
+    <!-- Clean NEMA driver wrap: single circular belt surface around the NEMA driver. -->
+    <visual name="belt_motor_wrap_outer_visual">
+      <origin xyz="0.000 0.000 0.01" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.030" length="0.014"/></geometry>
+      <material name="belt_black"/>
+    </visual>
+    <visual name="belt_motor_pulley_core_visual">
+      <origin xyz="0.000 0.000 0.01" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.020" length="0.016"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <visual name="belt_front_run_visual">
+      <origin xyz="-0.12218 0.030 0.01" rpy="0 0 0"/>
+      <geometry><box size="0.244 0.010 0.012"/></geometry>
+      <material name="belt_black"/>
+    </visual>
+    <visual name="belt_back_run_visual">
+      <origin xyz="-0.12218 -0.030 0.01" rpy="0 0 0"/>
+      <geometry><box size="0.244 0.010 0.012"/></geometry>
+      <material name="belt_black"/>
+    </visual>
+  </link>
+
+  <joint name="turntable_to_belt_driven_pulley_visual" type="fixed">
+    <parent link="turntable_link"/>
+    <child link="turntable_belt_driven_pulley_visual_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="turntable_belt_driven_pulley_visual_link">
+    <visual name="belt_turntable_pulley_visual">
+      <origin xyz="0.000 0.000 -0.018" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.068" length="0.012"/></geometry>
+      <material name="belt_black"/>
+    </visual>
+  </link>
+
+  <joint name="table_rotation_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="turntable_link"/>
+    <origin xyz="-0.015000 0.000000 0.078000" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.141593" upper="0.000000" effort="30" velocity="0.60"/>
+    <dynamics damping="0.05" friction="0.01"/>
+  </joint>
+
+  <link name="turntable_link">
+    <visual name="turntable_disc.stl_visual">
+      <origin xyz="-0.253973 -0.252455 -0.079530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/turntable_disc.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision name="turntable_disc.stl_collision">
+      <origin xyz="-0.253973 -0.252455 -0.079530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/turntable_disc.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="bearingsprocket.stl_visual">
+      <origin xyz="-0.253973 -0.252455 -0.079530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingsprocket.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision name="bearingsprocket.stl_collision">
+      <origin xyz="-0.253973 -0.252455 -0.079530" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/bearingsprocket.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Underside limit-switch striker cams.
+       Purpose: these pieces rotate with the disc and physically hit the fixed limit switches.
+       Geometry: 10 mm max width, 23 mm length, 3 mm max thickness, curved/tapered profile fading toward the tip.
+       Placement: under the rotating disc, centered on the fixture 1 angular centerline only. Fixture 2 striker/cam removed in V34.
+       The disc bottom is at approximately turntable_link local Z = -0.0015 m; the cam base starts at Z = -0.0045 m so its 3 mm thick base touches the underside of the disc. -->
+  <joint name="turntable_to_striker_cam_fixture_1" type="fixed">
+    <parent link="turntable_link"/>
+    <child link="striker_cam_fixture_1_link"/>
+    <origin xyz="0.000000 -0.197000 -0.004500" rpy="0 0 3.141593"/>
+  </joint>
+
+  <link name="striker_cam_fixture_1_link">
+    <visual name="striker_cam_fixture_1_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/turntable_limit_switch_striker_cam.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="striker_cam_metal"/>
+    </visual>
+    <collision name="striker_cam_fixture_1_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/turntable_limit_switch_striker_cam.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+
+  <!-- Rivet fixture assembly 1 mounted on top of the rotating disc. -->
+  <joint name="turntable_to_rivet_fixture_1" type="fixed">
+    <parent link="turntable_link"/>
+    <child link="rivet_fixture_1_link"/>
+    <origin xyz="0.000 -0.057310 0.004" rpy="0 0 0"/>
+  </joint>
+
+  <link name="rivet_fixture_1_link">
+    <!-- New integrated fixture supplied by user. The switch STL shares the same CAD coordinate space as the fixture STL, so both meshes use the exact same origin/rpy. -->
+    <visual name="fixture_1_with_switch_body_visual">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_body.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="industrial_gray"/>
+    </visual>
+    <collision name="fixture_1_with_switch_body_collision">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_body.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="fixture_1_switch_visual">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="switch_black"/>
+    </visual>
+    <collision name="fixture_1_switch_collision">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- CAFI drop/grasp frame for fixture 1.
+       This frame is placed at the real CAFI center inside the remachado fixture.
+       Align the gripper CAFI/grasp frame to this frame to leave the CAFI exactly inside the fixture. -->
+  <joint name="fixture_1_to_cafi_lateral_target_frame" type="fixed">
+    <parent link="rivet_fixture_1_link"/>
+    <child link="fixture_1_cafi_lateral_target_frame"/>
+    <origin xyz="0.003276 -0.071389 0.022476" rpy="0 0 0"/>
+  </joint>
+
+  <link name="fixture_1_cafi_lateral_target_frame">
+    <visual name="fixture_1_drop_frame_marker">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><sphere radius="0.006"/></geometry>
+      <material name="mount_center_green"/>
+    </visual>
+  </link>
+
+  <joint name="fixture_1_grasp_volume_fixed_joint" type="fixed">
+    <parent link="fixture_1_cafi_lateral_target_frame"/>
+    <child link="fixture_1_grasp_volume_frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="fixture_1_grasp_volume_frame">
+    <visual name="fixture_1_grasp_volume_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.126 0.090 0.030"/></geometry>
+      <material name="grasp_volume_debug"/>
+    </visual>
+  </link>
+
+  <!-- CAFI placeholder frame inside fixture 1. Mesh removed; this empty link preserves the part placement frame. -->
+  <joint name="fixture_to_cafi_part" type="fixed">
+    <parent link="fixture_1_cafi_lateral_target_frame"/>
+    <child link="cafi_part_1_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cafi_part_1_link">
+    <!-- CAFI mesh removed intentionally. This empty link is kept as a frame placeholder
+         so scripts/Claude still know where the CAFI part would be placed. -->
+  </link>
+
+  <!-- Backward-compatible alias frame for old scripts. -->
+  <joint name="cafi_part_to_pick_frame" type="fixed">
+    <parent link="fixture_1_cafi_lateral_target_frame"/>
+    <child link="cafi_pick_frame_1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cafi_pick_frame_1">
+    <!-- Visual red marker removed in V31; frame remains for future CAFI placement. -->
+  </link>
+
+<!-- Rivet fixture assembly 2. This is the duplicated remachado fixture placed 180 degrees from fixture 1. -->
+  <joint name="turntable_to_rivet_fixture_2" type="fixed">
+    <parent link="turntable_link"/>
+    <child link="rivet_fixture_2_link"/>
+    <origin xyz="0.000 0.057310 0.004" rpy="0 0 3.141593"/>
+  </joint>
+
+  <link name="rivet_fixture_2_link">
+    <!-- Duplicated integrated fixture. Its parent joint is rotated 180 degrees, so this second fixture keeps the same local mesh origin/rpy as fixture 1. -->
+    <visual name="fixture_2_with_switch_body_visual">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_body.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="industrial_gray"/>
+    </visual>
+    <collision name="fixture_2_with_switch_body_collision">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_body.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="fixture_2_switch_visual">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="switch_black"/>
+    </visual>
+    <collision name="fixture_2_switch_collision">
+      <origin xyz="-0.083290 -0.137673 -0.000097" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- CAFI drop/grasp frame for fixture 2. Same local CAFI-center placement as fixture 1; parent fixture is already rotated 180 degrees. -->
+  <joint name="fixture_2_to_cafi_lateral_target_frame" type="fixed">
+    <parent link="rivet_fixture_2_link"/>
+    <child link="fixture_2_cafi_lateral_target_frame"/>
+    <origin xyz="0.003276 -0.071389 0.022476" rpy="0 0 0"/>
+  </joint>
+
+  <link name="fixture_2_cafi_lateral_target_frame">
+    <visual name="fixture_2_drop_frame_marker">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><sphere radius="0.006"/></geometry>
+      <material name="mount_center_green"/>
+    </visual>
+  </link>
+
+  <joint name="fixture_2_grasp_volume_fixed_joint" type="fixed">
+    <parent link="fixture_2_cafi_lateral_target_frame"/>
+    <child link="fixture_2_grasp_volume_frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="fixture_2_grasp_volume_frame">
+    <visual name="fixture_2_grasp_volume_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.126 0.090 0.030"/></geometry>
+      <material name="grasp_volume_debug"/>
+    </visual>
+  </link>
+
+  <joint name="fixture_2_to_cafi_part_2" type="fixed">
+    <parent link="fixture_2_cafi_lateral_target_frame"/>
+    <child link="cafi_part_2_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cafi_part_2_link">
+    <!-- CAFI mesh removed intentionally. This empty link is kept as a frame placeholder
+         so scripts/Claude still know where the CAFI part would be placed. -->
+  </link>
+
+  <!-- Backward-compatible alias frame for old scripts. -->
+  <joint name="cafi_part_2_to_pick_frame_2" type="fixed">
+    <parent link="fixture_2_cafi_lateral_target_frame"/>
+    <child link="cafi_pick_frame_2"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cafi_pick_frame_2">
+    <!-- Visual red marker removed in V31; frame remains for future CAFI placement. -->
+  </link>
+
+
+  <!-- Added mirrored limit-switch tower bases.
+       Reference: lower-left corner of the main base plate. The external X face of the first base is placed 0.275 m from that corner in X+.
+       Lower plate: 0.030 m X, 0.047 m Y, 0.003 m Z.
+       Tower: starts from the lower-left corner of that plate, 0.020 m X, 0.030 m Y, 0.069 m total Z from the base zero.
+       Top groove for switch: starts 0.003 m from one Y edge, leaves 0.003 m on the other Y edge, and cuts downward 0.003 m.
+       The second assembly mirrors the original geometry; both added assemblies were then shifted +0.010 m in global Y.
+       V28 adjustment: switch joint X = 0.017893 m aligns the switch lower-left X edge to the tower/top-base X edge; right switch Y = 0.242081 m gives a 0.010 m outer-edge gap.
+       V29 adjustment: both switch joint Z values lowered by 0.003 m; the complete right-side assembly was shifted -0.020 m in Y.
+       V38 adjustment: restored switch rotations from V37 but applied the requested -0.020 m global X shift to both complete external limit-switch assemblies. -->
+  <joint name="base_to_limit_switch_base_left" type="fixed">
+    <parent link="base_link"/>
+    <child link="limit_switch_base_left_link"/>
+    <origin xyz="0.005000 -0.216500 0.037500" rpy="0 0 0"/>
+  </joint>
+
+  <link name="limit_switch_base_left_link">
+    <visual name="limit_switch_base_left_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/limit_switch_tower_base_left.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="limit_switch_base"/>
+    </visual>
+    <collision name="limit_switch_base_left_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/limit_switch_tower_base_left.stl" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_limit_switch_left" type="fixed">
+    <parent link="base_link"/>
+    <child link="limit_switch_left_link"/>
+    <origin xyz="-0.002107 -0.225000 0.071700" rpy="0 0 0"/>
+  </joint>
+
+  <link name="limit_switch_left_link">
+    <visual name="limit_switch_left_visual">
+      <origin xyz="0.015406 -0.083270 0.065602" rpy="-1.57079632679 0 1.57079632679"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="switch_black"/>
+    </visual>
+    <collision name="limit_switch_left_collision">
+      <origin xyz="0.015406 -0.083270 0.065602" rpy="-1.57079632679 0 1.57079632679"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_limit_switch_base_right" type="fixed">
+    <parent link="base_link"/>
+    <child link="limit_switch_base_right_link"/>
+    <origin xyz="0.005000 0.216500 0.037500" rpy="0 0 0"/>
+  </joint>
+
+  <link name="limit_switch_base_right_link">
+    <visual name="limit_switch_base_right_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/limit_switch_tower_base_right.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="limit_switch_base"/>
+    </visual>
+    <collision name="limit_switch_base_right_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/limit_switch_tower_base_right.stl" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_limit_switch_right" type="fixed">
+    <parent link="base_link"/>
+    <child link="limit_switch_right_link"/>
+    <origin xyz="-0.002107 0.222081 0.071700" rpy="0 0 0"/>
+  </joint>
+
+  <link name="limit_switch_right_link">
+    <visual name="limit_switch_right_visual">
+      <origin xyz="0.015406 -0.083270 0.065602" rpy="-1.57079632679 0 1.57079632679"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="switch_black"/>
+    </visual>
+    <collision name="limit_switch_right_collision">
+      <origin xyz="0.015406 -0.083270 0.065602" rpy="-1.57079632679 0 1.57079632679"/>
+      <geometry>
+        <mesh filename="/models/turntable_v43/fixture_with_switch_sensor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>

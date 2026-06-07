@@ -5,6 +5,6 @@
     file_server
     header {
         Access-Control-Allow-Origin *
-        Cache-Control "public, max-age=3600"
+        Cache-Control "no-cache"
     }
 }

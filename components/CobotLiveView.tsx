@@ -1263,20 +1263,23 @@ export default function CobotLiveView() {
   // a URDF angle of -174.2° — a 341° visual jump from SAFE_RIVET's 167°.
   // Adding 2π restores continuity: -174.2°+360°=185.8°, clamped by the URDF
   // renderer to its 180° limit — only 13° from 167°, no jarring spin.
-  const ghostJointsRad = ghostSource === 'custom'
-    ? controllerDegToUrdfRad(cmdJoints)
-    : ghostSource === 'lib2'
-      ? (() => {
-          const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
-          const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
-          // Only correct joints that are just above 180° (≤200°): these wrap to
-          // near -180° creating a false 341° jump from poses like SAFE_RIVET at
-          // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
-          // looked correct with the plain wrap—they sit consistently on the
-          // negative side and should not be shifted.
-          return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
-        })()
-      : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+  const ghostJointsRad = rpiRunning && telemetry.joint_positions_deg?.length === 6
+    ? telemetry.joint_positions_deg.map((d, i) =>
+        THREE.MathUtils.degToRad(JOINT_SIGN[i] * d + JOINT_OFFSET_DEG[i]))
+    : ghostSource === 'custom'
+      ? controllerDegToUrdfRad(cmdJoints)
+      : ghostSource === 'lib2'
+        ? (() => {
+            const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
+            const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
+            // Only correct joints that are just above 180° (≤200°): these wrap to
+            // near -180° creating a false 341° jump from poses like SAFE_RIVET at
+            // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
+            // looked correct with the plain wrap—they sit consistently on the
+            // negative side and should not be shifted.
+            return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
+          })()
+        : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'

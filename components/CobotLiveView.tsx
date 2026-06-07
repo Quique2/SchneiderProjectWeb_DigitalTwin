@@ -588,6 +588,7 @@ export default function CobotLiveView() {
   const RIVET_SECS  = 30;
   const INSPECT_WAIT_SECS = 5;
   const [cycleSpeed, setCycleSpeed] = useState(15); // % speed for demo, user-adjustable
+  const [dryRun, setDryRun] = useState(true);
   const [cycleRunning, setCycleRunning] = useState(false);
   const [cycleStep, setCycleStep] = useState('— en espera');
   const [cycleStepIdx, setCycleStepIdx] = useState(0);
@@ -845,7 +846,7 @@ export default function CobotLiveView() {
   };
   const rpiCycleStart = async () => {
     await postCycle('/api/cycle/speed', { speed: cycleSpeed });
-    postCycle('/api/cycle/start', { dry_run: true });
+    postCycle('/api/cycle/start', { dry_run: dryRun });
   };
   const rpiCycleStop  = () => postCycle('/api/cycle/stop');
   const rpiCycleReset = () => postCycle('/api/cycle/reset');
@@ -1513,6 +1514,32 @@ export default function CobotLiveView() {
               <span style={{ fontSize: 11, fontFamily: 'monospace', color: rpiRunning ? '#5a6c84' : '#c084fc', fontWeight: 700, width: 38, textAlign: 'right' }}>
                 {cycleSpeed}%
               </span>
+            </div>
+
+            {/* Dry-run toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>dry run</span>
+              <div
+                onClick={() => { if (!rpiRunning) setDryRun(v => !v); }}
+                style={{
+                  position: 'relative', width: 44, height: 24, borderRadius: 12,
+                  background: dryRun ? '#f59e0b' : '#22dd55',
+                  cursor: rpiRunning ? 'not-allowed' : 'pointer',
+                  opacity: rpiRunning ? 0.5 : 1,
+                  transition: 'background 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 3, left: dryRun ? 3 : 21,
+                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }} />
+              </div>
+              <span style={{
+                fontSize: 10, fontWeight: 700, width: 32,
+                color: dryRun ? '#f59e0b' : '#22dd55',
+              }}>{dryRun ? 'ON' : 'OFF'}</span>
             </div>
 
             {/* ▶ START (RPi) / ■ STOP / ↺ RESET */}

@@ -1256,6 +1256,16 @@ export default function CobotLiveView() {
     if (!sensorConveyor) autoStopFiredRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sensorConveyor, conveyorOn, autoStopConveyor, mode]);
+  // RPi-side cycle state (comes in every WS frame when cycle has ever started).
+  const rpiCycle = telemetry.cycle ?? null;
+  const rpiRunning = rpiCycle?.running ?? false;
+  const rpiState   = rpiCycle?.state ?? 'idle';
+  const rpiStateColor =
+    rpiState === 'running' ? '#22dd55' :
+    rpiState === 'done'    ? '#3b8bff' :
+    rpiState === 'alarm'   ? '#ef4444' :
+    rpiState === 'stopped' ? '#fbbf24' : '#5a6c84';
+
   // Ghost target: custom slider pose, V26 dropdown, or library-2.
   // For lib2: use the full wrap→transform pipeline (same as robot command) but
   // add 2π to any joint whose RAW sim angle is above 180°.  wrapTo180 flips
@@ -1291,16 +1301,6 @@ export default function CobotLiveView() {
   const tableAvailable = mode === 'live' && (table?.available ?? false);
   const tableMoving = table?.moving ?? false;
   const tablePos = table?.position ?? 'limit1';
-
-  // RPi-side cycle state (comes in every WS frame when cycle has ever started).
-  const rpiCycle = telemetry.cycle ?? null;
-  const rpiRunning = rpiCycle?.running ?? false;
-  const rpiState   = rpiCycle?.state ?? 'idle';
-  const rpiStateColor =
-    rpiState === 'running' ? '#22dd55' :
-    rpiState === 'done'    ? '#3b8bff' :
-    rpiState === 'alarm'   ? '#ef4444' :
-    rpiState === 'stopped' ? '#fbbf24' : '#5a6c84';
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>

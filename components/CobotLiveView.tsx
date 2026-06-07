@@ -118,48 +118,12 @@ function loadLib2Overrides(): Record<string, number[]> {
   } catch { return {}; }
 }
 
-// Faithful pick→rivet→vision→accept-bin cycle (accept branch), mirroring the
-// simulation's SEQUENCE incl. the double vision pass and HOME traversals.
-// `grip` fires the magnet AFTER arriving at that pose: grab = magnet ON,
-// release = magnet OFF — same points the sim opens/closes the gripper.
-type TrajStep = { pose: string; grip?: 'grab' | 'release' };
-const TRAJECTORY: TrajStep[] = [
-  { pose: 'POSE_HOME', grip: 'release' },          // start clean (not holding)
-  { pose: 'POSE_APPROACH_CONVEYOR' },
-  { pose: 'POSE_PICK_CONVEYOR', grip: 'grab' },     // pick raw part
-  { pose: 'POSE_LIFT_CONVEYOR' },
-  { pose: 'POSE_APPROACH_LOAD_FIXTURE' },
-  { pose: 'POSE_PLACE_LOAD_FIXTURE' },
-  { pose: 'POSE_RELEASE_LOAD_FIXTURE', grip: 'release' }, // drop on rivet fixture
-  { pose: 'POSE_RETREAT_LOAD_FIXTURE' },
-  { pose: 'POSE_APPROACH_PICK_RIVETED' },
-  { pose: 'POSE_PICK_RIVETED', grip: 'grab' },      // pick riveted part
-  { pose: 'POSE_LIFT_RIVETED' },
-  { pose: 'POSE_APPROACH_VISION' },
-  { pose: 'POSE_PLACE_VISION' },
-  { pose: 'POSE_RELEASE_VISION', grip: 'release' }, // drop on vision plate
-  { pose: 'POSE_RETREAT_VISION' },
-  { pose: 'POSE_HOME' },                            // wait for inspection
-  { pose: 'POSE_APPROACH_VISION' },
-  { pose: 'POSE_PLACE_VISION', grip: 'grab' },      // pick back from vision
-  { pose: 'POSE_RETREAT_VISION' },
-  { pose: 'POSE_HOME' },                            // traverse via HOME
-  { pose: 'POSE_APPROACH_ACCEPT_BIN' },
-  { pose: 'POSE_DROP_ACCEPT_BIN', grip: 'release' }, // drop in accept bin
-  { pose: 'POSE_APPROACH_ACCEPT_BIN' },
-  { pose: 'POSE_HOME' },
-];
+
 
 // Inverse of the live display map (controller_deg → urdf via sign·ctrl+offset):
 // given a simulation pose in URDF radians, recover the controller-convention
 // joint degrees to command the real robot.  ctrl = sign·(urdf_deg − offset),
 // valid because sign ∈ {+1,−1} so 1/sign = sign.
-function urdfPoseToControllerDeg(poseRad: number[]): number[] {
-  return poseRad.map((rad, i) => {
-    const urdfDeg = THREE.MathUtils.radToDeg(rad);
-    return JOINT_SIGN[i] * (urdfDeg - JOINT_OFFSET_DEG[i]);
-  });
-}
 
 // Forward of the above: controller-convention joint degrees → URDF radians,
 // for previewing a custom slider pose on the green ghost before sending it.
@@ -583,7 +547,6 @@ export default function CobotLiveView() {
   const [cmdBusy, setCmdBusy] = useState(false);
   const [cmdStatus, setCmdStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const cmdInitRef = useRef(false); // seed command inputs from first live telemetry
-  const [selectedPose, setSelectedPose] = useState<string>('POSE_HOME');
   const [showGhost, setShowGhost] = useState(true);
   // Ghost source: 'pose' = the dropdown POSE_LIB selection; 'custom' = the live
   // jog sliders (cmdJoints).  Moving a slider switches to 'custom' so the green
@@ -618,15 +581,6 @@ export default function CobotLiveView() {
   const autoStopFiredRef = useRef(false);
   // Sequence player. Ghost mode = visualisation only; Real mode = drives the
   // physical cobot pose-by-pose, waiting for each arrival before advancing.
-  const [seqPlaying, setSeqPlaying] = useState(false);
-  const [seqIsReal, setSeqIsReal] = useState(false);
-  const [seqStep, setSeqStep] = useState(0);
-  const [seqStepMs, setSeqStepMs] = useState(1800);
-  const [seqLoop, setSeqLoop] = useState(true);
-  const seqTimerRef = useRef<number | null>(null);
-  const seqAbortRef = useRef(false);
-  const seqLoopRef = useRef(seqLoop);
-  seqLoopRef.current = seqLoop;
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -914,15 +868,6 @@ export default function CobotLiveView() {
     return () => clearInterval(iv);
   }, [showPendant]);
 
-  // Simulation pose (URDF rad) → controller-convention joint degrees.
-  const selectedPoseCtrlDeg = (): number[] =>
-    urdfPoseToControllerDeg(POSE_LIBRARY_DEG[selectedPose] ?? POSE_LIBRARY_DEG.HOME);
-  // Load the converted pose into the jog sliders so the operator can review
-  // the exact joint values before sending.
-  const loadPoseToSliders = () => setCmdJoints(selectedPoseCtrlDeg());
-  // Send the converted pose straight to the real robot.
-  const sendPoseToRobot = () =>
-    postControl('/api/cobot/move/joint', { joints: selectedPoseCtrlDeg(), speed: jointSpeed, relative: false });
 
   // Effective controller joints for a library-2 pose: override wins over base.
   const lib2CtrlDeg = (name: string): number[] => lib2Overrides[name] ?? lib2BaseCtrlDeg(name);
@@ -1101,104 +1046,8 @@ export default function CobotLiveView() {
     setCycleStepIdx(0); setCycleRivetSecs(0); setCycleVerdict(null); setCycleError(null);
   };
 
-  // Stop whichever player is running (ghost timer and/or the real-robot loop).
-  const stopSequence = () => {
-    seqAbortRef.current = true;
-    if (seqTimerRef.current) { window.clearInterval(seqTimerRef.current); seqTimerRef.current = null; }
-    setSeqPlaying(false);
-    setSeqIsReal(false);
-  };
-
-  // Ghost-only player: step selectedPose through the cycle on a timer; the
-  // ghost eases between poses so it looks like the cobot running the routine.
-  const playSequence = () => {
-    stopSequence();
-    seqAbortRef.current = false;
-    setShowGhost(true);
-    setGhostSource('pose');
-    setSeqIsReal(false);
-    let i = 0;
-    setSelectedPose(TRAJECTORY[0].pose);
-    setSeqStep(0);
-    setSeqPlaying(true);
-    seqTimerRef.current = window.setInterval(() => {
-      i += 1;
-      if (i >= TRAJECTORY.length) {
-        if (seqLoopRef.current) { i = 0; } else { stopSequence(); return; }
-      }
-      setSelectedPose(TRAJECTORY[i].pose);
-      setSeqStep(i);
-    }, seqStepMs);
-  };
-
-  // Smallest angular difference in degrees (handles ±180/±360 wrap).
-  const angDiffDeg = (a: number, b: number) => {
-    let d = (a - b) % 360;
-    if (d > 180) d -= 360;
-    if (d < -180) d += 360;
-    return Math.abs(d);
-  };
-  const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
-  // Poll telemetry until every joint is within tol of the target (controller
-  // deg), or until timeout / abort.  Resolves true on arrival.
-  const waitForArrival = (targetCtrl: number[], tolDeg: number, timeoutMs: number) =>
-    new Promise<boolean>((resolve) => {
-      const start = Date.now();
-      const id = window.setInterval(() => {
-        if (seqAbortRef.current) { window.clearInterval(id); resolve(false); return; }
-        const jp = telemetryRef.current.joint_positions_deg;
-        if (jp && jp.length === 6) {
-          let max = 0;
-          for (let i = 0; i < 6; i++) max = Math.max(max, angDiffDeg(jp[i], targetCtrl[i]));
-          if (max <= tolDeg) { window.clearInterval(id); resolve(true); return; }
-        }
-        if (Date.now() - start > timeoutMs) { window.clearInterval(id); resolve(false); return; }
-      }, 120);
-    });
-
-  // Real-robot sequence: command each pose, wait for the cobot to physically
-  // arrive (ghost holds the target meanwhile), then advance.  Moves the
-  // PHYSICAL robot through the whole cycle.
-  const playRealSequence = async () => {
-    if (!controlEnabled) return;
-    if (!window.confirm('Esto moverá el ROBOT REAL por todo el ciclo de poses (vel ' + jointSpeed + '%). El STOP lo aborta. ¿Continuar?')) return;
-    stopSequence();
-    seqAbortRef.current = false;
-    setShowGhost(true);
-    setGhostSource('pose');
-    setApplyToModel(true);
-    setSeqIsReal(true);
-    setSeqPlaying(true);
-    try {
-      let i = 0;
-      while (!seqAbortRef.current) {
-        const step = TRAJECTORY[i];
-        setSelectedPose(step.pose);
-        setSeqStep(i);
-        const targetCtrl = urdfPoseToControllerDeg(POSE_LIBRARY_DEG[step.pose]);
-        const res = await postControl('/api/cobot/move/joint', { joints: targetCtrl, speed: jointSpeed, relative: false });
-        if (!res.ok || seqAbortRef.current) break;
-        const arrived = await waitForArrival(targetCtrl, 2.0, 25000);
-        if (seqAbortRef.current) break;
-        if (!arrived) { setCmdStatus({ ok: false, msg: `Timeout esperando llegada a ${step.pose.replace('POSE_', '')}.` }); break; }
-        // Gripper action at this pose (same points as the simulation).
-        if (step.grip) {
-          const gr = await postControl('/api/cobot/gripper', { closed: step.grip === 'grab' });
-          if (!gr.ok || seqAbortRef.current) break;
-          await sleep(700); // let the magnet energise/release
-        }
-        await sleep(400);
-        i += 1;
-        if (i >= TRAJECTORY.length) { if (seqLoopRef.current) i = 0; else break; }
-      }
-    } finally {
-      setSeqPlaying(false);
-      setSeqIsReal(false);
-    }
-  };
-
   // STOP: abort any running sequence AND command the robot to halt.
-  const handleStop = () => { stopSequence(); cobotStop(); };
+  const handleStop = () => { cobotStop(); };
 
   const disconnect = () => {
     manualCloseRef.current = true;
@@ -1278,7 +1127,6 @@ export default function CobotLiveView() {
     manualCloseRef.current = true;
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
     if (pollRef.current) window.clearInterval(pollRef.current);
-    if (seqTimerRef.current) window.clearInterval(seqTimerRef.current);
     if (cameraGifUrlRef.current) URL.revokeObjectURL(cameraGifUrlRef.current);
     if (inspectImgUrlRef.current) URL.revokeObjectURL(inspectImgUrlRef.current);
   }, []);
@@ -1360,12 +1208,12 @@ export default function CobotLiveView() {
               // negative side and should not be shifted.
               return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
             })()
-          : (POSE_LIBRARY_DEG[selectedPose] ?? POSE_LIBRARY_DEG.HOME);
+          : POSE_LIBRARY_DEG.HOME;
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'
       ? selectedLib2.replace(/_/g, ' ')
-      : selectedPose.replace('POSE_', '').replace(/_/g, ' ');
+      : selectedLib2.replace(/_/g, ' ');
   // Linear table — independent GPIO hardware, controllable whenever the gateway
   // is reachable (no Remote Control gate).
   const table = telemetry.table;
@@ -1938,106 +1786,6 @@ export default function CobotLiveView() {
                 {cmdStatus.ok ? '✓ ' : '⚠ '}{cmdStatus.msg}
               </div>
             )}
-          </Section>
-
-          {/* === Probar poses de la simulación en el robot real === */}
-          <Section title="Pose de simulación → real">
-            <select value={selectedPose}
-              onChange={(e) => { setSelectedPose(e.target.value); setGhostSource('pose'); }}
-              style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-              {Object.keys(POSE_LIBRARY_DEG).map((name) => (
-                <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
-
-            {/* Preview of the converted controller-convention joint targets */}
-            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 4px' }}>
-              Joints a enviar (°, robot)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
-              {selectedPoseCtrlDeg().map((d, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
-                  <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
-                  <span style={{ color: '#dde4f0' }}>{d.toFixed(1)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
-              <button onClick={loadPoseToSliders} disabled={!controlEnabled}
-                style={ctrlBtn(controlEnabled, '#475569', '#334155')}>↧ Cargar en sliders</button>
-              <button onClick={sendPoseToRobot} disabled={!controlEnabled || cmdBusy}
-                style={ctrlBtn(controlEnabled, '#3b8bff', '#2563eb')}>▸ Enviar al robot</button>
-            </div>
-            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
-              "Cargar" llena los sliders para revisar antes de mover; "Enviar"
-              manda la pose directo (vel {jointSpeed}%). Usa STOP si algo sale mal.
-            </div>
-
-            {/* Sequence player: ghost-only or driving the real robot */}
-            <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
-                Recorrer secuencia
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                {/* Ghost-only */}
-                <button onClick={seqPlaying && !seqIsReal ? stopSequence : playSequence}
-                  disabled={seqPlaying && seqIsReal}
-                  style={{
-                    fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
-                    cursor: (seqPlaying && seqIsReal) ? 'not-allowed' : 'pointer',
-                    border: 'none', borderRadius: 6, padding: '9px 6px',
-                    opacity: (seqPlaying && seqIsReal) ? 0.5 : 1,
-                    background: (seqPlaying && !seqIsReal)
-                      ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
-                      : 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)',
-                  }}>
-                  {seqPlaying && !seqIsReal ? '⏸ Detener' : '▶ Fantasma'}
-                </button>
-                {/* Real robot */}
-                <button onClick={seqPlaying && seqIsReal ? stopSequence : playRealSequence}
-                  disabled={!controlEnabled || (seqPlaying && !seqIsReal)}
-                  style={{
-                    fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
-                    cursor: (!controlEnabled || (seqPlaying && !seqIsReal)) ? 'not-allowed' : 'pointer',
-                    border: 'none', borderRadius: 6, padding: '9px 6px',
-                    opacity: (!controlEnabled || (seqPlaying && !seqIsReal)) ? 0.5 : 1,
-                    background: (seqPlaying && seqIsReal)
-                      ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
-                      : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
-                  }}>
-                  {seqPlaying && seqIsReal ? '⏸ Detener robot' : '▶ Robot real'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                <span style={{ fontSize: 10, color: '#abc' }}>s/paso</span>
-                <input type="range" min={500} max={4000} step={100} value={seqStepMs}
-                  onChange={(e) => setSeqStepMs(parseFloat(e.target.value))} disabled={seqIsReal}
-                  style={{ flex: 1, accentColor: '#22cc55' }} />
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#dde4f0', width: 36, textAlign: 'right' }}>
-                  {(seqStepMs / 1000).toFixed(1)}
-                </span>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 10, color: '#abc', cursor: 'pointer' }}>
-                <input type="checkbox" checked={seqLoop} onChange={(e) => setSeqLoop(e.target.checked)} style={{ accentColor: '#22cc55' }} />
-                Repetir en bucle
-              </label>
-              {seqPlaying && (
-                <div style={{ ...statRow, marginTop: 4 }}>
-                  <span>{seqIsReal ? 'robot →' : 'paso'}</span>
-                  <span style={{ color: seqIsReal ? '#3b8bff' : '#22dd55' }}>
-                    {seqStep + 1}/{TRAJECTORY.length} · {selectedPose.replace('POSE_', '').replace(/_/g, ' ')}
-                    {TRAJECTORY[seqStep]?.grip === 'grab' ? ' 🧲↓' : TRAJECTORY[seqStep]?.grip === 'release' ? ' ○↑' : ''}
-                  </span>
-                </div>
-              )}
-              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 6, lineHeight: 1.4 }}>
-                <b style={{ color: '#7a8c9e' }}>Fantasma</b>: solo anima el preview verde.{' '}
-                <b style={{ color: '#7a8c9e' }}>Robot real</b>: ejecuta el ciclo completo (pick→remache→visión→bin)
-                a vel {jointSpeed}%, agarrando/soltando el imán en cada pose como en la simulación,
-                esperando la llegada en cada paso. STOP aborta.
-              </div>
-            </div>
           </Section>
 
           {/* === Second pose library (teammate, controller-convention) === */}

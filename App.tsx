@@ -3,11 +3,12 @@ import HeroSection from './components/HeroSection';
 import CellViewer3D from './components/CellViewer3D';
 import CobotLiveView from './components/CobotLiveView';
 import WiringDiagram from './components/WiringDiagram';
+import LogicaPlanta from './components/LogicaPlanta';
 import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
 
-type TabId = 'inicio' | 'wiring' | 'cell' | 'live';
+type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic';
 
 interface TabDef {
   id: TabId;
@@ -22,6 +23,7 @@ const TABS: TabDef[] = [
   { id: 'wiring',  label: 'Cableado' },
   { id: 'cell',    label: 'Celda 3D' },
   { id: 'live',    label: 'Cobot en Vivo' },
+  { id: 'logic',   label: 'Lógica' },
 ];
 
 const TOPBAR_HEIGHT = 60;
@@ -185,6 +187,7 @@ export default function App() {
         {tab === 'wiring' && <ScrollHost><WiringDiagram /></ScrollHost>}
         {tab === 'cell'   && <CellViewer3D />}
         {tab === 'live'   && <CobotLiveView />}
+        {tab === 'logic'  && <LogicaPlanta />}
       </main>
     </div>
   );

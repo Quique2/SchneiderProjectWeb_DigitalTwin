@@ -1,25 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-// Generado desde diagramadeconexiones.dxf (diagram_tools/dxf_to_svg.py).
+// Generado desde diagramadeconexiones_final.dxf (diagram_tools/dxf_to_svg.py).
 // Los cables principales del DXF están sin color de función (ACI 7); se
-// muestran como "Cableado principal". El color por tipo de cable solo existe
-// en las entidades de acento + el bloque 2D insertado (GPIO/conectores/pines).
+// muestran como "Cableado principal". El color por tipo de cable existe en
+// las entidades de acento + el bloque 2D insertado (GPIO/conectores/pines).
 const WIRE_GROUPS = [
-  { hex: '#9FB3C8', label: 'Cableado principal', count: 12636 },
-  { hex: '#6B7480', label: 'Estructura',          count:   50 },
-  { hex: '#00FF00', label: 'GPIO (bloque)',       count:   47 },
-  { hex: '#00FFFF', label: 'Conectores (bloque)', count:   41 },
-  { hex: '#A953A0', label: 'Motores aux.',        count:   20 },
-  { hex: '#FFFF00', label: 'Pines (bloque)',      count:   20 },
-  { hex: '#58BA48', label: 'Switch',              count:   18 },
-  { hex: '#CD2027', label: '+24 V',               count:   18 },
-  { hex: '#F7F281', label: 'Señal (amarillo)',    count:   12 },
-  { hex: '#2776BB', label: 'Comunicación',        count:   11 },
-  { hex: '#ED1F24', label: '+24 V (alt)',         count:   10 },
-  { hex: '#FF0000', label: 'Rojo',                count:    8 },
-  { hex: '#7AAFDF', label: 'Azul claro',          count:    5 },
-  { hex: '#F26722', label: 'Señales (naranja)',   count:    3 },
-  { hex: '#F8991E', label: 'Señales (ámbar)',     count:    3 },
+  { hex: '#9FB3C8', label: 'Estructura',      count: 13852 },
+  { hex: '#A953A0', label: 'Rasp inputs',     count:    24 },
+  { hex: '#58BA48', label: 'Ethernet',        count:    22 },
+  { hex: '#FF0000', label: '+24 V',           count:    22 },
+  { hex: '#F1EB1F', label: 'Motor NEMA 17',   count:    20 },
+  { hex: '#7AAFDF', label: 'Línea neumática', count:    17 },
+  { hex: '#F8991E', label: 'Rasp outputs',    count:    10 },
+  { hex: '#FEEAB9', label: 'Outputs Cobot',   count:     5 },
+  { hex: '#991B1E', label: '+5 V',            count:     5 },
+  { hex: '#ED1F24', label: '+12 V',           count:     4 },
+  { hex: '#C8C92D', label: 'Inputs Cobot',    count:     4 },
 ];
 
 const ALL_HEX = new Set(WIRE_GROUPS.map(w => w.hex));

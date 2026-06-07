@@ -18,7 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
-import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin } from './CellViewer3D';
+import { POSE_LIB_V26, COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -316,10 +316,13 @@ function useCobotUrdf(): URDFRobot | null {
 // Cobot rendered at world origin (Z-up).  Joints are eased toward targetRef so
 // live telemetry updates look smooth instead of snapping.
 function LiveCobot({
-  targetRef, tcpWorldRef,
+  targetRef, tcpWorldRef, robotOutRef, groupOutRef, tcpEulerOutRef,
 }: {
   targetRef: React.MutableRefObject<[number, number, number, number, number, number]>;
   tcpWorldRef: React.MutableRefObject<[number, number, number]>;
+  robotOutRef?: React.MutableRefObject<URDFRobot | null>;
+  groupOutRef?: React.MutableRefObject<THREE.Group | null>;
+  tcpEulerOutRef?: React.MutableRefObject<[number, number, number]>;
 }) {
   const robot = useCobotUrdf();
   const groupRef = useRef<THREE.Group>(null);
@@ -327,7 +330,7 @@ function LiveCobot({
 
   useFrame((_, dt) => {
     if (!robot) return;
-    const k = Math.min(1, dt * 6); // ease factor
+    const k = Math.min(1, dt * 6);
     for (let i = 0; i < 6; i++) {
       liveRef.current[i] += (targetRef.current[i] - liveRef.current[i]) * k;
       robot.setJointValue(`joint_${i + 1}`, liveRef.current[i]);
@@ -338,7 +341,15 @@ function LiveCobot({
       const v = new THREE.Vector3();
       tcp.getWorldPosition(v);
       tcpWorldRef.current = [v.x, v.y, v.z];
+      if (tcpEulerOutRef) {
+        const q = new THREE.Quaternion();
+        tcp.getWorldQuaternion(q);
+        const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+        tcpEulerOutRef.current = [e.x, e.y, e.z];
+      }
     }
+    if (robotOutRef) robotOutRef.current = robot;
+    if (groupOutRef && groupRef.current) groupOutRef.current = groupRef.current;
   });
 
   if (!robot) return null;
@@ -589,6 +600,9 @@ export default function CobotLiveView() {
   const INSPECT_WAIT_SECS = 5;
   const [cycleSpeed, setCycleSpeed] = useState(15); // % speed for demo, user-adjustable
   const [dryRun, setDryRun] = useState(true);
+  const [showPendant, setShowPendant] = useState(false);
+  const [pendantCmdPending, setPendantCmdPending] = useState(false);
+  const [pendantJointsSnapshot, setPendantJointsSnapshot] = useState<number[]>([...HOME_JOINTS]);
   const [cycleRunning, setCycleRunning] = useState(false);
   const [cycleStep, setCycleStep] = useState('— en espera');
   const [cycleStepIdx, setCycleStepIdx] = useState(0);
@@ -624,6 +638,17 @@ export default function CobotLiveView() {
   // Turntable disc angle (static at 0 for now) + its loaded URDF handle.
   const turntableAngleRef = useRef(0);
   const turntableRobotRef = useRef<URDFRobot | null>(null);
+  // Teach Pendant — refs shared between LiveCobot (FK source) and ManualJogger (jog sink).
+  const pendantRobotRef  = useRef<URDFRobot | null>(null);
+  const pendantGroupRef  = useRef<THREE.Group | null>(null);
+  const pendantJointsRef = useRef<[number,number,number,number,number,number]>([...HOME_JOINTS]);
+  const pendantTcpEulerRef    = useRef<[number,number,number]>([0,0,0]);
+  const pendantManualMovingRef = useRef(false);
+  const pendantJogCmdRef  = useRef<{kind:'joint'|'linear';axis:number;dir:number}|null>(null);
+  const pendantJogVelocityRef = useRef(JOG_REAL_DEFAULT_FRAC);
+  const pendantPoseDirtyRef   = useRef(false);
+  const pendantAlignCmdRef    = useRef<'rx0'|null>(null);
+  const pendantRealModeRef    = useRef(true);
   // Latest telemetry, readable synchronously inside the async sequence runner.
   const telemetryRef = useRef(telemetry);
   telemetryRef.current = telemetry;
@@ -639,6 +664,15 @@ export default function CobotLiveView() {
       targetJointsRef.current = [...HOME_JOINTS];
     }
   }, [applyToModel, telemetry]);
+
+  // Keep pendant joints in sync with telemetry when not actively jogging.
+  useEffect(() => {
+    if (pendantJogCmdRef.current || pendantManualMovingRef.current) return;
+    if (telemetry.joint_positions_deg?.length === 6) {
+      pendantJointsRef.current = telemetry.joint_positions_deg.map((d, i) =>
+        THREE.MathUtils.degToRad(JOINT_SIGN[i] * d + JOINT_OFFSET_DEG[i])) as [number,number,number,number,number,number];
+    }
+  }, [telemetry]);
 
   // Seed the command inputs from the first real (non-demo) telemetry so the
   // operator jogs from the robot's actual pose, not zeros.
@@ -850,6 +884,35 @@ export default function CobotLiveView() {
   };
   const rpiCycleStop  = () => postCycle('/api/cycle/stop');
   const rpiCycleReset = () => postCycle('/api/cycle/reset');
+
+  // Teach Pendant: move real robot to a URDF-rad target.
+  const pendantStartJointMove = (targetRad: number[]) => {
+    const ctrlDeg = targetRad.map((r, i) =>
+      JOINT_SIGN[i] * (THREE.MathUtils.radToDeg(r) - JOINT_OFFSET_DEG[i]));
+    setPendantCmdPending(true);
+    postControl('/api/cobot/move/joint', { joints: ctrlDeg, speed: jointSpeed, relative: false })
+      .then(() => setPendantCmdPending(false));
+  };
+  const pendantStopMove = () => { pendantJogCmdRef.current = null; };
+
+  // Flush jog moves to API and keep ghost snapshot fresh while pendant is open.
+  const pendantFlushRef = useRef<(() => void) | null>(null);
+  pendantFlushRef.current = () => {
+    if (pendantPoseDirtyRef.current && !pendantJogCmdRef.current) {
+      pendantPoseDirtyRef.current = false;
+      const ctrlDeg = pendantJointsRef.current.map((r, i) =>
+        JOINT_SIGN[i] * (THREE.MathUtils.radToDeg(r) - JOINT_OFFSET_DEG[i]));
+      postControl('/api/cobot/move/joint', { joints: ctrlDeg, speed: jointSpeed, relative: false });
+    }
+  };
+  useEffect(() => {
+    if (!showPendant) return;
+    const iv = setInterval(() => {
+      setPendantJointsSnapshot([...pendantJointsRef.current]);
+      pendantFlushRef.current?.();
+    }, 100);
+    return () => clearInterval(iv);
+  }, [showPendant]);
 
   // Simulation pose (URDF rad) → controller-convention joint degrees.
   const selectedPoseCtrlDeg = (): number[] =>
@@ -1273,23 +1336,31 @@ export default function CobotLiveView() {
   // a URDF angle of -174.2° — a 341° visual jump from SAFE_RIVET's 167°.
   // Adding 2π restores continuity: -174.2°+360°=185.8°, clamped by the URDF
   // renderer to its 180° limit — only 13° from 167°, no jarring spin.
+  const pendantInitialPoses = useMemo<TeachPose[]>(() =>
+    Object.entries(POSE_LIBRARY_DEG).map(([name, urdfDeg]) => ({
+      name,
+      joints: urdfDeg.map((d) => THREE.MathUtils.degToRad(d)) as TeachPose['joints'],
+    })), []);
+
   const ghostJointsRad = rpiRunning && telemetry.joint_positions_deg?.length === 6
     ? telemetry.joint_positions_deg.map((d, i) =>
         THREE.MathUtils.degToRad(JOINT_SIGN[i] * d + JOINT_OFFSET_DEG[i]))
-    : ghostSource === 'custom'
-      ? controllerDegToUrdfRad(cmdJoints)
-      : ghostSource === 'lib2'
-        ? (() => {
-            const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
-            const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
-            // Only correct joints that are just above 180° (≤200°): these wrap to
-            // near -180° creating a false 341° jump from poses like SAFE_RIVET at
-            // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
-            // looked correct with the plain wrap—they sit consistently on the
-            // negative side and should not be shifted.
-            return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
-          })()
-        : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
+    : showPendant
+      ? pendantJointsSnapshot
+      : ghostSource === 'custom'
+        ? controllerDegToUrdfRad(cmdJoints)
+        : ghostSource === 'lib2'
+          ? (() => {
+              const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
+              const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
+              // Only correct joints that are just above 180° (≤200°): these wrap to
+              // near -180° creating a false 341° jump from poses like SAFE_RIVET at
+              // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
+              // looked correct with the plain wrap—they sit consistently on the
+              // negative side and should not be shifted.
+              return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
+            })()
+          : (POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'
@@ -1387,7 +1458,22 @@ export default function CobotLiveView() {
             {/* Cognex 2800 camera + its suspension column (camera mount). */}
             <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
             <Suspense fallback={null}>
-              <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef} />
+              <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef}
+                robotOutRef={pendantRobotRef} groupOutRef={pendantGroupRef} tcpEulerOutRef={pendantTcpEulerRef} />
+              {showPendant && (
+                <ManualJogger
+                  jogCmdRef={pendantJogCmdRef}
+                  velocityRef={pendantJogVelocityRef}
+                  jointsRef={pendantJointsRef}
+                  robotRef={pendantRobotRef}
+                  groupRef={pendantGroupRef}
+                  manualMovingRef={pendantManualMovingRef}
+                  obstacles={[]}
+                  poseDirtyRef={pendantPoseDirtyRef}
+                  alignCmdRef={pendantAlignCmdRef}
+                  realModeRef={pendantRealModeRef}
+                />
+              )}
               <GhostCobot jointsRad={ghostJointsRad} visible={showGhost} />
               {/* Rotary turntable (URDF) in its real relative position. The
                   disc rotates in sync with the linear-table movement (≈4 s
@@ -1445,6 +1531,35 @@ export default function CobotLiveView() {
           }}>
             {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{ghostLabel}
           </button>
+
+          {/* Teach Pendant toggle */}
+          <button onClick={() => setShowPendant((v) => !v)} style={{
+            position: 'absolute', left: 12, bottom: 88, fontFamily: SANS_FONT,
+            fontSize: 11, fontWeight: 600, color: '#fff', cursor: 'pointer',
+            border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
+            background: showPendant ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.85)',
+          }}>
+            {showPendant ? '◉ TEACH PENDANT' : '◯ Teach Pendant'}
+          </button>
+
+          {/* TeachPendant overlay — renders as a floating HTML panel */}
+          {showPendant && (
+            <TeachPendant
+              jointsRef={pendantJointsRef}
+              gripperWorldRef={tcpWorldRef}
+              tcpEulerRef={pendantTcpEulerRef}
+              manualMovingRef={pendantManualMovingRef}
+              startJointMove={pendantStartJointMove}
+              stopMove={pendantStopMove}
+              jogCmdRef={pendantJogCmdRef}
+              jogVelocityRef={pendantJogVelocityRef}
+              onClose={() => setShowPendant(false)}
+              initialPoses={pendantInitialPoses}
+              realMode={mode === 'live'}
+              commandPending={pendantCmdPending}
+              previewOnly={mode !== 'live'}
+            />
+          )}
         </div>
 
         {/* Telemetry side panel */}

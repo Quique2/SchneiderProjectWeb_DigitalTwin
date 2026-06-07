@@ -4,11 +4,12 @@ import CellViewer3D from './components/CellViewer3D';
 import CobotLiveView from './components/CobotLiveView';
 import WiringDiagram from './components/WiringDiagram';
 import LogicaPlanta from './components/LogicaPlanta';
+import ScadaView from './components/scada/ScadaView';
 import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
 
-type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic';
+type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic' | 'scada';
 
 interface TabDef {
   id: TabId;
@@ -24,6 +25,7 @@ const TABS: TabDef[] = [
   { id: 'cell',    label: 'Celda 3D' },
   { id: 'live',    label: 'Cobot en Vivo' },
   { id: 'logic',   label: 'Lógica' },
+  { id: 'scada',   label: 'SCADA' },
 ];
 
 const TOPBAR_HEIGHT = 60;
@@ -188,6 +190,7 @@ export default function App() {
         {tab === 'cell'   && <CellViewer3D />}
         {tab === 'live'   && <CobotLiveView />}
         {tab === 'logic'  && <LogicaPlanta />}
+        {tab === 'scada'  && <ScadaView />}
       </main>
     </div>
   );

@@ -241,6 +241,22 @@ interface CobotTelemetry {
     position: 'limit1' | 'limit2' | 'middle';
     last_target: 'limit1' | 'limit2' | null;
   };
+  // Backend-side 32-step cycle state machine.  Arrives in every WS frame when
+  // the cycle has been started (or has ever run); absent in demo/idle snapshots.
+  cycle?: {
+    running: boolean;
+    step: number;
+    total: number;
+    pct: number;
+    label: string;
+    speed: number;
+    verdict: 'PASS' | 'FAIL' | null;
+    rivet_secs: number;
+    rivet_total: number;
+    state: 'idle' | 'running' | 'stopped' | 'alarm' | 'done';
+    dry_run: boolean;
+    error: string | null;
+  };
 }
 
 // Real snapshot captured on the RPi (CONTEXT_DIGITAL_TWIN.md).  Shown when
@@ -809,6 +825,28 @@ export default function CobotLiveView() {
   const tableMove = (target: 'limit1' | 'limit2') => postTable('/api/table/move', { target });
   const tableStop = () => postTable('/api/table/stop', {});
 
+  // RPi-side cycle endpoints — no Remote Control gate, no cmdBusy flag.
+  const postCycle = async (path: string, body?: object) => {
+    try {
+      const res = await fetch(`${gatewayBase(url)}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok || j.ok === false) {
+        setCmdStatus({ ok: false, msg: j.error || `Error ${res.status} en ciclo RPi.` });
+      } else {
+        setCmdStatus({ ok: true, msg: 'Ciclo RPi: comando aceptado.' });
+      }
+    } catch (e) {
+      setCmdStatus({ ok: false, msg: `Sin respuesta del gateway (${String(e)}).` });
+    }
+  };
+  const rpiCycleStart = () => postCycle('/api/cycle/start', { dry_run: true });
+  const rpiCycleStop  = () => postCycle('/api/cycle/stop');
+  const rpiCycleReset = () => postCycle('/api/cycle/reset');
+
   // Simulation pose (URDF rad) → controller-convention joint degrees.
   const selectedPoseCtrlDeg = (): number[] =>
     urdfPoseToControllerDeg(POSE_LIB_V26[selectedPose] ?? POSE_LIB_V26.POSE_HOME);
@@ -1247,6 +1285,16 @@ export default function CobotLiveView() {
   const tableMoving = table?.moving ?? false;
   const tablePos = table?.position ?? 'limit1';
 
+  // RPi-side cycle state (comes in every WS frame when cycle has ever started).
+  const rpiCycle = telemetry.cycle ?? null;
+  const rpiRunning = rpiCycle?.running ?? false;
+  const rpiState   = rpiCycle?.state ?? 'idle';
+  const rpiStateColor =
+    rpiState === 'running' ? '#22dd55' :
+    rpiState === 'done'    ? '#3b8bff' :
+    rpiState === 'alarm'   ? '#ef4444' :
+    rpiState === 'stopped' ? '#fbbf24' : '#5a6c84';
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>
       {/* Connection bar */}
@@ -1490,6 +1538,108 @@ export default function CobotLiveView() {
                   {cycleVerdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
                 </div>
               )}
+            </Section>
+
+            {/* ── RPi cycle (dry-run) ── */}
+            <Section title="Ciclo RPi">
+              {/* Mode pill + state banner */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, padding: '2px 7px',
+                  borderRadius: 10, textTransform: 'uppercase',
+                  background: 'rgba(139,92,246,0.2)', color: '#c084fc', border: '1px solid #7c3aed66',
+                }}>DRY RUN</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, padding: '2px 7px',
+                  borderRadius: 10, textTransform: 'uppercase',
+                  background: `${rpiStateColor}22`, color: rpiStateColor,
+                  border: `1px solid ${rpiStateColor}44`,
+                }}>
+                  {rpiState === 'idle'    ? '○ IDLE'     :
+                   rpiState === 'running' ? '● RUNNING'  :
+                   rpiState === 'stopped' ? '■ STOPPED'  :
+                   rpiState === 'alarm'   ? '⚠ ALARM'   : '✓ DONE'}
+                </span>
+              </div>
+
+              {/* Step label */}
+              <div style={{ fontSize: 11, color: '#dde4f0', fontFamily: 'monospace', marginBottom: 8, minHeight: 16, lineHeight: 1.4 }}>
+                {rpiCycle?.error
+                  ? <span style={{ color: '#ff8a98' }}>⚠ {rpiCycle.error}</span>
+                  : (rpiCycle?.label ?? '— en espera')}
+              </div>
+
+              {/* Progress bar — visible once cycle has started */}
+              {rpiCycle && rpiState !== 'idle' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                    <span style={{ color: '#abc' }}>Paso {rpiCycle.step} / {rpiCycle.total}</span>
+                    <span style={{ color: '#abc' }}>{Math.round(rpiCycle.pct)}%</span>
+                  </div>
+                  <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{
+                      height: '100%', width: `${rpiCycle.pct}%`,
+                      background: 'linear-gradient(90deg,#8b5cf6,#3b8bff)',
+                      transition: 'width 0.4s',
+                    }} />
+                  </div>
+
+                  {/* Rivet countdown */}
+                  {rpiCycle.rivet_secs > 0 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
+                        <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
+                        <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{rpiCycle.rivet_secs}/{rpiCycle.rivet_total}s</span>
+                      </div>
+                      <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                        <div style={{
+                          height: '100%',
+                          width: `${rpiCycle.rivet_secs / rpiCycle.rivet_total * 100}%`,
+                          background: 'linear-gradient(90deg,#fb923c,#f59e0b)',
+                          transition: 'width 0.9s',
+                        }} />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Verdict */}
+                  {rpiCycle.verdict && (
+                    <div style={{
+                      padding: '10px', borderRadius: 6, textAlign: 'center',
+                      fontSize: 15, fontWeight: 800, marginBottom: 8,
+                      color: rpiCycle.verdict === 'PASS' ? '#06101c' : '#fff',
+                      background: rpiCycle.verdict === 'PASS'
+                        ? 'linear-gradient(180deg,#22dd55,#15803d)'
+                        : 'linear-gradient(180deg,#ef4444,#b91c1c)',
+                    }}>
+                      {rpiCycle.verdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* RUN Rpy button */}
+              <button
+                onClick={rpiCycleStart}
+                disabled={rpiRunning || !controlEnabled}
+                style={{
+                  ...ctrlBtn(!rpiRunning && controlEnabled, '#8b5cf6', '#6d28d9'),
+                  width: '100%', padding: '11px 4px', fontSize: 12, marginBottom: 4,
+                }}>
+                ▶ RUN Rpy (dry run)
+              </button>
+
+              {/* STOP RPi / RESET RPi */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                <button onClick={rpiCycleStop} disabled={!rpiRunning || !controlEnabled}
+                  style={{ ...ctrlBtn(rpiRunning && controlEnabled, '#ef4444', '#b91c1c'), padding: '9px 4px', fontSize: 11 }}>
+                  ■ STOP RPi
+                </button>
+                <button onClick={rpiCycleReset} disabled={!controlEnabled}
+                  style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), padding: '9px 4px', fontSize: 11 }}>
+                  ↺ RESET RPi
+                </button>
+              </div>
             </Section>
 
             {/* System LEDs */}

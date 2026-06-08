@@ -1359,7 +1359,7 @@ export default function CobotLiveView() {
                 fontSize: 9, color: '#e879f9', background: 'rgba(6,16,28,0.82)',
                 border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
-              }}>Cámara Cognex</div>
+              }}>Cámara Datalogic</div>
             </Html>
           </Canvas>
 

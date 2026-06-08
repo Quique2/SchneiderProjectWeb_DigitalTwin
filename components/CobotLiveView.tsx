@@ -575,6 +575,8 @@ export default function CobotLiveView() {
   const [cycleSpeed, setCycleSpeed] = useState(15); // % speed for demo, user-adjustable
   const [dryRun, setDryRun] = useState(true);
   const [showPendant, setShowPendant] = useState(false);
+  const [showHmi, setShowHmi] = useState(false);
+  const [hmiPos, setHmiPos] = useState({ x: 40, y: 40 });
   const [pendantCmdPending, setPendantCmdPending] = useState(false);
   const [pendantJointsSnapshot, setPendantJointsSnapshot] = useState<number[]>([...HOME_JOINTS]);
   const [cycleRunning, setCycleRunning] = useState(false);
@@ -864,6 +866,15 @@ export default function CobotLiveView() {
       .then(() => setPendantCmdPending(false));
   };
   const pendantStopMove = () => { pendantJogCmdRef.current = null; };
+
+  const onHmiDragDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const ox = hmiPos.x, oy = hmiPos.y, mx = e.clientX, my = e.clientY;
+    const onMove = (ev: MouseEvent) => setHmiPos({ x: ox + ev.clientX - mx, y: oy + ev.clientY - my });
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   // Flush jog moves to API and keep ghost snapshot fresh while pendant is open.
   const pendantFlushRef = useRef<(() => void) | null>(null);
@@ -1290,10 +1301,10 @@ export default function CobotLiveView() {
         </div>
       )}
 
-      {/* Body: 3D + telemetry (3D hidden when HMI tab active — SVG HMI takes full width) */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        {/* 3D cobot — hidden while the SVG HMI tab is open */}
-        <div style={{ flex: 1, minWidth: 0, position: 'relative', display: panelTab === 'hmi' ? 'none' : 'block' }}>
+      {/* Body: 3D + telemetry side panel */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
+        {/* 3D cobot */}
+        <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           <Canvas
             shadows
             camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
@@ -1434,32 +1445,28 @@ export default function CobotLiveView() {
           )}
         </div>
 
-        {/* Telemetry side panel — full width when HMI tab active */}
-        <div style={{
-          width: panelTab === 'hmi' ? '100%' : 320,
-          flex: panelTab === 'hmi' ? 1 : undefined,
-          flexShrink: 0,
-          overflowY: panelTab === 'hmi' ? 'hidden' : 'auto',
-          padding: panelTab === 'hmi' ? 0 : 14,
-          display: 'flex', flexDirection: 'column', gap: panelTab === 'hmi' ? 0 : 12,
-          borderLeft: panelTab === 'hmi' ? 'none' : '1px solid #1d2c44',
-          background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
-        }}>
-          {/* Panel tabs */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, flexShrink: 0 }}>
-            {(['hmi', 'control'] as const).map((t) => (
-              <button key={t} onClick={() => setPanelTab(t)} style={{
-                fontFamily: SANS_FONT, fontSize: 11, fontWeight: 600, padding: '8px 4px',
-                border: 'none', cursor: 'pointer', letterSpacing: 0.5,
-                background: panelTab === t ? 'linear-gradient(180deg,#1d2c44,#152236)' : 'transparent',
-                color: panelTab === t ? '#f1f5f9' : '#5a6c84',
-                borderBottom: panelTab === t ? '2px solid #22c55e' : '2px solid transparent',
-              }}>{t === 'hmi' ? 'HMI' : 'Control'}</button>
-            ))}
-          </div>
-
-          {/* ══ HMI SVG TAB ══ */}
-          {panelTab === 'hmi' && (
+        {/* ══ Floating HMI Operator Panel ══ */}
+        {showHmi && (
+          <div style={{
+            position: 'absolute', left: hmiPos.x, top: hmiPos.y, zIndex: 200,
+            borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.75)',
+            border: '1px solid #1E3A5F', overflow: 'hidden', userSelect: 'none',
+          }}>
+            <div
+              onMouseDown={onHmiDragDown}
+              style={{
+                background: 'linear-gradient(180deg,#0c1828,#070f1a)',
+                padding: '5px 10px', cursor: 'grab',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderBottom: '1px solid #1E3A5F',
+              }}
+            >
+              <span style={{ fontSize: 10, color: '#6FA8FF', letterSpacing: 2, fontWeight: 700 }}>HMI OPERADOR</span>
+              <button onClick={() => setShowHmi(false)} style={{
+                background: 'none', border: 'none', color: '#5a6c84', cursor: 'pointer',
+                fontSize: 18, lineHeight: 1, padding: '0 3px', fontFamily: 'inherit',
+              }}>×</button>
+            </div>
             <HmiSvgPanel
               hmi={telemetry.hmi}
               pipeline={telemetry.pipeline}
@@ -1467,10 +1474,35 @@ export default function CobotLiveView() {
               apiBase={gatewayBase(url)}
               controlEnabled={controlEnabled}
             />
-          )}
+          </div>
+        )}
+
+        {/* Telemetry side panel */}
+        <div style={{
+          width: 320, flexShrink: 0,
+          overflowY: 'auto', padding: 14,
+          display: 'flex', flexDirection: 'column', gap: 12,
+          borderLeft: '1px solid #1d2c44',
+          background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
+        }}>
+          {/* Panel tabs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, flexShrink: 0 }}>
+            {(['hmi', 'control'] as const).map((t) => {
+              const isActive = t === 'hmi' ? showHmi : true;
+              return (
+                <button key={t} onClick={() => { if (t === 'hmi') setShowHmi(v => !v); }} style={{
+                  fontFamily: SANS_FONT, fontSize: 11, fontWeight: 600, padding: '8px 4px',
+                  border: 'none', cursor: 'pointer', letterSpacing: 0.5,
+                  background: isActive ? 'linear-gradient(180deg,#1d2c44,#152236)' : 'transparent',
+                  color: isActive ? '#f1f5f9' : '#5a6c84',
+                  borderBottom: isActive ? '2px solid #22c55e' : '2px solid transparent',
+                }}>{t === 'hmi' ? 'HMI' : 'Control'}</button>
+              );
+            })}
+          </div>
 
           {/* ══ CONTROL TAB ══ */}
-          {panelTab === 'control' && <>
+          <>
 
           {/* === Control panel === */}
           <Section title="Control del robot">
@@ -1978,7 +2010,7 @@ export default function CobotLiveView() {
           <div style={{ fontSize: 9, color: '#5a6c84', fontFamily: 'monospace', textAlign: 'center' }}>
             {telemetry.timestamp} · 10.5.5.100:6502 · FC04
           </div>
-          </>}  {/* end control tab */}
+          </>  {/* end control tab */}
         </div>
       </div>
 

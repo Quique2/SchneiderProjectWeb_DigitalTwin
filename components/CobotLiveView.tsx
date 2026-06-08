@@ -577,6 +577,7 @@ export default function CobotLiveView() {
   const [showPendant, setShowPendant] = useState(false);
   const [showHmi, setShowHmi] = useState(false);
   const [hmiPos, setHmiPos] = useState({ x: 40, y: 40 });
+  const [hmiSize, setHmiSize] = useState({ w: 520, h: 340 });
   const [pendantCmdPending, setPendantCmdPending] = useState(false);
   const [pendantJointsSnapshot, setPendantJointsSnapshot] = useState<number[]>([...HOME_JOINTS]);
   const [cycleRunning, setCycleRunning] = useState(false);
@@ -871,6 +872,19 @@ export default function CobotLiveView() {
     e.preventDefault();
     const ox = hmiPos.x, oy = hmiPos.y, mx = e.clientX, my = e.clientY;
     const onMove = (ev: MouseEvent) => setHmiPos({ x: ox + ev.clientX - mx, y: oy + ev.clientY - my });
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const onHmiResizeDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ow = hmiSize.w, oh = hmiSize.h, mx = e.clientX, my = e.clientY;
+    const onMove = (ev: MouseEvent) => setHmiSize({
+      w: Math.max(320, ow + ev.clientX - mx),
+      h: Math.max(220, oh + ev.clientY - my),
+    });
     const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -1449,12 +1463,16 @@ export default function CobotLiveView() {
         {showHmi && (
           <div style={{
             position: 'absolute', left: hmiPos.x, top: hmiPos.y, zIndex: 200,
+            width: hmiSize.w, height: hmiSize.h,
+            display: 'flex', flexDirection: 'column',
             borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.75)',
             border: '1px solid #1E3A5F', overflow: 'hidden', userSelect: 'none',
           }}>
+            {/* Drag handle / title bar */}
             <div
               onMouseDown={onHmiDragDown}
               style={{
+                flexShrink: 0,
                 background: 'linear-gradient(180deg,#0c1828,#070f1a)',
                 padding: '5px 10px', cursor: 'grab',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -1467,12 +1485,24 @@ export default function CobotLiveView() {
                 fontSize: 18, lineHeight: 1, padding: '0 3px', fontFamily: 'inherit',
               }}>×</button>
             </div>
-            <HmiSvgPanel
-              hmi={telemetry.hmi}
-              pipeline={telemetry.pipeline}
-              lastFrameTs={lastFrameTs}
-              apiBase={gatewayBase(url)}
-              controlEnabled={controlEnabled}
+            {/* SVG content area */}
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <HmiSvgPanel
+                hmi={telemetry.hmi}
+                pipeline={telemetry.pipeline}
+                lastFrameTs={lastFrameTs}
+                apiBase={gatewayBase(url)}
+                controlEnabled={controlEnabled}
+              />
+            </div>
+            {/* Resize handle — bottom-right corner */}
+            <div
+              onMouseDown={onHmiResizeDown}
+              style={{
+                position: 'absolute', right: 0, bottom: 0, width: 16, height: 16,
+                cursor: 'se-resize',
+                background: 'linear-gradient(135deg, transparent 40%, #2a4a6a 40%)',
+              }}
             />
           </div>
         )}

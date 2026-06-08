@@ -18,7 +18,7 @@ import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
-import { COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, Turntable, MesaTable, CognexCamera, VisionFixture, AluminumCabin, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
+import { COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, BASE_CONVEYOR, BASE_TURNTABLE, BASE_VISION, BASE_BINS, Turntable, CellPrimitives, useLayoutOffsets, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -220,6 +220,10 @@ interface CobotTelemetry {
     state: 'idle' | 'running' | 'stopped' | 'alarm' | 'done';
     dry_run: boolean;
     error: string | null;
+    // Multi-CAFI batch fields (optional — absent in single-CAFI builds)
+    cafi_index?: number;            // current CAFI being processed (1-indexed)
+    cafi_total?: number;            // total CAFIs requested in this batch
+    cafi_results?: Array<'PASS' | 'FAIL'>;  // completed verdicts (oldest first)
   };
 }
 
@@ -1172,6 +1176,8 @@ export default function CobotLiveView() {
     if (!sensorConveyor) autoStopFiredRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sensorConveyor, conveyorOn, autoStopConveyor, mode]);
+  // Layout offsets (same as Celda 3D tab) — align conveyor, bins, turntable.
+  const layout = useLayoutOffsets(true);
   // RPi-side cycle state (comes in every WS frame when cycle has ever started).
   const rpiCycle = telemetry.cycle ?? null;
   const rpiRunning = rpiCycle?.running ?? false;
@@ -1283,33 +1289,42 @@ export default function CobotLiveView() {
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           <Canvas
             shadows
-            camera={{ position: [MESA_CENTRE[0] + 1.6, MESA_CENTRE[1] - 1.7, 1.9], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
+            camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
             style={{ background: '#07111e' }}
             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
           >
             <ZUp />
-            <ambientLight intensity={0.6} />
+            <ambientLight intensity={0.55} />
             <directionalLight position={[3, 3, 5]} intensity={1.2} castShadow
-              shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-            <directionalLight position={[-2, -2, 3]} intensity={0.3} color="#a0c0ff" />
-            <OrbitControls target={[MESA_CENTRE[0], MESA_CENTRE[1], 1.1]} enableDamping dampingFactor={0.08}
-              minDistance={1.0} maxDistance={8} maxPolarAngle={Math.PI / 2.02} />
-            <Grid args={[6, 6]} position={[MESA_CENTRE[0], MESA_CENTRE[1], 0.001]} rotation={[-Math.PI / 2, 0, 0]}
+              shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+              shadow-camera-near={0.1} shadow-camera-far={20}
+              shadow-camera-left={-3} shadow-camera-right={3}
+              shadow-camera-top={3} shadow-camera-bottom={-3} />
+            <directionalLight position={[-2, -2, 3]} intensity={0.30} color="#a0c0ff" />
+            <OrbitControls
+              target={[MESA_CENTRE[0], MESA_CENTRE[1], 1.0]}
+              minPolarAngle={0.12} maxPolarAngle={Math.PI / 2.05}
+              minDistance={1.0} maxDistance={9}
+              enableDamping dampingFactor={0.07} />
+            <Grid args={[6, 6]} position={[MESA_CENTRE[0], MESA_CENTRE[1], 0.001]}
+              rotation={[-Math.PI / 2, 0, 0]}
               cellSize={0.25} cellThickness={0.4} cellColor="#0f1e30"
               sectionSize={1} sectionThickness={0.8} sectionColor="#162840"
-              fadeDistance={9} infiniteGrid={false} />
-            {/* Station mesa (worktop + legs) so the cobot and turntable sit on
-                the real cell furniture, in their true relative positions. */}
-            <MesaTable cx={MESA_CENTRE[0]} cy={MESA_CENTRE[1]} sx={1.620} sy={0.920}
-              topZ={1.000} thickness={0.040} legSect={0.060} legInset={0.060} />
+              fadeDistance={8} infiniteGrid={false} />
+            {/* Full cell layout — same primitives/heights/offsets as Celda 3D tab */}
+            <CellPrimitives
+              conveyorOffset={layout.conveyorOffset}
+              visionOffset={layout.visionOffset}
+              binAcceptOffset={layout.binAcceptOffset}
+              binRejectOffset={layout.binRejectOffset}
+              mesaOffset={layout.turntableOffset}
+              convBase={BASE_CONVEYOR}
+              turntableBase={BASE_TURNTABLE}
+              visionBase={BASE_VISION}
+              binsBase={BASE_BINS}
+            />
             {/* Animate the disc angle from the linear-table telemetry. */}
             <TurntableDriver angleRef={turntableAngleRef} telemetryRef={telemetryRef} />
-            {/* Outer aluminium cabin (4 posts + perimeter) — the external
-                supports that frame the cell. */}
-            <AluminumCabin xMin={0.30} xMax={2.20} yMin={0.30} yMax={1.80}
-              topZ={2.070} postSection={0.050} cobotMountX={0.950} cobotMountY={0.972} />
-            {/* Cognex 2800 camera + its suspension column (camera mount). */}
-            <CognexCamera x={0.750} y={0.804} z={1.520} cabinTopZ={2.070} />
             <Suspense fallback={null}>
               <LiveCobot targetRef={targetJointsRef} tcpWorldRef={tcpWorldRef}
                 robotOutRef={pendantRobotRef} groupOutRef={pendantGroupRef} tcpEulerOutRef={pendantTcpEulerRef} />
@@ -1328,12 +1343,9 @@ export default function CobotLiveView() {
                 />
               )}
               <GhostCobot jointsRad={ghostJointsRad} visible={showGhost} />
-              {/* Rotary turntable (URDF) in its real relative position. The
-                  disc rotates in sync with the linear-table movement (≈4 s
-                  switch-to-switch for the full 180° sweep). */}
-              <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef} />
-              {/* Vision fixture plate under the camera (STL). */}
-              <VisionFixture x={0.750} y={0.804} z={1.000} />
+              {/* Rotary turntable (URDF) with same offset + riser as Celda 3D */}
+              <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef}
+                offset={layout.turntableOffset} zLift={BASE_TURNTABLE} />
             </Suspense>
             <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center>
               <div style={{
@@ -1342,12 +1354,12 @@ export default function CobotLiveView() {
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
               }}>Lexium Cobot {applyToModel ? '· live joints' : '· HOME'}</div>
             </Html>
-            <Html position={[0.750, 0.804, 1.62]} center>
+            <Html position={[0.750 + layout.visionOffset[0], 0.804 + layout.visionOffset[1], 2.0]} center>
               <div style={{
                 fontSize: 9, color: '#e879f9', background: 'rgba(6,16,28,0.82)',
                 border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
-              }}>Cámara Datalogic</div>
+              }}>Cámara Cognex</div>
             </Html>
           </Canvas>
 
@@ -1538,6 +1550,54 @@ export default function CobotLiveView() {
               <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
                 <div style={{ height: '100%', width: `${rpiCycle?.pct ?? 0}%`, background: 'linear-gradient(90deg,#8b5cf6,#3b8bff)', transition: 'width 0.4s' }} />
               </div>
+
+              {/* Multi-CAFI batch indicator — only shown when cafi_total > 1 */}
+              {(rpiCycle?.cafi_total ?? 1) > 1 && (() => {
+                const total   = rpiCycle!.cafi_total!;
+                const current = rpiCycle!.cafi_index ?? 1;
+                const results = rpiCycle!.cafi_results ?? [];
+                return (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
+                      <span style={{ color: '#a78bfa', fontWeight: 700, letterSpacing: 0.5 }}>
+                        CAFIs en lote
+                      </span>
+                      <span style={{ color: '#a78bfa', fontFamily: 'monospace', fontWeight: 700 }}>
+                        {current} / {total}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {Array.from({ length: total }, (_, i) => {
+                        const idx = i + 1;
+                        const verdict = results[i];
+                        const isActive = idx === current && rpiRunning;
+                        const isDone   = idx < current || verdict != null;
+                        const bg =
+                          verdict === 'PASS' ? '#15803d' :
+                          verdict === 'FAIL' ? '#b91c1c' :
+                          isActive           ? '#6d28d9' : '#1e2e44';
+                        const border =
+                          verdict === 'PASS' ? '#22dd55' :
+                          verdict === 'FAIL' ? '#ef4444' :
+                          isActive           ? '#a78bfa' : '#2a3c58';
+                        const glow = isActive ? '0 0 6px #a78bfa' : verdict === 'PASS' ? '0 0 5px #22dd5566' : verdict === 'FAIL' ? '0 0 5px #ef444466' : 'none';
+                        return (
+                          <div key={idx} style={{
+                            width: 28, height: 28, borderRadius: 5, display: 'flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            background: bg, border: `1px solid ${border}`,
+                            boxShadow: glow, fontSize: 9, fontFamily: 'monospace',
+                            fontWeight: 800, color: isDone || isActive ? '#fff' : '#4a5c78',
+                            transition: 'all 0.2s',
+                          }}>
+                            {verdict === 'PASS' ? '✓' : verdict === 'FAIL' ? '✗' : idx}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Rivet countdown */}
               {(rpiCycle?.rivet_secs ?? 0) > 0 && (

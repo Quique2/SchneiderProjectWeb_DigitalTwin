@@ -19,6 +19,8 @@ import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 import { COBOT_BASE, TURNTABLE_BASE, MESA_CENTRE, BASE_CONVEYOR, BASE_TURNTABLE, BASE_VISION, BASE_BINS, Turntable, CellPrimitives, useLayoutOffsets, TeachPendant, ManualJogger, TeachPose, TcpInBase, collisionAABBs, JOG_REAL_DEFAULT_FRAC } from './CellViewer3D';
+import HmiSvgPanel from './HmiSvgPanel';
+import type { HmiBlock, PipelineBlock } from './HmiSvgPanel';
 
 const SANS_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -221,10 +223,14 @@ interface CobotTelemetry {
     dry_run: boolean;
     error: string | null;
     // Multi-CAFI batch fields (optional — absent in single-CAFI builds)
-    cafi_index?: number;            // current CAFI being processed (1-indexed)
-    cafi_total?: number;            // total CAFIs requested in this batch
-    cafi_results?: Array<'PASS' | 'FAIL'>;  // completed verdicts (oldest first)
+    cafi_index?: number;
+    cafi_total?: number;
+    cafi_results?: Array<'PASS' | 'FAIL'>;
   };
+  // Live HMI signal block — 19 tags published every WS frame by the gateway
+  hmi?: HmiBlock;
+  // Pipeline state (concurrent multi-CAFI cycle) — present once pipeline started
+  pipeline?: PipelineBlock;
 }
 
 // Real snapshot captured on the RPi (CONTEXT_DIGITAL_TWIN.md).  Shown when
@@ -519,6 +525,7 @@ export default function CobotLiveView() {
   // ws://192.168.1.167:8000/ws/cobot for a same-LAN local run.
   const [url, setUrl] = useState('wss://unmoral-shrink-cavalry.ngrok-free.dev/ws/cobot');
   const [telemetry, setTelemetry] = useState<CobotTelemetry>(DEMO_TELEMETRY);
+  const [lastFrameTs, setLastFrameTs] = useState(0);
   const [applyToModel, setApplyToModel] = useState(false);
   const [connErr, setConnErr] = useState<string | null>(null);
 
@@ -1089,7 +1096,7 @@ export default function CobotLiveView() {
         }, 6000);
         ws.onopen = () => { window.clearTimeout(failTimer); setMode('live'); };
         ws.onmessage = (e) => {
-          try { setTelemetry(JSON.parse(e.data)); } catch { /* ignore malformed frame */ }
+          try { setTelemetry(JSON.parse(e.data)); setLastFrameTs(Date.now()); } catch { /* ignore malformed frame */ }
         };
         // onerror always precedes onclose; let onclose be the single fail path.
         ws.onclose = () => {
@@ -1283,10 +1290,10 @@ export default function CobotLiveView() {
         </div>
       )}
 
-      {/* Body: 3D + telemetry */}
+      {/* Body: 3D + telemetry (3D hidden when HMI tab active — SVG HMI takes full width) */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        {/* 3D cobot */}
-        <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+        {/* 3D cobot — hidden while the SVG HMI tab is open */}
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', display: panelTab === 'hmi' ? 'none' : 'block' }}>
           <Canvas
             shadows
             camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
@@ -1427,11 +1434,15 @@ export default function CobotLiveView() {
           )}
         </div>
 
-        {/* Telemetry side panel */}
+        {/* Telemetry side panel — full width when HMI tab active */}
         <div style={{
-          width: 320, flexShrink: 0, overflowY: 'auto', padding: 14,
-          display: 'flex', flexDirection: 'column', gap: 12,
-          borderLeft: '1px solid #1d2c44',
+          width: panelTab === 'hmi' ? '100%' : 320,
+          flex: panelTab === 'hmi' ? 1 : undefined,
+          flexShrink: 0,
+          overflowY: panelTab === 'hmi' ? 'hidden' : 'auto',
+          padding: panelTab === 'hmi' ? 0 : 14,
+          display: 'flex', flexDirection: 'column', gap: panelTab === 'hmi' ? 0 : 12,
+          borderLeft: panelTab === 'hmi' ? 'none' : '1px solid #1d2c44',
           background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
         }}>
           {/* Panel tabs */}
@@ -1443,250 +1454,20 @@ export default function CobotLiveView() {
                 background: panelTab === t ? 'linear-gradient(180deg,#1d2c44,#152236)' : 'transparent',
                 color: panelTab === t ? '#f1f5f9' : '#5a6c84',
                 borderBottom: panelTab === t ? '2px solid #22c55e' : '2px solid transparent',
-              }}>{t === 'hmi' ? 'HMI Ciclo' : 'Control'}</button>
+              }}>{t === 'hmi' ? 'HMI' : 'Control'}</button>
             ))}
           </div>
 
-          {/* ══ HMI CICLO TAB ══ — primary interface: RPi-side cycle machine ══ */}
-          {panelTab === 'hmi' && (<>
-            {/* Status banner — reflects RPi cycle state */}
-            <div style={{
-              padding: '12px 14px', borderRadius: 8, textAlign: 'center',
-              background:
-                rpiState === 'alarm'   ? 'rgba(239,68,68,0.15)' :
-                rpiState === 'running' ? 'rgba(139,92,246,0.12)' :
-                rpiState === 'done'    ? 'rgba(59,139,255,0.10)' :
-                'rgba(20,30,48,0.6)',
-              border: `1px solid ${
-                rpiState === 'alarm'   ? '#ef444444' :
-                rpiState === 'running' ? '#8b5cf633' : '#1d2c44'}`,
-            }}>
-              {/* Mode pills */}
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, padding: '2px 7px',
-                  borderRadius: 10, textTransform: 'uppercase',
-                  background: 'rgba(139,92,246,0.2)', color: '#c084fc', border: '1px solid #7c3aed66',
-                }}>DRY RUN</span>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, padding: '2px 7px',
-                  borderRadius: 10, textTransform: 'uppercase',
-                  background: `${rpiStateColor}22`, color: rpiStateColor,
-                  border: `1px solid ${rpiStateColor}44`,
-                }}>
-                  {rpiState === 'idle'    ? '○ IDLE'    :
-                   rpiState === 'running' ? '● RUNNING' :
-                   rpiState === 'stopped' ? '■ STOPPED' :
-                   rpiState === 'alarm'   ? '⚠ ALARM'  : '✓ DONE'}
-                </span>
-              </div>
-              <div style={{ fontSize: 11, color: '#dde4f0', fontFamily: 'monospace', lineHeight: 1.4 }}>
-                {rpiCycle?.error
-                  ? <span style={{ color: '#ff8a98' }}>⚠ {rpiCycle.error}</span>
-                  : (rpiCycle?.label ?? '— en espera :)')}
-              </div>
-            </div>
-
-            {/* Cycle speed slider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>vel. cobot</span>
-              <input type="range" min={5} max={100} step={1} value={cycleSpeed}
-                disabled={rpiRunning}
-                onChange={(e) => setCycleSpeed(parseInt(e.target.value))}
-                style={{ flex: 1, accentColor: '#8b5cf6' }} />
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: rpiRunning ? '#5a6c84' : '#c084fc', fontWeight: 700, width: 38, textAlign: 'right' }}>
-                {cycleSpeed}%
-              </span>
-            </div>
-
-            {/* Dry-run toggle */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontSize: 10, color: '#abc', whiteSpace: 'nowrap' }}>dry run</span>
-              <div
-                onClick={() => { if (!rpiRunning) setDryRun(v => !v); }}
-                style={{
-                  position: 'relative', width: 44, height: 24, borderRadius: 12,
-                  background: dryRun ? '#f59e0b' : '#22dd55',
-                  cursor: rpiRunning ? 'not-allowed' : 'pointer',
-                  opacity: rpiRunning ? 0.5 : 1,
-                  transition: 'background 0.2s',
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{
-                  position: 'absolute', top: 3, left: dryRun ? 3 : 21,
-                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-                }} />
-              </div>
-              <span style={{
-                fontSize: 10, fontWeight: 700, width: 32,
-                color: dryRun ? '#f59e0b' : '#22dd55',
-              }}>{dryRun ? 'ON' : 'OFF'}</span>
-            </div>
-
-            {/* ▶ START (RPi) / ■ STOP / ↺ RESET */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-              <button onClick={rpiCycleStart} disabled={rpiRunning || !controlEnabled}
-                style={{ ...ctrlBtn(!rpiRunning && controlEnabled, '#8b5cf6', '#6d28d9'), padding: '11px 4px', fontSize: 12 }}>
-                ▶ START
-              </button>
-              <button onClick={rpiCycleStop} disabled={!rpiRunning || !controlEnabled}
-                style={{ ...ctrlBtn(rpiRunning && controlEnabled, '#ef4444', '#b91c1c'), padding: '11px 4px', fontSize: 12 }}>
-                ■ STOP
-              </button>
-              <button onClick={rpiCycleReset} disabled={!controlEnabled}
-                style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), padding: '11px 4px', fontSize: 12 }}>
-                ↺ RESET
-              </button>
-            </div>
-
-            {/* Progress — RPi cycle */}
-            <Section title="Progreso del ciclo">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, fontFamily: 'monospace' }}>
-                <span style={{ color: '#abc' }}>Paso {rpiCycle?.step ?? 0} / {rpiCycle?.total ?? 32}</span>
-                <span style={{ color: '#abc' }}>{Math.round(rpiCycle?.pct ?? 0)}%</span>
-              </div>
-              <div style={{ height: 8, background: '#0a1422', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
-                <div style={{ height: '100%', width: `${rpiCycle?.pct ?? 0}%`, background: 'linear-gradient(90deg,#8b5cf6,#3b8bff)', transition: 'width 0.4s' }} />
-              </div>
-
-              {/* Multi-CAFI batch indicator — only shown when cafi_total > 1 */}
-              {(rpiCycle?.cafi_total ?? 1) > 1 && (() => {
-                const total   = rpiCycle!.cafi_total!;
-                const current = rpiCycle!.cafi_index ?? 1;
-                const results = rpiCycle!.cafi_results ?? [];
-                return (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
-                      <span style={{ color: '#a78bfa', fontWeight: 700, letterSpacing: 0.5 }}>
-                        CAFIs en lote
-                      </span>
-                      <span style={{ color: '#a78bfa', fontFamily: 'monospace', fontWeight: 700 }}>
-                        {current} / {total}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {Array.from({ length: total }, (_, i) => {
-                        const idx = i + 1;
-                        const verdict = results[i];
-                        const isActive = idx === current && rpiRunning;
-                        const isDone   = idx < current || verdict != null;
-                        const bg =
-                          verdict === 'PASS' ? '#15803d' :
-                          verdict === 'FAIL' ? '#b91c1c' :
-                          isActive           ? '#6d28d9' : '#1e2e44';
-                        const border =
-                          verdict === 'PASS' ? '#22dd55' :
-                          verdict === 'FAIL' ? '#ef4444' :
-                          isActive           ? '#a78bfa' : '#2a3c58';
-                        const glow = isActive ? '0 0 6px #a78bfa' : verdict === 'PASS' ? '0 0 5px #22dd5566' : verdict === 'FAIL' ? '0 0 5px #ef444466' : 'none';
-                        return (
-                          <div key={idx} style={{
-                            width: 28, height: 28, borderRadius: 5, display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            background: bg, border: `1px solid ${border}`,
-                            boxShadow: glow, fontSize: 9, fontFamily: 'monospace',
-                            fontWeight: 800, color: isDone || isActive ? '#fff' : '#4a5c78',
-                            transition: 'all 0.2s',
-                          }}>
-                            {verdict === 'PASS' ? '✓' : verdict === 'FAIL' ? '✗' : idx}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Rivet countdown */}
-              {(rpiCycle?.rivet_secs ?? 0) > 0 && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10 }}>
-                    <span style={{ color: '#fb923c' }}>🔩 Remachando</span>
-                    <span style={{ color: '#fb923c', fontFamily: 'monospace' }}>{rpiCycle!.rivet_secs}/{rpiCycle!.rivet_total}s</span>
-                  </div>
-                  <div style={{ height: 6, background: '#0a1422', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
-                    <div style={{ height: '100%', width: `${rpiCycle!.rivet_secs / rpiCycle!.rivet_total * 100}%`, background: 'linear-gradient(90deg,#fb923c,#f59e0b)', transition: 'width 0.9s' }} />
-                  </div>
-                </>
-              )}
-
-              {/* Verdict */}
-              {rpiCycle?.verdict && (
-                <div style={{
-                  padding: '10px', borderRadius: 6, textAlign: 'center', fontSize: 15, fontWeight: 800, marginTop: 4,
-                  color: rpiCycle.verdict === 'PASS' ? '#06101c' : '#fff',
-                  background: rpiCycle.verdict === 'PASS' ? 'linear-gradient(180deg,#22dd55,#15803d)' : 'linear-gradient(180deg,#ef4444,#b91c1c)',
-                }}>
-                  {rpiCycle.verdict === 'PASS' ? '🟢 PASS — ACEPTADO' : '🔴 FAIL — RECHAZADO'}
-                </div>
-              )}
-            </Section>
-
-            {/* System LEDs */}
-            <Section title="Estado del sistema">
-              {/* Sensors */}
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>Sensores</div>
-              {([
-                { label: 'Conveyor',       on: sensorConveyor,    color: '#22dd55' },
-                { label: 'Fixture A (L1)', on: fixtureA,          color: '#22dd55' },
-                { label: 'Fixture B (L2)', on: fixtureB,          color: '#22dd55' },
-              ]).map(({ label, on, color }) => (
-                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
-                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
-                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
-                    {label}
-                  </span>
-                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{on ? 'DETECTA' : '—'}</span>
-                </div>
-              ))}
-
-              {/* Table */}
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 6px' }}>Mesa rotatoria</div>
-              {([
-                { label: 'Límite 1 (carga)', on: table?.limit1_touched ?? false, color: '#3b8bff' },
-                { label: 'Límite 2 (rivet)', on: table?.limit2_touched ?? false, color: '#fb923c' },
-                { label: 'En movimiento',    on: tableMoving,                    color: '#fbbf24' },
-              ]).map(({ label, on, color }) => (
-                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
-                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
-                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
-                    {label}
-                  </span>
-                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{on ? 'SÍ' : '—'}</span>
-                </div>
-              ))}
-
-              {/* Actuators */}
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '8px 0 6px' }}>Actuadores</div>
-              {([
-                { label: 'Gripper neumático', on: pneuState === 'close', color: '#ffd24d',
-                  text: pneuState === 'close' ? 'CERRADO' : pneuState === 'open' ? 'ABIERTO' : 'OFF' },
-                { label: 'Motor conveyor', on: conveyorOn, color: '#22dd55', text: conveyorOn ? 'ON' : 'OFF' },
-              ]).map(({ label, on, color, text }) => (
-                <div key={label} style={{ ...statRow, alignItems: 'center' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, transition: 'all 0.12s',
-                      background: on ? color : '#2a3548', boxShadow: on ? `0 0 8px ${color}` : 'none',
-                      border: `1px solid ${on ? color : '#1d2c44'}` }} />
-                    {label}
-                  </span>
-                  <span style={{ color: on ? color : '#788090', fontWeight: 700 }}>{text}</span>
-                </div>
-              ))}
-            </Section>
-
-            {!controlEnabled && (
-              <div style={{ fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)', border: '1px solid #fbbf2433', borderRadius: 4, padding: '8px 10px', textAlign: 'center' }}>
-                Conéctate al gateway (EN VIVO) para ejecutar el ciclo.
-              </div>
-            )}
-          </>)}
+          {/* ══ HMI SVG TAB ══ */}
+          {panelTab === 'hmi' && (
+            <HmiSvgPanel
+              hmi={telemetry.hmi}
+              pipeline={telemetry.pipeline}
+              lastFrameTs={lastFrameTs}
+              apiBase={gatewayBase(url)}
+              controlEnabled={controlEnabled}
+            />
+          )}
 
           {/* ══ CONTROL TAB ══ */}
           {panelTab === 'control' && <>

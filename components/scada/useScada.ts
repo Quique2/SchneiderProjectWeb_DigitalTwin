@@ -14,6 +14,8 @@ export interface UseScada {
   engine: ScadaEngine;
   acknowledge: (id: string) => void;
   acknowledgeAll: () => void;
+  resolve: (id: string) => { ok: boolean; reason?: string };
+  addComment: (text: string, alarmCode?: string | null) => void;
 }
 
 export function useScada(): UseScada {
@@ -42,5 +44,7 @@ export function useScada(): UseScada {
     engine,
     acknowledge: (id: string) => { engine.acknowledge(id); setSnapshot(engine.snapshot()); },
     acknowledgeAll: () => { engine.acknowledgeAll(); setSnapshot(engine.snapshot()); },
+    resolve: (id: string) => { const r = engine.resolve(id); setSnapshot(engine.snapshot()); return r; },
+    addComment: (text: string, alarmCode: string | null = null) => { engine.addComment(text, alarmCode); setSnapshot(engine.snapshot()); },
   };
 }

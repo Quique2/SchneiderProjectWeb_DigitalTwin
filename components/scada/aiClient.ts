@@ -1,30 +1,64 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// aiClient.ts — Cliente del Asistente de IA de mantenimiento (FRONTEND).
+// aiClient.ts — Cliente del "Maintenance Copilot" (FRONTEND).
 //
-// SEGURIDAD: este archivo NO contiene ni referencia GEMINI_API_KEY. El frontend
-// SÓLO hace POST del snapshot SCADA a un endpoint backend (SCADA_AI_ENDPOINT);
-// es el backend quien tiene la key (env var) y llama a Gemini. Si el backend no
-// existe o falla, se cae a un MOCK local (heurístico, sin red, sin key) para
-// poder probar la UI. El resultado siempre indica `source: 'GEMINI' | 'MOCK'`.
+// SEGURIDAD: este archivo NO contiene ni referencia ninguna API key. El frontend
+// SÓLO hace POST del contexto SCADA a SCADA_AI_ENDPOINT; el backend tiene la key
+// (env var Scada_Api_Schneider) y llama a OpenAI. Sin backend → MOCK local.
+//
+// CAMBIO 10: el contexto enviado a la IA contiene SÓLO datos reales + una lista
+// explícita de campos NO disponibles + la fuente/frescura de cada uno + si el
+// snapshot proviene del modo DEMO (datos sintéticos, NO reales). La IA debe marcar
+// lo faltante y NO inventar.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { SCADA_AI_ENDPOINT } from './scadaConfig';
 import type { AiDiagnosis, ScadaSnapshot, Severity } from './scadaTypes';
 
-// Construye el payload mínimo que la IA necesita (CAMBIO 10/13). No manda toda la
-// escena: sólo señales relevantes para diagnóstico.
 export function buildAiContext(s: ScadaSnapshot): Record<string, unknown> {
+  const available: Record<string, unknown> = {};
+  const unavailable: string[] = [];
+
+  // I/O: separa lo disponible de lo no conectado.
+  s.io.forEach((sig) => {
+    if (sig.source === 'NOT_CONNECTED' || sig.value === null) unavailable.push(`${sig.group}.${sig.key}`);
+    else available[`${sig.group}.${sig.key}`] = { value: sig.value, source: sig.source, ageS: sig.ageS };
+  });
+
+  // Cobot Health: sólo si está disponible.
+  let cobot: Record<string, unknown> | string = 'NOT_CONNECTED';
+  if (s.cobot.available) {
+    cobot = {
+      source: s.cobot.source,
+      controllerTempC: s.cobot.controllerTempC,
+      speedMagnificationPct: s.cobot.speedMagnificationPct,
+      maxJointTempC: s.cobot.maxJointTempC,
+      joints: s.cobot.joints.map((j) => ({ i: j.index, tempC: j.tempC, currentA: j.currentA })),
+      flags: s.cobot.flags,
+      ftForceN: s.cobot.ft ? [s.cobot.ft.fxN, s.cobot.ft.fyN, s.cobot.ft.fzN] : null,
+    };
+  } else { unavailable.push('cobot.telemetry'); }
+
+  const conveyor = s.conveyor.signalAvailable
+    ? { motorOn: s.conveyor.motorOn, onTimeS: s.conveyor.onTimeS, warning: s.conveyor.warning, source: s.conveyor.source }
+    : 'signal_not_connected';
+  if (!s.conveyor.signalAvailable) unavailable.push('conveyor.conveyor_motor_on');
+
   return {
-    plantState: s.overview.plantState,
-    stage: s.overview.stage,
-    activeFaults: s.overview.activeFaults,
-    alarms: s.alarms.filter((a) => a.active).map((a) => ({ code: a.code, severity: a.severity, station: a.station, message: a.message, durationS: Math.round(a.durationS) })),
-    conveyor: { dutyCycle5minPct: s.conveyor.dutyCycle5minPct, runningTimeCurrentCycleS: s.conveyor.runningTimeCurrentCycleS, motorTempC: s.conveyor.motorTempC, motorTempSource: s.conveyor.motorTempSource },
-    turntable: { indexCount: s.turntable.indexCount, homeHitCount: s.turntable.homeHitCount, workHitCount: s.turntable.workHitCount, lastMoveDurationS: s.turntable.lastMoveDurationS, nominalMoveDurationS: s.turntable.nominalMoveDurationS, cyclesSinceMaintenance: s.turntable.cyclesSinceMaintenance },
-    gripper: { airPressureBar: s.gripper.airPressureBar, pressureSource: s.gripper.pressureSource, faultCount: s.gripper.faultCount, cycleCount: s.gripper.cycleCount },
-    sensors: s.sensors.map((x) => ({ name: x.name, blockedTimeS: x.blockedTimeS })),
-    camera: { avgInspectionTimeMs: s.camera.avgInspectionTimeMs, failRatePct: s.quality.rejectRatePct, commStatus: s.camera.commStatus },
-    cobot: { controllerTempC: s.cobot.controllerTempC, joints: s.cobot.joints.map((j) => ({ i: j.index, tempC: j.tempC, currentA: j.currentA })), tcpPositionErrorMm: s.cobot.tcp.positionErrorMm, ftForceN: [s.cobot.ft.fxN, s.cobot.ft.fyN, s.cobot.ft.fzN] },
+    meta: {
+      mode: s.mode,
+      isDemoData: s.mode === 'DEMO',
+      note: s.mode === 'DEMO'
+        ? 'DATOS DEMO/SINTÉTICOS — NO son mediciones reales. No los uses como evidencia de una falla física.'
+        : 'Datos de telemetría real. Si un campo está en "unavailable", el sensor NO está conectado: dilo, no lo inventes.',
+      tsInternalS: Math.round(s.ts),
+      cobotLink: s.cobotLink,
+      plcLink: s.plcLink,
+    },
+    activeAlarms: s.alarms.filter((a) => a.active).map((a) => ({ code: a.code, severity: a.severity, station: a.station, message: a.message, durationS: Math.round(a.durationS), demo: !!a.demo })),
+    available,
+    unavailable,
+    cobot,
+    conveyor,
   };
 }
 
@@ -35,14 +69,12 @@ export async function requestAiDiagnosis(s: ScadaSnapshot): Promise<AiDiagnosis>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ context }),
-      // corta rápido si no hay backend (no colgar la UI)
-      signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? (AbortSignal as unknown as { timeout: (ms: number) => AbortSignal }).timeout(6000) : undefined,
+      signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? (AbortSignal as unknown as { timeout: (ms: number) => AbortSignal }).timeout(8000) : undefined,
     });
     if (!res.ok) throw new Error(`backend ${res.status}`);
     const data = (await res.json()) as Partial<AiDiagnosis>;
-    return { ...emptyDiag(), ...data, source: 'GEMINI' } as AiDiagnosis;
+    return { ...emptyDiag(), ...data, source: 'AI' } as AiDiagnosis;
   } catch {
-    // Sin backend / sin key / sin red → mock heurístico local seguro.
     return localMockDiagnosis(s);
   }
 }
@@ -51,24 +83,30 @@ function emptyDiag(): AiDiagnosis {
   return { source: 'MOCK', probableFault: '', severity: 'INFO', suspectComponent: '', recommendedAction: '', maintenanceMessage: '', checklist: [], canKeepOperating: true, evidence: [] };
 }
 
-// Heurística local (no IA): escoge la alarma más severa y arma un diagnóstico
-// coherente. Sirve de fallback y para probar la UI sin backend.
+// Heurística local (sin red, sin key). Fallback y prueba de la UI sin backend.
+// Respeta la regla "no inventar": sólo razona sobre alarmas/datos presentes.
 export function localMockDiagnosis(s: ScadaSnapshot): AiDiagnosis {
+  const isDemo = s.mode === 'DEMO';
   const active = s.alarms.filter((a) => a.active);
   const top = active.sort((a, b) => rank(b.severity) - rank(a.severity))[0];
-  const evidence: string[] = active.slice(0, 5).map((a) => `${a.severity} · ${a.station}: ${a.message}`);
+  const evidence: string[] = active.slice(0, 5).map((a) => `${a.severity} · ${a.station}: ${a.message}${a.demo ? ' (DEMO)' : ''}`);
+  const demoNote = isDemo ? ' [SNAPSHOT EN MODO DEMO — datos sintéticos, no reales]' : '';
 
   if (!top) {
+    const ok: string[] = [];
+    if (s.cobot.available && s.cobot.maxJointTempC !== null) ok.push(`Joint máx temp ${s.cobot.maxJointTempC}°C`);
+    if (s.conveyor.signalAvailable) ok.push(`Conveyor on-time ${s.conveyor.onTimeS}s`);
+    if (!s.overview.plcConnected) ok.push('PLC I/O no conectado (esperando telemetry.io)');
     return {
       source: 'MOCK',
-      probableFault: 'Sin fallas activas. Operación nominal.',
+      probableFault: `Sin alarmas activas.${demoNote}`,
       severity: 'INFO',
       suspectComponent: '—',
-      recommendedAction: 'Continuar operación. Monitoreo rutinario.',
-      maintenanceMessage: msg('INFO', 'Celda', 'Operación nominal', ['Sin alarmas activas'], 'Sin acción requerida'),
-      checklist: ['Verificar tendencias de duty cycle', 'Confirmar temperaturas de joints estables'],
+      recommendedAction: s.cobot.available ? 'Operación nominal. Monitoreo rutinario.' : 'Cobot no conectado: verificar enlace WebSocket del gateway antes de operar.',
+      maintenanceMessage: msg('INFO', 'Celda', 'Sin alarmas activas', ok, 'Sin acción requerida'),
+      checklist: s.maintenance.checklist.filter((c) => !c.done).map((c) => c.label),
       canKeepOperating: true,
-      evidence: ['Sin alarmas activas', `Duty conveyor 5min ${s.conveyor.dutyCycle5minPct}%`, `Joint max temp ${Math.max(...s.cobot.joints.map((j) => j.tempC))}°C`],
+      evidence: ok.length ? ok : ['Sin datos suficientes para evaluar (revisar conexiones)'],
     };
   }
 
@@ -78,36 +116,40 @@ export function localMockDiagnosis(s: ScadaSnapshot): AiDiagnosis {
 
   if (top.code.startsWith('CNV')) {
     suspect = 'Motor / banda del conveyor';
-    action = 'Reducir uso continuo. Detener 10–15 min para enfriar y verificar fricción de la banda.';
-    checklist = ['Medir/observar temperatura del motor', 'Revisar tensión y fricción de la banda', 'Verificar rodamientos', 'Confirmar que no hay CAFI atorado'];
-  } else if (top.code.startsWith('TT_')) {
-    suspect = 'Mesa rotatoria NEMA / limit switches';
-    action = 'Verificar limit switches y apriete de la base. Revisar tiempo de giro.';
-    checklist = ['Probar limit switch HOME y WORK', 'Revisar apriete de base y tornillería', 'Comparar tiempo de giro vs nominal', `Ciclos desde mant.: ${s.turntable.cyclesSinceMaintenance}`];
-  } else if (top.code.startsWith('GRP') || top.code.includes('PRESS')) {
-    suspect = 'Gripper neumático / suministro de aire';
-    action = 'Verificar presión de aire (6 bar nominal) y el pistón. Revisar fugas.';
-    checklist = ['Confirmar presión de línea ≥ 5.5 bar', 'Revisar fugas en mangueras/racores', 'Verificar pistón y carrera (2.5 cm)', 'Revisar válvula de control'];
-  } else if (top.code.startsWith('CAM')) {
-    suspect = 'Cámara Datalogic / comunicación';
-    action = 'Verificar comunicación de la cámara y tiempos de inspección.';
-    checklist = ['Ping/heartbeat de la cámara', 'Revisar iluminación y enfoque', 'Comparar tiempo de inspección vs promedio', 'Revisar almacenamiento de imágenes'];
+    action = `Detener el conveyor para enfriar y revisar fricción de la banda (encendido ${s.conveyor.onTimeS}s continuos).`;
+    checklist = ['Detener motor y dejar enfriar', 'Revisar tensión y fricción de la banda', 'Verificar rodamientos', 'Confirmar que no hay CAFI atorado'];
   } else if (top.code.startsWith('J') && top.code.includes('TEMP')) {
     suspect = 'Articulación del cobot (sobre-temperatura)';
     action = top.severity === 'CRITICAL' ? 'DETENER el cobot: temperatura crítica de articulación.' : 'Reducir velocidad/carga y vigilar la temperatura de la articulación.';
     checklist = ['Verificar ventilación del controlador', 'Reducir speed magnification', 'Revisar carga/fricción de la articulación', 'Dejar enfriar si supera 60°C'];
-  } else if (top.code.startsWith('EE_FORCE') || top.code.startsWith('TCP')) {
+  } else if (top.code.startsWith('EE_FORCE')) {
     suspect = 'TCP / fuerza end-effector';
-    action = 'Revisar colisión/obstrucción y recalibrar TCP si el error persiste.';
-    checklist = ['Buscar obstrucción en la trayectoria', 'Verificar montaje del gripper', 'Revisar error de posición TCP', 'Recalibrar si > umbral'];
+    action = 'Revisar colisión/obstrucción en la trayectoria y el montaje del gripper.';
+    checklist = ['Buscar obstrucción en la trayectoria', 'Verificar montaje del gripper', 'Revisar fuerza en el end-effector'];
+  } else if (top.code === 'CB_ESTOP') {
+    suspect = 'Cadena de seguridad (E-stop)';
+    action = 'DETENER. Liberar el paro de emergencia y rearmar según procedimiento.';
+    checklist = ['Verificar botón de E-stop', 'Revisar cadena de seguridad', 'Rearmar y habilitar el robot'];
+  } else if (top.code === 'CB_PSTOP' || top.code === 'CB_COLLISION') {
+    suspect = 'Cobot — paro protectivo / colisión';
+    action = 'Inspeccionar la zona del cobot por obstrucción o contacto antes de rearmar.';
+    checklist = ['Inspeccionar obstrucciones', 'Verificar payload y trayectoria', 'Rearmar protective stop'];
+  } else if (top.code === 'GRP_P_LOW_ALARM' || top.code === 'GRP_P_LOW_WARN') {
+    suspect = 'Gripper neumático / suministro de aire';
+    action = 'Verificar presión de aire y fugas en mangueras/racores.';
+    checklist = ['Confirmar presión de línea', 'Revisar fugas', 'Verificar válvula de control'];
+  } else if (top.code === 'PLC_STALE') {
+    suspect = 'Enlace PLC I/O (telemetry.io)';
+    action = 'El PLC dejó de actualizar. Revisar el gateway de la RPi y la conexión de red.';
+    checklist = ['Verificar proceso del gateway', 'Revisar túnel/red', 'Confirmar que el gateway publica telemetry.io'];
   }
 
-  const canKeep = top.severity !== 'CRITICAL' && top.code !== 'GRP_CLOSE_NOPRESS';
+  const canKeep = top.severity !== 'CRITICAL';
   const symptoms = active.slice(0, 4).map((a) => a.message);
 
   return {
     source: 'MOCK',
-    probableFault: top.message,
+    probableFault: `${top.message}${demoNote}`,
     severity: top.severity,
     suspectComponent: suspect,
     recommendedAction: action,

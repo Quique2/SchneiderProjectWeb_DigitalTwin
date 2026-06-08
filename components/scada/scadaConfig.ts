@@ -1,69 +1,49 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// scadaConfig.ts — Umbrales y constantes centrales del módulo SCADA.
+// scadaConfig.ts — Umbrales y endpoints del módulo SCADA.
 //
-// TODO el tuning de alarmas vive aquí (CAMBIO 14). Cambiar un número aquí ajusta
-// el comportamiento de las alarmas en todo el dashboard, la IA y los mensajes.
-// NO contiene secretos: la API key de Gemini vive SÓLO en el backend (env var).
+// Todo el tuning de alarmas REALES vive aquí. NO contiene secretos: la API key de
+// OpenAI vive SÓLO en el backend (env var Scada_Api_Schneider). El SCADA opera en
+// modo REAL-ONLY: estos umbrales sólo se evalúan sobre datos reales (o DEMO,
+// claramente marcados). Se eliminaron los umbrales de datos simulados que no
+// existen en tiempo real (duty cycle, temp estimada, drift de mesa, etc.).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SCADA_THRESHOLDS = {
-  // Conveyor (motor se calienta con uso continuo)
-  conveyorMaxOnTimeWarningS: 30,
-  conveyorMaxOnTimeAlarmS: 60,
-  conveyorDutyWarningPct: 60,
-  conveyorDutyAlarmPct: 80,
-  conveyorSensorBlockedAlarmS: 8,   // sensor de banda bloqueado demasiado tiempo
-  conveyorCafiStuckAlarmS: 20,      // CAFI atorado en la banda
+  // Frescura del dato: si una fuente no actualiza en este tiempo → STALE.
+  staleAfterS: 3,
 
-  // Mesa rotatoria / NEMA
-  turntableMoveTimeoutS: 8,
-  turntableTimeDriftWarningPct: 20, // tiempo de giro sube >20%
-  turntableHitsWarningCount: 20000, // demasiados golpes acumulados (warning)
-  turntableCycleMaintenance: 5000,  // revisar base
-  turntableTorqueMaintenance: 10000,// revisar apriete
-  limitSwitchMaintenance: 25000,    // revisar limit switches
+  // Conveyor — advertencia por TIEMPO ENCENDIDO (sin temperatura estimada).
+  // >60s = WARNING (posible sobrecalentamiento), >120s = ALARM (detener y revisar).
+  conveyorOnTimeWarningS: 60,
+  conveyorOnTimeAlarmS: 120,
 
-  // Gripper neumático (6 bar, doble carrera, 2.5 cm)
-  pressureMinWarningBar: 5.5,
-  pressureMinAlarmBar: 5.0,
-  pressureMaxWarningBar: 6.5,
-  pressureNominalBar: 6.0,          // presión CONFIGURADA (no medida) por defecto
-  gripperOpenTimeoutMs: 1200,
-  gripperCloseTimeoutMs: 1200,
-
-  // Sensores fotoeléctricos
-  sensorBlockedAlarmS: 8,
-  sensorDebounceMinMs: 50,
-  sensorDebounceMaxMs: 150,
-
-  // Cámara Datalogic
-  cameraInspectionTimeoutS: 3,
-  cameraFailRateWarningPct: 20,
-  cameraTimeDriftWarningPct: 20,
-  cameraStorageWarningMb: 4096,     // almacenamiento alto si se guardan imágenes
-
-  // Cobot
+  // Cobot — temperatura de articulación (medición real del controlador).
   jointTempWarningC: 50,
   jointTempAlarmC: 60,
   jointTempCriticalC: 70,
-  speedMagTestWarningPct: 30,
-  tcpPositionWarningMm: 10,
-  tcpPositionAlarmMm: 25,
-  tcpOrientationWarningDeg: 5,
+
+  // Cobot — fuerza en el end-effector (real).
   eeForceWarningN: 20,
   eeForceAlarmN: 40,
 
-  // Fixtures
-  fixtureDebounceMinMs: 50,
-  fixtureDebounceMaxMs: 150,
+  // Gripper — presión de aire (sólo si llega un sensor real, si no CONFIGURED).
+  pressureMinWarningBar: 5.5,
+  pressureMinAlarmBar: 5.0,
+  pressureNominalBar: 6.0,
 } as const;
 
 export type ScadaThresholds = typeof SCADA_THRESHOLDS;
 
-// Endpoint del asistente de IA (backend con GEMINI_API_KEY). El frontend NUNCA
-// ve la key: sólo hace POST aquí. Si el backend no existe, aiClient cae a un
-// mock local seguro (sin red, sin key). Override con EXPO_PUBLIC_SCADA_AI_URL.
+// Endpoint del asistente de IA (backend con la OpenAI key). El frontend NUNCA ve
+// la key: sólo hace POST aquí. Sin backend → aiClient cae a un mock local seguro.
 export const SCADA_AI_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_SCADA_AI_URL)
     ? String(process.env.EXPO_PUBLIC_SCADA_AI_URL)
     : '/api/scada/ai-diagnose';
+
+// Healthcheck del backend IA → { ok, model, keyConfigured }. Permite mostrar el
+// estado "CONFIGURED" del backend de OpenAI sin exponer nada sensible.
+export const SCADA_HEALTH_ENDPOINT =
+  (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_SCADA_HEALTH_URL)
+    ? String(process.env.EXPO_PUBLIC_SCADA_HEALTH_URL)
+    : '/api/scada/health';

@@ -1,42 +1,92 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // scadaTypes.ts — Tipos del módulo SCADA (solo tipos, sin runtime).
+//
+// FILOSOFÍA: SCADA REAL-ONLY por defecto. Un dato solo se muestra si proviene de
+// telemetría real (cobot por WebSocket o telemetry.io del gateway). Si un dato no
+// existe en tiempo real, su valor es `null` y su `source` es NOT_CONNECTED — NUNCA
+// se inventa. El modo DEMO (toggle, OFF por defecto) sintetiza datos SOLO para
+// presentar el SCADA sin hardware, y SIEMPRE los marca con source = DEMO.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Severity = 'INFO' | 'WARNING' | 'ALARM' | 'CRITICAL';
 
-export type DataSource = 'REAL' | 'SIM' | 'ESTIMATED' | 'CONFIGURED';
+// Estado/origen de un dato:
+//   REAL          → medición en vivo y fresca (telemetría del gateway)
+//   STALE         → era REAL pero dejó de actualizarse (dato viejo)
+//   NOT_CONNECTED → no hay fuente: el dato NO existe (se muestra "No disponible")
+//   CONFIGURED    → valor de configuración conocido, NO medido (p.ej. carrera gripper)
+//   DEMO          → dato sintético del modo demostración (NO es real)
+export type DataSource = 'REAL' | 'STALE' | 'NOT_CONNECTED' | 'CONFIGURED' | 'DEMO';
+
+export type ScadaMode = 'REAL' | 'DEMO';
+
+// Salud del enlace de una fuente (cobot WS / PLC io).
+export interface LinkState {
+  state: DataSource;        // REAL / STALE / NOT_CONNECTED / DEMO
+  connected: boolean;       // hay socket abierto
+  ageS: number | null;      // segundos desde el último frame (null = nunca llegó)
+}
 
 export interface Tag {
   name: string;
-  value: number | boolean | string;
+  value: number | boolean | string | null;   // null = no disponible
   unit?: string;
-  source: DataSource;     // REAL / SIM(mock) / ESTIMATED / CONFIGURED(no medido)
-  good?: boolean;         // calidad OPC-like (true = OK)
+  source: DataSource;
 }
+
+// Ciclo de vida de una alarma (CAMBIO 4):
+//   ACTIVE       → condición presente, sin reconocer.
+//   ACKNOWLEDGED → operador la reconoció (la condición puede seguir presente).
+//   RESOLVED     → operador la cerró Y la condición ya NO está presente.
+export type AlarmStatus = 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED';
 
 export interface Alarm {
   id: string;             // estable por código (para ack y dedupe)
-  code: string;           // fault_code
-  message: string;        // fault_message
+  code: string;
+  message: string;
   severity: Severity;
   station: string;
-  raisedAt: number;       // timestamp ms (primera vez activa)
-  durationS: number;      // segundos activa
-  acknowledged: boolean;
+  raisedAt: number;       // timestamp interno (s) — primera vez activa
+  durationS: number;
+  // `active` = la condición real sigue presente AHORA (sourceRealCondition).
   active: boolean;
+  status: AlarmStatus;
+  acknowledgedAt: number | null;
+  acknowledgedBy: string | null;
+  resolvedAt: number | null;
+  resolvedBy: string | null;
+  operatorComment: string | null;
+  demo?: boolean;         // true si la alarma proviene de datos DEMO (no reales)
 }
 
-export interface OverviewSnap {
-  plantState: string;     // RUNNING / IDLE / PAUSED / FAULT…
-  stage: string;          // etapa actual
-  activeCafiId: number | null;
-  totalProduced: number;
-  accepted: number;
-  rejected: number;
-  cycleTimeS: number;
-  availabilityPct: number;
-  activeFaults: number;
-  mode: 'SIM' | 'REAL';
+// Entrada del historial de mantenimiento (acciones reales del operador / IA).
+export interface MaintLogEntry {
+  id: string;
+  at: number;             // reloj interno (s)
+  by: string;             // 'Operador' | 'IA'
+  kind: 'COMMENT' | 'ACK' | 'RESOLVE';
+  text: string;
+  alarmCode: string | null;   // alarma asociada (o null = comentario general)
+}
+
+// Historial ligero para gráficas (memoria acotada) — CAMBIO 13.
+export interface ScadaHistory {
+  conveyorOnDurations: number[];                  // últimos 10 ON-times (s), nuevo al final
+  conveyorOnTime: { t: number; v: number }[];     // tiempo encendido EN VIVO (s) — sube/baja
+  controllerTemps: { t: number; v: number }[];    // últimos N (s, °C)
+  jointTemps: { t: number; temps: number[] }[];   // últimos N (s, [J1..J6] °C)
+  cycleTimes: number[];                           // últimos 10 tiempos de ciclo (s) — vacío en REAL sin enlace
+}
+
+// Una señal en la matriz de I/O (CAMBIO 11).
+export interface IoSignal {
+  key: string;            // id técnico (tag)
+  label: string;          // nombre legible
+  group: 'COBOT' | 'PLC';
+  kind: 'INPUT' | 'OUTPUT';
+  value: boolean | number | string | null;   // null = no disponible
+  source: DataSource;
+  ageS: number | null;    // edad del dato en s (null = sin dato)
 }
 
 export interface JointHealth {
@@ -47,154 +97,88 @@ export interface JointHealth {
 }
 
 export interface CobotHealthSnap {
-  controllerTempC: number;
-  avgPowerW: number;
-  avgCurrentA: number;
-  speedMagnificationPct: number;
+  available: boolean;     // hay telemetría de cobot (REAL/STALE/DEMO)
+  source: DataSource;
+  controllerTempC: number | null;
+  avgPowerW: number | null;
+  avgCurrentA: number | null;
+  speedMagnificationPct: number | null;
   joints: JointHealth[];
+  maxJointTempC: number | null;
+  maxJointTempJoint: number | null;   // índice (1..6) del joint más caliente (null = sin datos)
   tcp: {
     xMm: number; yMm: number; zMm: number;
     rxDeg: number; ryDeg: number; rzDeg: number;
-    targetPoseName: string;
-    positionErrorMm: number;
-    orientationErrorDeg: number;
-  };
+  } | null;
   ft: {
     fxN: number; fyN: number; fzN: number;
     txNm: number; tyNm: number; tzNm: number;
+  } | null;
+  flags: {
+    estop: boolean; protectiveStop: boolean; enabled: boolean; moving: boolean;
+    softLimit: boolean; collision: boolean; motionErr: number; powerOn: boolean;
   };
 }
 
+// Conveyor: SOLO tiempo encendido (sin temperatura estimada) — CAMBIO 5.
 export interface ConveyorSnap {
-  motorOn: boolean;
-  runningTimeCurrentCycleS: number;
-  runningTimeTotalS: number;
-  dutyCycle5minPct: number;
-  dutyCycle15minPct: number;
-  stopReason: string;
-  sensorPresent: boolean;
-  waitAfterPickTimerS: number;
-  cafisWaitingCount: number;
-  motorTempC: number;         // ESTIMADA por duty cycle (o REAL si hubiera sensor)
-  motorTempSource: DataSource;
-  starts: number;
+  signalAvailable: boolean;        // existe conveyor_motor_on (real o demo)
+  motorOn: boolean | null;
+  onTimeS: number;                 // tiempo encendido continuo
+  warning: 'NONE' | 'WARNING' | 'ALARM';
+  source: DataSource;
 }
 
-export interface TurntableSnap {
-  position: 'HOME' | 'WORK' | 'MOVING';
-  angleDeg: number;
-  target: 'HOME' | 'WORK';
-  motorRunning: boolean;
-  moveTimeS: number;
-  homeLimit: boolean;
-  workLimit: boolean;
-  indexCount: number;
-  homeHitCount: number;
-  workHitCount: number;
-  failedHomeCount: number;
-  failedWorkCount: number;
-  lastMoveDurationS: number;
-  nominalMoveDurationS: number;
-  cyclesSinceMaintenance: number;
+// Un ítem de mantenimiento accionable (CAMBIO 12).
+export interface MaintItem {
+  label: string;
+  value: string;
+  source: DataSource;
+  status: 'OK' | 'WARNING' | 'ALARM' | 'NA';
 }
 
-export interface GripperSnap {
-  airPressureBar: number;
-  pressureSource: DataSource; // CONFIGURED si no hay sensor real
-  command: 'OPEN' | 'CLOSE';
-  state: 'OPEN' | 'CLOSED' | 'UNKNOWN';
-  closeTimeMs: number;
-  openTimeMs: number;
-  cycleCount: number;
-  faultCount: number;
-  pressureLow: boolean;
-  pressureHigh: boolean;
-  strokeCm: number;
+export interface MaintChecklistItem { label: string; done: boolean; }
+
+export interface OverviewSnap {
+  plantState: 'NOMINAL' | 'WARNING' | 'ALARM' | 'CRITICAL' | 'OFFLINE';
+  stage: string | null;            // etapa del ciclo (null = sin enlace FSM/ciclo en REAL)
+  activeCafiId: number | null;     // null = no disponible
+  cobot: { connected: boolean; enabled: boolean; moving: boolean; fault: boolean };
+  plcConnected: boolean;
+  activeAlarms: number;
+  worstSeverity: Severity | null;  // peor severidad ENTRE las alarmas activas (null = ninguna)
+  conveyorWarning: string | null;  // texto si aplica
+  // Progreso / tiempo de ciclo (null en REAL: SCADA no tiene enlace a la FSM/ciclo).
+  cycleStep: number | null;
+  cycleTotal: number | null;
+  cycleTimeS: number | null;       // tiempo del ciclo en curso / último ciclo
+  avgCycleTimeS: number | null;    // promedio de los últimos 10 ciclos (null = sin historial)
 }
 
-export interface FixtureSnap {
-  id: 1 | 2;
-  present: boolean;
-  cafiId: number | null;
-  state: 'EMPTY' | 'LOADED' | 'RIVETING' | 'RIVETED';
-  insertCount: number;
-  switchCycles: number;
-}
-
-export interface SensorSnap {
-  name: string;
-  state: boolean;
-  blockedTimeS: number;
-  triggerCount: number;
-}
-
-export interface CameraSnap {
-  triggerCount: number;
-  inspectionCount: number;
-  passCount: number;
-  failCount: number;
-  noReadCount: number;
-  lastResult: 'PASS' | 'FAIL' | 'NO_READ' | '—';
-  lastInspectionTimeMs: number;
-  avgInspectionTimeMs: number;
-  maxInspectionTimeMs: number;
-  commStatus: 'ONLINE' | 'OFFLINE' | 'ERROR';
-  errorCode: string;
-  storageUsedMb: number;
-  savedImagesCount: number;
-  triggerRatePerHour: number;
-}
-
-export interface MaintenanceSnap {
-  conveyorMotorHours: number;
-  conveyorStarts: number;
-  conveyorDutyCyclePct: number;
-  turntableCycles: number;
-  homeLimitHits: number;
-  workLimitHits: number;
-  fixture1SwitchCycles: number;
-  fixture2SwitchCycles: number;
-  gripperCycles: number;
-  cameraTriggerCount: number;
-  cameraInspectionCount: number;
-  jointTemps: number[];
-}
-
-export interface QualitySnap {
-  passCount: number;
-  failCount: number;
-  rejectRatePct: number;
-  lastResult: 'PASS' | 'FAIL' | '—';
-  cameraProcessingMs: number;
-  noReadCount: number;
-}
-
-export interface IoSnap {
-  inputs: Tag[];
-  outputs: Tag[];
+export interface AiBackendHealth {
+  state: 'CONFIGURED' | 'NOT_CONFIGURED' | 'NOT_CONNECTED' | 'UNKNOWN';
+  model: string | null;
 }
 
 export interface ScadaSnapshot {
   ts: number;
-  mode: 'SIM' | 'REAL';
+  mode: ScadaMode;
+  cobotLink: LinkState;
+  plcLink: LinkState;
   overview: OverviewSnap;
-  io: IoSnap;
+  io: IoSignal[];
   alarms: Alarm[];
-  maintenance: MaintenanceSnap;
-  quality: QualitySnap;
   cobot: CobotHealthSnap;
   conveyor: ConveyorSnap;
-  turntable: TurntableSnap;
-  gripper: GripperSnap;
-  fixtures: FixtureSnap[];
-  sensors: SensorSnap[];
-  camera: CameraSnap;
-  tags: Tag[];   // tabla plana de TODOS los tags (para la "tabla de tags")
+  maintenance: { items: MaintItem[]; checklist: MaintChecklistItem[] };
+  maintenanceLog: MaintLogEntry[];   // historial real de comentarios/acciones del operador
+  history: ScadaHistory;             // series para gráficas (conveyor, joints, controlador)
+  tags: Tag[];   // tabla avanzada (todas las señales con dato) — solo modo debug
 }
 
-// Respuesta del asistente de IA (Gemini o mock).
+// Respuesta del asistente de IA (OpenAI o mock local).
 export interface AiDiagnosis {
-  source: 'GEMINI' | 'MOCK';
+  source: 'AI' | 'MOCK';
   probableFault: string;
   severity: Severity;
   suspectComponent: string;

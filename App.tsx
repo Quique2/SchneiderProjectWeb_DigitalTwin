@@ -30,6 +30,17 @@ const TABS: TabDef[] = [
 
 const TOPBAR_HEIGHT = 60;
 
+function readScadaStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.hash === '#scada' || window.location.search.includes('scada');
+}
+
+function openScadaPage(): void {
+  if (typeof window === 'undefined') return;
+  const { origin, pathname } = window.location;
+  window.open(`${origin}${pathname}#scada`, '_blank', 'noopener');
+}
+
 // System sans-serif stack picks the OS-native UI font (SF Pro on macOS,
 // Segoe UI on Windows, Roboto on Android/ChromeOS) so the chrome looks
 // native and professional without shipping a font file.
@@ -39,7 +50,12 @@ const MONO_FONT =
   '"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Courier New", monospace';
 
 export default function App() {
+  const [standalone] = useState(readScadaStandalone);
   const [tab, setTab] = useState<TabId>('inicio');
+
+  if (standalone) {
+    return <ScadaView />;
+  }
 
   useEffect(() => {
     // React Native Web sets overflow:hidden on html/body/root — override it.
@@ -127,7 +143,7 @@ export default function App() {
           {TABS.map((t) => {
             const active = t.id === tab;
             return (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{
+              <button key={t.id} onClick={() => { if (t.id === 'scada') openScadaPage(); else setTab(t.id); }} style={{
                 position: 'relative',
                 background: active ? 'rgba(184,115,51,0.12)' : 'transparent',
                 color: active ? '#f1f5f9' : '#8a9bb4',
@@ -144,7 +160,7 @@ export default function App() {
               }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = '#dde4f0'); }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = '#8a9bb4'); }}>
-                {t.label}
+                {t.label}{t.id === 'scada' ? ' ↗' : ''}
                 {active && (
                   <div style={{
                     position: 'absolute', left: 12, right: 12, bottom: 0, height: 2,

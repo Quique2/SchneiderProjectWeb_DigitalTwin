@@ -1394,26 +1394,28 @@ export default function CobotLiveView() {
               }}>Cámara Datalogic</div>
             </Html>
 
-            {/* Live HMI mirrored onto the physical 3D screen */}
-            <Html
+            {/* Live HMI mirrored onto the physical 3D screen
+                transform=true → scales with zoom; rotation X+90° → face toward -Y (viewer) */}
+            <group
               position={[
                 0.442205 + layout.turntableOffset[0],
                 0.453    + layout.turntableOffset[1],
                 1.420,
               ]}
-              center
-              zIndexRange={[99, 0]}
+              rotation={[Math.PI / 2, 0, 0]}
             >
-              <div style={{ width: 280, height: 165, pointerEvents: 'none', overflow: 'hidden', borderRadius: 3 }}>
-                <HmiSvgPanel
-                  hmi={telemetry.hmi}
-                  pipeline={telemetry.pipeline}
-                  lastFrameTs={lastFrameTs}
-                  apiBase={gatewayBase(url)}
-                  controlEnabled={controlEnabled}
-                />
-              </div>
-            </Html>
+              <Html transform center zIndexRange={[99, 0]} scale={0.275 / 480}>
+                <div style={{ width: 480, height: 300, pointerEvents: 'none', overflow: 'hidden', borderRadius: 3 }}>
+                  <HmiSvgPanel
+                    hmi={telemetry.hmi}
+                    pipeline={telemetry.pipeline}
+                    lastFrameTs={lastFrameTs}
+                    apiBase={gatewayBase(url)}
+                    controlEnabled={controlEnabled}
+                  />
+                </div>
+              </Html>
+            </group>
           </Canvas>
 
           {/* Magnet status badge */}

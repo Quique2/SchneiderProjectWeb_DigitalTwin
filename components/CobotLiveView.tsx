@@ -1379,14 +1379,14 @@ export default function CobotLiveView() {
               <Turntable angleRef={turntableAngleRef} robotRef={turntableRobotRef}
                 offset={layout.turntableOffset} zLift={BASE_TURNTABLE} />
             </Suspense>
-            <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center>
+            <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center zIndexRange={[99, 0]}>
               <div style={{
                 fontSize: 9, color: '#60a5fa', background: 'rgba(6,16,28,0.82)',
                 border: '1px solid #60a5fa44', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
               }}>Lexium Cobot {applyToModel ? '· live joints' : '· HOME'}</div>
             </Html>
-            <Html position={[0.750 + layout.visionOffset[0], 0.804 + layout.visionOffset[1], 2.0]} center>
+            <Html position={[0.750 + layout.visionOffset[0], 0.804 + layout.visionOffset[1], 2.0]} center zIndexRange={[99, 0]}>
               <div style={{
                 fontSize: 9, color: '#e879f9', background: 'rgba(6,16,28,0.82)',
                 border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,

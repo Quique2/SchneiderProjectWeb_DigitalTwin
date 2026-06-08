@@ -36,9 +36,7 @@ function readScadaStandalone(): boolean {
 }
 
 function openScadaPage(): void {
-  if (typeof window === 'undefined') return;
-  const { origin, pathname } = window.location;
-  window.open(`${origin}${pathname}#scada`, '_blank', 'noopener');
+  window.open('https://digitaltwinwebordo-production.up.railway.app/#scada', '_blank', 'noopener');
 }
 
 // System sans-serif stack picks the OS-native UI font (SF Pro on macOS,

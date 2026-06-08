@@ -689,6 +689,11 @@ export default function CobotLiveView() {
     postControl('/api/cobot/move/cartesian', { x: cart.x, y: cart.y, z: cart.z, rx: cart.rx, ry: cart.ry, rz: cart.rz, speed: cartSpeed });
   };
   const cobotStop = () => postControl('/api/cobot/stop');
+  const cobotPowerOn = () => postControl('/api/cobot/power_on');
+  const cobotPowerOff = () => {
+    if (!window.confirm('¿Apagar la potencia del cobot? El robot quedará sin par de motores.')) return;
+    postControl('/api/cobot/power_off');
+  };
   const cobotEnable = () => postControl('/api/cobot/enable');
   const cobotDisable = () => postControl('/api/cobot/disable');
   // Magnetic gripper: closed=true energises the magnet (grab), false releases.
@@ -1645,6 +1650,38 @@ export default function CobotLiveView() {
               background: controlEnabled ? 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)' : '#3a2530',
               boxShadow: controlEnabled ? '0 0 14px rgba(239,68,68,0.45)' : 'none',
             }}>■ STOP</button>
+
+            {/* Power ON / Power OFF */}
+            {(() => {
+              const powered = telemetry.status?.power_on ?? false;
+              return (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                      Potencia motores
+                    </div>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: powered ? '#22dd55' : '#475569',
+                      boxShadow: powered ? '0 0 6px #22dd55' : 'none',
+                    }} />
+                    <span style={{ fontSize: 9, color: powered ? '#22dd55' : '#5a6c84', fontFamily: 'monospace', fontWeight: 700 }}>
+                      {powered ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    <button onClick={cobotPowerOn} disabled={!controlEnabled || cmdBusy || powered}
+                      style={ctrlBtn(!controlEnabled || cmdBusy || powered ? false : true, '#22c55e', '#15803d')}>
+                      ⚡ Power ON
+                    </button>
+                    <button onClick={cobotPowerOff} disabled={!controlEnabled || cmdBusy || !powered}
+                      style={ctrlBtn(!controlEnabled || cmdBusy || !powered ? false : true, '#dc2626', '#991b1b')}>
+                      ⏻ Power OFF
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Enable / Disable */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 8 }}>

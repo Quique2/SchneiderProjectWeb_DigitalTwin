@@ -2049,7 +2049,7 @@ export default function CobotLiveView() {
         <div
           onClick={() => setCameraOpen(false)}
           style={{
-            position: 'absolute', inset: 0, zIndex: 50,
+            position: 'absolute', inset: 0, zIndex: 150,
             background: 'rgba(4,10,18,0.86)', backdropFilter: 'blur(3px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
           }}>

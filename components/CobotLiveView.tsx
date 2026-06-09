@@ -1233,25 +1233,23 @@ export default function CobotLiveView() {
       joints: urdfDeg.map((d) => THREE.MathUtils.degToRad(d)) as TeachPose['joints'],
     })), []);
 
-  const ghostJointsRad = rpiRunning && telemetry.joint_positions_deg?.length === 6
-    ? telemetry.joint_positions_deg.map((d, i) =>
-        THREE.MathUtils.degToRad(JOINT_SIGN[i] * d + JOINT_OFFSET_DEG[i]))
-    : showPendant
-      ? pendantJointsSnapshot
-      : ghostSource === 'custom'
-        ? controllerDegToUrdfRad(cmdJoints)
-        : ghostSource === 'lib2'
-          ? (() => {
-              const raw = POSE_LIBRARY_DEG[selectedLib2] ?? POSE_LIBRARY_DEG.HOME;
-              const rads = controllerDegToUrdfRad(lib2CtrlDeg(selectedLib2));
-              // Only correct joints that are just above 180° (≤200°): these wrap to
-              // near -180° creating a false 341° jump from poses like SAFE_RIVET at
-              // 167°. Poses further above 180° (CAMERA 238°, REJECTED 263°, etc.)
-              // looked correct with the plain wrap—they sit consistently on the
-              // negative side and should not be shifted.
-              return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
-            })()
-          : POSE_LIBRARY_DEG.HOME;
+  // lib2GhostRads: converts a named lib2 pose to URDF radians, adding 2π to
+  // joints just above 180° (≤200°) to avoid a 341° visual jump from wrapTo180.
+  const lib2GhostRads = (name: string) => {
+    const raw = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
+    const rads = controllerDegToUrdfRad(lib2CtrlDeg(name));
+    return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
+  };
+
+  // Ghost always shows the target/selected pose — the gray real-cobot model
+  // already mirrors live telemetry, so the ghost should always show the
+  // commanded target. During the demo cycle moveR sets selectedLib2 to the
+  // next commanded pose so the ghost previews where the arm is heading.
+  const ghostJointsRad = showPendant
+    ? pendantJointsSnapshot
+    : ghostSource === 'custom'
+      ? controllerDegToUrdfRad(cmdJoints)
+      : lib2GhostRads(selectedLib2);
   const ghostLabel = ghostSource === 'custom'
     ? 'PERSONALIZADO'
     : ghostSource === 'lib2'

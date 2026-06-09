@@ -185,9 +185,6 @@ interface CobotTelemetry {
   tcp_position: { x_mm: number; y_mm: number; z_mm: number; rx_deg: number; ry_deg: number; rz_deg: number };
   end_effector: { fx_n: number; fy_n: number; fz_n: number; torque_rx_nm: number; torque_ry_nm: number; torque_rz_nm: number };
   joint_temperatures_c: number[];
-  // Magnetic gripper: closed = magnet ON (holding). Reflects the last command
-  // sent from the backend (the cabinet DOs aren't read back over Modbus).
-  gripper?: { closed: boolean; do_index: number };
   // Pneumatic gripper (cabinet CN2, DO7/DO8): open valve A, close valve B,
   // off keeps the last position. Reflects the last commanded state.
   pneumatic_gripper?: { state: 'off' | 'open' | 'close'; open_do_index: number; close_do_index: number };
@@ -258,7 +255,6 @@ const DEMO_TELEMETRY: CobotTelemetry = {
   tcp_position: { x_mm: 20.96, y_mm: 56.38, z_mm: 738.96, rx_deg: -93.077, ry_deg: -80.883, rz_deg: -109.185 },
   end_effector: { fx_n: 0, fy_n: 0, fz_n: 0, torque_rx_nm: 0, torque_ry_nm: 0, torque_rz_nm: 0 },
   joint_temperatures_c: [33, 34, 32, 35, 36, 38],
-  gripper: { closed: false, do_index: 6 },
   pneumatic_gripper: { state: 'off', open_do_index: 7, close_do_index: 8 },
   sensors: { conveyor: false, vision: false },
   fixtures: { fixtureA: false, fixtureB: false },
@@ -710,8 +706,6 @@ export default function CobotLiveView() {
   };
   const cobotEnable = () => postControl('/api/cobot/enable');
   const cobotDisable = () => postControl('/api/cobot/disable');
-  // Magnetic gripper: closed=true energises the magnet (grab), false releases.
-  const setGripper = (closed: boolean) => postControl('/api/cobot/gripper', { closed });
   // Pneumatic gripper: 3-state (open valve A / close valve B / off both).
   const setPneumaticGripper = (action: 'open' | 'close' | 'off') =>
     postControl('/api/cobot/pneumatic_gripper', { action });
@@ -1186,8 +1180,6 @@ export default function CobotLiveView() {
     : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
   // Control commands only make sense against a reachable gateway.
   const controlEnabled = mode === 'live';
-  // Gripper magnet state (last commanded; see stream caveat). Drives the toggle.
-  const gripperClosed = telemetry.gripper?.closed ?? false;
   // Pneumatic gripper state (last commanded), drives the 3-button selector.
   const pneuState = telemetry.pneumatic_gripper?.state ?? 'off';
   // Photoelectric sensors (live) + conveyor motor (last commanded).
@@ -1418,20 +1410,6 @@ export default function CobotLiveView() {
             </group>
           </Canvas>
 
-          {/* Magnet status badge */}
-          <div style={{
-            position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: 7,
-            fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700,
-            padding: '7px 12px', borderRadius: 8,
-            color: gripperClosed ? '#06101c' : '#9bb0c8',
-            background: gripperClosed ? 'linear-gradient(180deg,#ffd24d 0%,#f0a800 100%)' : 'rgba(20,30,48,0.85)',
-            border: `1px solid ${gripperClosed ? '#ffd24d' : '#1d2c44'}`,
-            boxShadow: gripperClosed ? '0 0 16px rgba(255,200,60,0.55)' : 'none',
-          }}>
-            <span style={{ fontSize: 14 }}>🧲</span>
-            {gripperClosed ? 'IMÁN ON · agarrando' : 'imán off · suelto'}
-          </div>
-
           {/* model-source toggle */}
           <button onClick={() => setApplyToModel((v) => !v)} style={{
             position: 'absolute', left: 12, bottom: 12, fontFamily: SANS_FONT,
@@ -1614,19 +1592,6 @@ export default function CobotLiveView() {
               <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#22cc55', '#15803d')}>ENABLE</button>
               <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#f47835', '#d96416')}>DISABLE</button>
             </div>
-
-            {/* Magnetic gripper toggle */}
-            <button onClick={() => setGripper(!gripperClosed)} disabled={!controlEnabled || cmdBusy} style={{
-              width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700,
-              cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
-              padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
-              color: gripperClosed ? '#06101c' : '#fff',
-              background: !controlEnabled ? '#2a3548'
-                : gripperClosed ? 'linear-gradient(180deg,#ffd24d 0%,#f0a800 100%)'
-                : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
-            }}>
-              🧲 {gripperClosed ? 'IMÁN ON — clic para SOLTAR' : 'IMÁN OFF — clic para AGARRAR'}
-            </button>
 
             {/* Pneumatic gripper — 3-state selector (open / close / off) */}
             <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '2px 0 4px' }}>
@@ -2001,12 +1966,6 @@ export default function CobotLiveView() {
             <Flag label="Soft limit" on={s.on_soft_limit} goodWhenOn={false} />
             <div style={statRow}><span>Motion mode</span><span style={{ color: '#9bf' }}>{s.motion_mode_name}</span></div>
             <div style={statRow}><span>Error code</span><span style={{ color: '#fbbf24' }}>{s.motion_errcode}</span></div>
-            <div style={statRow}>
-              <span>Gripper (imán)</span>
-              <span style={{ color: gripperClosed ? '#ffd24d' : '#788090', fontWeight: 700 }}>
-                {gripperClosed ? 'ON · agarrando' : 'OFF · suelto'}
-              </span>
-            </div>
             <div style={statRow}>
               <span>Gripper neumático</span>
               <span style={{

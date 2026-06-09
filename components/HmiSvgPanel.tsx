@@ -16,7 +16,6 @@ export interface HmiBlock {
   I_COBOT_READY: boolean;
   I_GRIPPER_OPEN: boolean;
   I_GRIPPER_CLOSED: boolean;
-  O_GRIPPER_OFF: boolean;
   O_CONVEYOR_MOTOR: boolean;
   O_CAMERA_TRIGGER: boolean;
   O_TABLE_NEMA_MOVING: boolean;
@@ -291,9 +290,6 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
           <rect x="10" y="210" width="296" height="54" rx="6" fill="#0B1726" stroke="#1E3A5F"
             strokeWidth="1.5" filter="url(#hmiShadow)"/>
           <text x="18" y="223" fill="#6FA8FF" fontSize="8" fontWeight="700" letterSpacing="2">DIGITAL OUTPUTS</text>
-
-          <circle cx="39.6"  cy="242" r="6" fill={led('O_GRIPPER_OFF',      '#22FF66')} stroke="#1E3A5F" strokeWidth="1"/>
-          <text x="39.6"  y="257" fill="#8AA7C7" fontSize="6.5" textAnchor="middle">Grip Off</text>
 
           <circle cx="98.8"  cy="242" r="6" fill={led('O_CONVEYOR_MOTOR',   '#22FF66')} stroke="#1E3A5F" strokeWidth="1"/>
           <text x="98.8"  y="257" fill="#8AA7C7" fontSize="6.5" textAnchor="middle">Conv Motor</text>

@@ -186,7 +186,6 @@ export function createScadaEngine(): ScadaEngine {
       gripper_open: gripOpen,
       gripper_closed: !gripOpen,
       // outputs
-      gripper_off: gripOpen,
       conveyor_motor_on: sc < 70,
       camera_trigger: p > 7.9 && p < 8.15,
       table_nema_moving: (p > 5.8 && p < 6.6) || (p > 11.6),
@@ -464,8 +463,7 @@ export function createScadaEngine(): ScadaEngine {
       { key: 'I_CAMERA_NO_READ', label: 'Camera NO-READ', kind: 'INPUT', val: iob('camera_no_read') },
       { key: 'I_GRIPPER_OPEN', label: 'Gripper open', kind: 'INPUT', val: iob('gripper_open') },
       { key: 'I_GRIPPER_CLOSED', label: 'Gripper closed', kind: 'INPUT', val: iob('gripper_closed') },
-      // Outputs (8)
-      { key: 'O_GRIPPER_OFF', label: 'Gripper OFF', kind: 'OUTPUT', val: iob('gripper_off') },
+      // Outputs (7)
       { key: 'O_CONVEYOR_MOTOR', label: 'Conveyor motor', kind: 'OUTPUT', val: iob('conveyor_motor_on') },
       { key: 'O_CAMERA_TRIGGER', label: 'Camera trigger', kind: 'OUTPUT', val: iob('camera_trigger') },
       { key: 'O_TABLE_NEMA_MOVING', label: 'Disco (NEMA) moving', kind: 'OUTPUT', val: iob('table_nema_moving') },

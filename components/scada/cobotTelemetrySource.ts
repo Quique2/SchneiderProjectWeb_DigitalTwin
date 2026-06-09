@@ -52,7 +52,6 @@ export interface ScadaIoFrame {
   gripper_open?: boolean | null;           // I_GRIPPER_OPEN
   gripper_closed?: boolean | null;         // I_GRIPPER_CLOSED
   // ── Outputs (coils / DO del PLC) — lista canónica del HMI ──
-  gripper_off?: boolean | null;            // O_GRIPPER_OFF
   conveyor_motor_on?: boolean | null;      // O_CONVEYOR_MOTOR
   camera_trigger?: boolean | null;         // O_CAMERA_TRIGGER
   table_nema_moving?: boolean | null;      // O_TABLE_NEMA_MOVING
@@ -83,7 +82,7 @@ export function normalizeIo(raw: unknown): ScadaIoFrame | null {
     camera_ready: b('camera_ready'), camera_error: b('camera_error'), camera_no_read: b('camera_no_read'),
     gripper_open: b('gripper_open'), gripper_closed: b('gripper_closed'),
     // outputs
-    gripper_off: b('gripper_off'), conveyor_motor_on: b('conveyor_motor_on'),
+    conveyor_motor_on: b('conveyor_motor_on'),
     camera_trigger: b('camera_trigger'), table_nema_moving: b('table_nema_moving'),
     rivet_active: b('rivet_active'),
     stacklight_green: b('stacklight_green'), stacklight_yellow: b('stacklight_yellow'), stacklight_red: b('stacklight_red'),

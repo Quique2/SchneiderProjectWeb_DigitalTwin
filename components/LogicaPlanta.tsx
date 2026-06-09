@@ -1,27 +1,25 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // LogicaPlanta.tsx — Dashboard interactivo de documentación de la lógica de la
 // celda de remachado (Schneider Digital Twin).
-//
-// Documentación VIVA de LOGICA_PLANTA_SCHNEIDER.md, reorganizada como dashboard
-// técnico: índice lateral + secciones (resumen, flujo, componentes, señales I/O,
-// fixtures A/B, estados de celda, estados del CAFI, timeline, reglas, seguridad).
-// NO está conectado a la simulación real (cellStateMachine.ts) — es referencia.
-//
-// Solo UI/UX: la data lógica (CELL_STATES, CAFI_STATES, RULE_BLOCKS) se conserva.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useTheme, Theme } from '../context/ThemeContext';
 
-// ─── Tokens de color (dark técnico Schneider) ────────────────────────────────
-const C = {
-  bg: '#07111e', panel: '#0e1a2c', panel2: '#0a1422', card: '#101d30',
-  border: '#1d2c44', borderSoft: '#16243a',
-  text: '#e4ebf5', muted: '#90a4bd', dim: '#5a6c84',
+const MONO = "'JetBrains Mono','Fira Code','IBM Plex Mono',monospace";
+const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif';
+
+// Accent colors — same in both themes
+const A = {
   green: '#22dd55', blue: '#3b8bff', orange: '#fb923c', purple: '#a78bfa',
   cyan: '#22d3ee', red: '#ff5566', amber: '#fbbf24',
 };
-const MONO = "'JetBrains Mono','Fira Code','IBM Plex Mono',monospace";
-const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif';
+
+// Combined color bag: theme tokens + accent constants
+interface C extends Theme { card: string; green: string; blue: string; orange: string; purple: string; cyan: string; red: string; amber: string }
+function makeC(T: Theme): C {
+  return { ...T, card: T.dark ? '#101d30' : T.panel, ...A };
+}
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 interface Transition { to: string; label: string; condition?: string }
@@ -79,15 +77,15 @@ const CELL_STATES: Record<string, CellStateDef> = {
 
 // ─── Data: estados del CAFI ──────────────────────────────────────────────────
 const CAFI_STATES: Record<string, CafiStateDef> = {
-  DISPENSED: { label: 'DISPENSED', color: '#0ea5e9', group: 'conveyor', desc: 'El CAFI acaba de caer del dispensador al conveyor. Usa el modelo 3D real desde este estado.', transitions: [{ to: 'ON_CONVEYOR_WAITING', label: 'Conveyor en RUNNING' }] },
+  DISPENSED: { label: 'DISPENSED', color: '#0ea5e9', group: 'conveyor', desc: 'El CAFI acaba de caer del dispensador al conveyor.', transitions: [{ to: 'ON_CONVEYOR_WAITING', label: 'Conveyor en RUNNING' }] },
   ON_CONVEYOR_WAITING: { label: 'ON CONVEYOR\nWAITING', color: '#38bdf8', group: 'conveyor', desc: 'En el conveyor, moviéndose hacia el sensor. Máximo 2 CAFIs pueden estar esperando.', transitions: [{ to: 'AT_SENSOR', label: 'Sensor fotoeléctrico detecta CAFI' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
   AT_SENSOR: { label: 'AT SENSOR', color: '#0284c7', group: 'conveyor', desc: 'Sensor fotoeléctrico ocupado. Conveyor detenido. Cobot puede tomar si fixture externo está libre.', transitions: [{ to: 'IN_GRIPPER', label: 'Cobot hace pick' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_GRIPPER: { label: 'IN GRIPPER', color: '#f59e0b', group: 'cobot', desc: 'Cobot sostiene el CAFI. Gripper cerrado. Si hay RESTART ahora → CAFI va a bin de rechazo.', transitions: [{ to: 'IN_OUTSIDE_FIXTURE', label: 'Cobot place en fixture externo + limit switch activa' }, { to: 'IN_INSPECTION', label: 'Si viene de RIVETED → cobot lo lleva a cámara' }, { to: 'ACCEPTED_BIN', label: 'CAFI inspeccionado PASS → cobot lo coloca' }, { to: 'REJECTED_BIN', label: 'CAFI inspeccionado FAIL o RESTART' }] },
-  IN_OUTSIDE_FIXTURE: { label: 'IN OUTSIDE\nFIXTURE', color: '#8b5cf6', group: 'mesa', desc: 'CAFI colocado en fixture externo. Limit switch del fixture confirmó presencia. Mesa puede girar.', transitions: [{ to: 'IN_RIVET_FIXTURE', label: 'Mesa gira 180°' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_RIVET_FIXTURE: { label: 'IN RIVET\nFIXTURE', color: '#7c3aed', group: 'mesa', desc: 'Mesa giró. Este fixture ahora está en zona de remachado. rivetFixturePresent=true.', transitions: [{ to: 'RIVETING', label: 'rivetFixturePresent=true + mesa en WORK limit + cobot fuera' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  RIVETING: { label: 'RIVETING\n(30 seg)', color: '#dc2626', group: 'remachado', desc: 'Remachado activo durante 30 segundos exactos. Mesa bloqueada. Cobot no puede entrar a zona.', transitions: [{ to: 'RIVETED', label: '30 segundos completados' }] },
-  RIVETED: { label: 'RIVETED', color: '#b45309', group: 'remachado', desc: 'Remachado terminado. Cobot debe retirarlo. Este CAFI tiene prioridad absoluta.', transitions: [{ to: 'IN_GRIPPER', label: 'Cobot hace pick del CAFI remachado' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_INSPECTION: { label: 'IN\nINSPECTION', color: '#0891b2', group: 'vision', desc: 'Cobot colocó el CAFI en la cámara. vision_present=true. Inspección en curso.', transitions: [{ to: 'INSPECTED_PASS', label: 'vision_result = PASS' }, { to: 'INSPECTED_FAIL', label: 'vision_result = FAIL' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
+  IN_GRIPPER: { label: 'IN GRIPPER', color: '#f59e0b', group: 'cobot', desc: 'Cobot sostiene el CAFI. Gripper cerrado.', transitions: [{ to: 'IN_OUTSIDE_FIXTURE', label: 'Cobot place en fixture externo' }, { to: 'IN_INSPECTION', label: 'Viene de RIVETED → lleva a cámara' }, { to: 'ACCEPTED_BIN', label: 'CAFI inspeccionado PASS' }, { to: 'REJECTED_BIN', label: 'CAFI inspeccionado FAIL o RESTART' }] },
+  IN_OUTSIDE_FIXTURE: { label: 'IN OUTSIDE\nFIXTURE', color: '#8b5cf6', group: 'mesa', desc: 'CAFI colocado en fixture externo. Limit switch confirmó presencia.', transitions: [{ to: 'IN_RIVET_FIXTURE', label: 'Mesa gira 180°' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
+  IN_RIVET_FIXTURE: { label: 'IN RIVET\nFIXTURE', color: '#7c3aed', group: 'mesa', desc: 'Mesa giró. Este fixture ahora está en zona de remachado.', transitions: [{ to: 'RIVETING', label: 'rivetFixturePresent=true + mesa detenida' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
+  RIVETING: { label: 'RIVETING\n(30 seg)', color: '#dc2626', group: 'remachado', desc: 'Remachado activo durante 30 segundos exactos. Mesa bloqueada.', transitions: [{ to: 'RIVETED', label: '30 segundos completados' }] },
+  RIVETED: { label: 'RIVETED', color: '#b45309', group: 'remachado', desc: 'Remachado terminado. Cobot debe retirarlo. Prioridad absoluta.', transitions: [{ to: 'IN_GRIPPER', label: 'Cobot hace pick del CAFI remachado' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
+  IN_INSPECTION: { label: 'IN\nINSPECTION', color: '#0891b2', group: 'vision', desc: 'Cobot colocó el CAFI en la cámara. Inspección en curso.', transitions: [{ to: 'INSPECTED_PASS', label: 'vision_result = PASS' }, { to: 'INSPECTED_FAIL', label: 'vision_result = FAIL' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
   INSPECTED_PASS: { label: 'INSPECTED\nPASS', color: '#059669', group: 'vision', desc: 'Cámara dijo PASS. Cobot lo coloca en bin de aceptados.', transitions: [{ to: 'ACCEPTED_BIN', label: 'Cobot place en bin aceptado' }] },
   INSPECTED_FAIL: { label: 'INSPECTED\nFAIL', color: '#dc2626', group: 'vision', desc: 'Cámara dijo FAIL. Cobot lo coloca en bin de rechazados.', transitions: [{ to: 'REJECTED_BIN', label: 'Cobot place en bin rechazado' }] },
   ACCEPTED_BIN: { label: 'ACCEPTED\nBIN', color: '#065f46', group: 'fin', desc: 'CAFI colocado en bin de aceptados. Ciclo terminado.', transitions: [{ to: 'DONE', label: '' }] },
@@ -111,41 +109,39 @@ const RULE_BLOCKS: RuleBlock[] = [
   { color: '#64748b', title: 'Después de RESTART: limpieza obligatoria antes de START', rules: ['fixtureA_limit debe estar libre (false)', 'fixtureB_limit debe estar libre (false)', 'sensor_conveyor_present debe estar libre (false)', 'vision_present debe estar libre (false)', 'Operador confirma limpieza → Sistema verifica → IDLE → START'] },
 ];
 
-// ─── Data nueva (solo presentación) ──────────────────────────────────────────
-const COMPONENTS = [
-  { name: 'Dispensador CAFI', color: C.amber, role: 'Suelta piezas CAFI crudas al conveyor (máx 2 en cola).' },
+const COMPONENTS_DATA = [
+  { name: 'Dispensador CAFI', color: A.amber, role: 'Suelta piezas CAFI crudas al conveyor (máx 2 en cola).' },
   { name: 'Conveyor', color: '#0ea5e9', role: 'Transporta el CAFI hasta el sensor fotoeléctrico de pick.' },
-  { name: 'Cobot Lexium', color: C.orange, role: '6 ejes. Pick/place: conveyor → fixture → cámara → bins.' },
-  { name: 'Mesa rotatoria', color: C.purple, role: '2 fixtures A/B; gira 180° e intercambia roles (carga ↔ remachado).' },
-  { name: 'Remachadora', color: C.red, role: 'Remacha el CAFI en el fixture interno durante 30 s exactos.' },
+  { name: 'Cobot Lexium', color: A.orange, role: '6 ejes. Pick/place: conveyor → fixture → cámara → bins.' },
+  { name: 'Mesa rotatoria', color: A.purple, role: '2 fixtures A/B; gira 180° e intercambia roles (carga ↔ remachado).' },
+  { name: 'Remachadora', color: A.red, role: 'Remacha el CAFI en el fixture interno durante 30 s exactos.' },
   { name: 'Cámara de visión', color: '#06b6d4', role: 'Inspecciona el CAFI remachado → veredicto PASS / FAIL.' },
-  { name: 'Bins', color: C.green, role: 'Destino final: bin de aceptados (PASS) o rechazados (FAIL).' },
+  { name: 'Bins', color: A.green, role: 'Destino final: bin de aceptados (PASS) o rechazados (FAIL).' },
 ];
 
-const SIGNALS: { name: string; io: 'IN' | 'OUT'; desc: string; color: string }[] = [
+const SIGNALS_DATA: { name: string; io: 'IN' | 'OUT'; desc: string; color: string }[] = [
   { name: 'sensor_conveyor_present', io: 'IN', desc: 'Sensor fotoeléctrico: CAFI en posición de pick.', color: '#0ea5e9' },
-  { name: 'fixtureA_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture A.', color: C.purple },
-  { name: 'fixtureB_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture B.', color: C.purple },
-  { name: 'table_home_limit', io: 'IN', desc: 'Limit switch: mesa en posición HOME (0°).', color: C.amber },
-  { name: 'table_work_limit', io: 'IN', desc: 'Limit switch: mesa en posición WORK (180°).', color: C.amber },
+  { name: 'fixtureA_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture A.', color: A.purple },
+  { name: 'fixtureB_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture B.', color: A.purple },
+  { name: 'table_home_limit', io: 'IN', desc: 'Limit switch: mesa en posición HOME (0°).', color: A.amber },
+  { name: 'table_work_limit', io: 'IN', desc: 'Limit switch: mesa en posición WORK (180°).', color: A.amber },
   { name: 'vision_present', io: 'IN', desc: 'CAFI presente en el plato de la cámara.', color: '#06b6d4' },
   { name: 'vision_result', io: 'IN', desc: 'Veredicto de la cámara: PASS / FAIL.', color: '#06b6d4' },
-  { name: 'gripper_open / closed', io: 'OUT', desc: 'Estado del gripper neumático del cobot (DO).', color: C.orange },
-  { name: 'rivet_active', io: 'OUT', desc: 'Comando de remachado (30 s); mesa bloqueada.', color: C.red },
-  { name: 'table_rotate', io: 'OUT', desc: 'Comando de giro 180° de la mesa.', color: C.purple },
+  { name: 'gripper_open / closed', io: 'OUT', desc: 'Estado del gripper neumático del cobot (DO).', color: A.orange },
+  { name: 'rivet_active', io: 'OUT', desc: 'Comando de remachado (30 s); mesa bloqueada.', color: A.red },
+  { name: 'table_rotate', io: 'OUT', desc: 'Comando de giro 180° de la mesa.', color: A.purple },
   { name: 'conveyor_run', io: 'OUT', desc: 'Avance del conveyor (se detiene en AT_SENSOR / STOP).', color: '#0ea5e9' },
 ];
 
-const FLOW = [
+const FLOW_DATA = [
   { label: 'Conveyor', color: '#0ea5e9' },
-  { label: 'Cobot', color: C.orange },
-  { label: 'Fixture', color: C.purple },
-  { label: 'Remachado', color: C.red },
+  { label: 'Cobot', color: A.orange },
+  { label: 'Fixture', color: A.purple },
+  { label: 'Remachado', color: A.red },
   { label: 'Visión', color: '#06b6d4' },
-  { label: 'Bin', color: C.green },
+  { label: 'Bin', color: A.green },
 ];
 
-// Timeline del ciclo (camino principal "accept")
 const TIMELINE = [
   { t: 'DISPENSED', d: 'CAFI cae del dispensador' },
   { t: 'AT_SENSOR', d: 'Llega al sensor; conveyor para' },
@@ -160,16 +156,16 @@ const TIMELINE = [
 ];
 
 const SECTIONS = [
-  { id: 'resumen', label: 'Resumen', color: C.blue },
-  { id: 'flujo', label: 'Flujo de producción', color: '#0ea5e9' },
-  { id: 'componentes', label: 'Componentes', color: C.orange },
-  { id: 'senales', label: 'Sensores y señales', color: C.cyan },
-  { id: 'fixtures', label: 'Fixtures A / B', color: C.purple },
-  { id: 'celda', label: 'Estados de celda', color: C.green },
-  { id: 'cafi', label: 'Estados del CAFI', color: '#38bdf8' },
-  { id: 'timeline', label: 'Timeline del ciclo', color: C.amber },
-  { id: 'reglas', label: 'Reglas de bloqueo', color: C.red },
-  { id: 'seguridad', label: 'STOP · Prioridades', color: '#f97316' },
+  { id: 'resumen',     label: 'Resumen',              color: A.blue    },
+  { id: 'flujo',       label: 'Flujo de producción',  color: '#0ea5e9' },
+  { id: 'componentes', label: 'Componentes',           color: A.orange  },
+  { id: 'senales',     label: 'Sensores y señales',    color: A.cyan    },
+  { id: 'fixtures',    label: 'Fixtures A / B',        color: A.purple  },
+  { id: 'celda',       label: 'Estados de celda',      color: A.green   },
+  { id: 'cafi',        label: 'Estados del CAFI',      color: '#38bdf8' },
+  { id: 'timeline',    label: 'Timeline del ciclo',    color: A.amber   },
+  { id: 'reglas',      label: 'Reglas de bloqueo',     color: A.red     },
+  { id: 'seguridad',   label: 'STOP · Prioridades',    color: '#f97316' },
 ] as const;
 
 // ─── Componentes UI reutilizables ────────────────────────────────────────────
@@ -192,11 +188,12 @@ function Section({ id, title, color, refMap, children }: {
   refMap: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
   children: React.ReactNode;
 }) {
+  const T = useTheme();
   return (
     <div ref={(el) => { refMap.current[id] = el; }} style={{ scrollMarginTop: 16, marginBottom: 30 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <span style={{ width: 4, height: 18, borderRadius: 2, background: color, boxShadow: `0 0 8px ${color}` }} />
-        <h2 style={{ margin: 0, fontFamily: MONO, fontSize: 15, fontWeight: 800, color: C.text, letterSpacing: '0.02em' }}>{title}</h2>
+        <h2 style={{ margin: 0, fontFamily: MONO, fontSize: 15, fontWeight: 800, color: T.text, letterSpacing: '0.02em' }}>{title}</h2>
       </div>
       {children}
     </div>
@@ -204,10 +201,12 @@ function Section({ id, title, color, refMap, children }: {
 }
 
 function Card({ accent, children, style }: { accent?: string; children: React.ReactNode; style?: React.CSSProperties }) {
+  const T = useTheme();
+  const cardBg = T.dark ? '#101d30' : T.panel;
   return (
     <div style={{
-      background: C.card, border: `1px solid ${C.border}`,
-      borderLeft: accent ? `3px solid ${accent}` : `1px solid ${C.border}`,
+      background: cardBg, border: `1px solid ${T.border}`,
+      borderLeft: accent ? `3px solid ${accent}` : `1px solid ${T.border}`,
       borderRadius: 10, padding: 14, ...style,
     }}>{children}</div>
   );
@@ -216,8 +215,10 @@ function Card({ accent, children, style }: { accent?: string; children: React.Re
 function Accordion({ title, color, open, onToggle, children }: {
   title: string; color: string; open: boolean; onToggle: () => void; children: React.ReactNode;
 }) {
+  const T = useTheme();
+  const cardBg = T.dark ? '#101d30' : T.panel;
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}`, borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{ background: cardBg, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color}`, borderRadius: 10, overflow: 'hidden' }}>
       <button onClick={onToggle} style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
         background: 'transparent', border: 'none', cursor: 'pointer', padding: '13px 16px',
@@ -241,11 +242,12 @@ function Accordion({ title, color, open, onToggle, children }: {
 
 // ─── Component principal ─────────────────────────────────────────────────────
 export default function LogicaPlanta() {
+  const T = useTheme();
+  const C = makeC(T);
   const refMap = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string>('resumen');
 
-  // Estado interactivo (explorers).
   const [selectedCafi, setSelectedCafi] = useState<string | null>(null);
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
   const [activeCafiState, setActiveCafiState] = useState<string>('DISPENSED');
@@ -309,7 +311,7 @@ export default function LogicaPlanta() {
             boxShadow: active === s.id ? `inset 2px 0 0 ${s.color}` : 'none',
             transition: 'background 0.15s,color 0.15s',
           }}
-            onMouseEnter={(e) => { if (active !== s.id) e.currentTarget.style.background = '#16243a'; }}
+            onMouseEnter={(e) => { if (active !== s.id) e.currentTarget.style.background = C.dark ? '#16243a' : C.borderSoft; }}
             onMouseLeave={(e) => { if (active !== s.id) e.currentTarget.style.background = 'transparent'; }}
           >
             <span style={{ fontFamily: MONO, fontSize: 9, color: s.color, width: 16 }}>{String(i + 1).padStart(2, '0')}</span>
@@ -355,7 +357,7 @@ export default function LogicaPlanta() {
           <Section id="flujo" title="Flujo de producción" color="#0ea5e9" refMap={refMap}>
             <Card>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                {FLOW.map((n, i) => (
+                {FLOW_DATA.map((n, i) => (
                   <React.Fragment key={n.label}>
                     <div style={{
                       flex: '1 1 110px', minWidth: 96, textAlign: 'center', padding: '14px 8px',
@@ -364,7 +366,7 @@ export default function LogicaPlanta() {
                       <div style={{ fontFamily: MONO, fontSize: 9, color: n.color, fontWeight: 700 }}>{String(i + 1).padStart(2, '0')}</div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginTop: 3 }}>{n.label}</div>
                     </div>
-                    {i < FLOW.length - 1 && <span style={{ color: C.dim, fontSize: 18, padding: '0 2px' }}>→</span>}
+                    {i < FLOW_DATA.length - 1 && <span style={{ color: C.dim, fontSize: 18, padding: '0 2px' }}>→</span>}
                   </React.Fragment>
                 ))}
               </div>
@@ -378,7 +380,7 @@ export default function LogicaPlanta() {
           {/* 3 · COMPONENTES */}
           <Section id="componentes" title="Componentes principales" color={C.orange} refMap={refMap}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
-              {COMPONENTS.map((c) => (
+              {COMPONENTS_DATA.map((c) => (
                 <Card key={c.name} accent={c.color}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                     <span style={{ width: 9, height: 9, borderRadius: 2, background: c.color, boxShadow: `0 0 7px ${c.color}` }} />
@@ -396,8 +398,8 @@ export default function LogicaPlanta() {
               <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', background: C.panel2, borderBottom: `1px solid ${C.border}`, padding: '8px 14px', fontWeight: 700 }}>
                 <span>I/O</span><span>Señal · descripción</span>
               </div>
-              {SIGNALS.map((s, i) => (
-                <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center', padding: '9px 14px', borderBottom: i < SIGNALS.length - 1 ? `1px solid ${C.borderSoft}` : 'none' }}>
+              {SIGNALS_DATA.map((s, i) => (
+                <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center', padding: '9px 14px', borderBottom: i < SIGNALS_DATA.length - 1 ? `1px solid ${C.borderSoft}` : 'none' }}>
                   <span style={{
                     fontFamily: MONO, fontSize: 9, fontWeight: 800, textAlign: 'center', borderRadius: 4, padding: '2px 0',
                     color: s.io === 'IN' ? C.green : C.orange, background: (s.io === 'IN' ? C.green : C.orange) + '1c',

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
 
 // Generado desde diagramadeconexiones_final.dxf (diagram_tools/dxf_to_svg.py).
 // Los cables principales del DXF están sin color de función (ACI 7); se
@@ -21,6 +22,7 @@ const WIRE_GROUPS = [
 const ALL_HEX = new Set(WIRE_GROUPS.map(w => w.hex));
 
 export default function WiringDiagram() {
+  const T = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Set<string>>(new Set(ALL_HEX));
   const [loaded, setLoaded] = useState(false);
@@ -67,17 +69,17 @@ export default function WiringDiagram() {
   const allOff = active.size === 0;
 
   return (
-    <div style={{ background: '#07111e', borderTop: '1px solid #1a3550', borderBottom: '1px solid #1a3550' }}>
+    <div style={{ background: T.bg, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
 
       {/* Header */}
       <div style={{ padding: '32px 24px 16px', textAlign: 'center' }}>
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
           Gemelo Digital
         </div>
-        <div style={{ fontSize: 'clamp(18px,2.8vw,28px)', fontWeight: 700, color: '#f1f5f9' }}>
+        <div style={{ fontSize: 'clamp(18px,2.8vw,28px)', fontWeight: 700, color: T.text }}>
           Diagrama de Conexiones del Sistema
         </div>
-        <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
           Haz clic en un cable para aislarlo · Shift+clic para activar/desactivar
         </div>
       </div>
@@ -88,20 +90,10 @@ export default function WiringDiagram() {
         padding: '0 24px 20px',
       }}>
         {/* All/None buttons */}
-        <button
-          onClick={showAll}
-          style={ctrlBtn(allOn)}
-        >
-          Todos
-        </button>
-        <button
-          onClick={hideAll}
-          style={ctrlBtn(allOff, '#f87171')}
-        >
-          Ninguno
-        </button>
+        <button onClick={showAll} style={ctrlBtn(allOn, '#94a3b8', T.text)}>Todos</button>
+        <button onClick={hideAll} style={ctrlBtn(allOff, '#f87171', T.text)}>Ninguno</button>
 
-        <div style={{ width: 1, background: '#1a3550', margin: '0 4px' }} />
+        <div style={{ width: 1, background: T.border, margin: '0 4px' }} />
 
         {/* Wire-color buttons */}
         {WIRE_GROUPS.map(({ hex, label, count }) => {
@@ -109,7 +101,7 @@ export default function WiringDiagram() {
           return (
             <button
               key={hex}
-              title={`Click: aislar · Shift+click: mostrar/ocultar`}
+              title="Click: aislar · Shift+click: mostrar/ocultar"
               onClick={e => {
                 if (e.shiftKey) toggle(hex);
                 else isolate(hex);
@@ -120,7 +112,7 @@ export default function WiringDiagram() {
                 background: on ? hex + '18' : 'transparent',
                 border: `1px solid ${on ? hex : hex + '44'}`,
                 borderRadius: 4, cursor: 'pointer',
-                color: on ? hex : hex + '55',
+                color: on ? hex : hex + '88',
                 fontSize: 11, fontFamily: 'inherit',
                 transition: 'all 0.15s',
               }}
@@ -137,10 +129,7 @@ export default function WiringDiagram() {
           );
         })}
 
-        <button
-          onClick={showAll}
-          style={{ ...ctrlBtn(false), marginLeft: 4, fontSize: 10 }}
-        >
+        <button onClick={showAll} style={{ ...ctrlBtn(false, '#94a3b8', T.text), marginLeft: 4, fontSize: 10 }}>
           ↺ Reset
         </button>
       </div>
@@ -154,7 +143,7 @@ export default function WiringDiagram() {
         {!loaded && (
           <div style={{
             height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#2a4060', fontSize: 13,
+            color: T.muted, fontSize: 13,
           }}>
             Cargando diagrama…
           </div>
@@ -165,7 +154,7 @@ export default function WiringDiagram() {
             width: '100%',
             borderRadius: 8,
             overflow: 'hidden',
-            border: '1px solid #112236',
+            border: `1px solid ${T.border}`,
             display: loaded ? 'block' : 'none',
           }}
         />
@@ -174,7 +163,7 @@ export default function WiringDiagram() {
       {/* Legend hint */}
       <div style={{
         textAlign: 'center', paddingBottom: 24,
-        fontSize: 10, color: '#1e3348',
+        fontSize: 10, color: T.dim,
       }}>
         Shift+clic para selección múltiple · Haz clic en "Todos" para restaurar
       </div>
@@ -182,7 +171,7 @@ export default function WiringDiagram() {
   );
 }
 
-function ctrlBtn(active: boolean, color = '#94a3b8') {
+function ctrlBtn(active: boolean, color = '#94a3b8', _text = '#fff') {
   return {
     padding: '5px 14px',
     background: active ? color + '22' : 'transparent',

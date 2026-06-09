@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
 
 const COMPONENTS = {
   hmi:        { id: 'hmi',        label: '7" HMI Panel',            sublabel: 'Operator Interface',          color: '#0ea5e9', desc: 'Botón START · Indicadores PASS/FAIL · Estado del sistema · Historial de turno' },
@@ -60,6 +61,7 @@ const STEPS = [
 ];
 
 export default function ArchitectureDiagram() {
+  const T = useTheme();
   const [activeNode, setActiveNode] = useState<CompId | null>(null);
   const [activeStep, setActiveStep] = useState<number | null>(null);
 
@@ -74,19 +76,19 @@ export default function ArchitectureDiagram() {
 
   return (
     <div style={{
-      background: 'linear-gradient(160deg,#06101c 0%,#0b1829 60%,#040c14 100%)',
-      borderTop: '1px solid #1a3550',
-      borderBottom: '1px solid #1a3550',
+      background: T.bgGrad,
+      borderTop: `1px solid ${T.border}`,
+      borderBottom: `1px solid ${T.border}`,
     }}>
       {/* Section header */}
       <div style={{ padding: '32px 24px 0', textAlign: 'center' }}>
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
           Arquitectura del Sistema
         </div>
-        <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: '#f1f5f9' }}>
+        <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: T.text }}>
           Diagrama de Componentes Interactivo
         </div>
-        <div style={{ fontSize: 12, color: '#2a4060', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
           Haz click en un nodo o en un paso del flujo para ver los detalles
         </div>
       </div>
@@ -105,7 +107,7 @@ export default function ArchitectureDiagram() {
           <svg viewBox="-5 0 225 210" style={{ width: '100%', maxHeight: '65vh' }}>
             <defs>
               <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#1e3d60" />
+                <path d="M0,0 L6,3 L0,6 Z" fill={T.connLine} />
               </marker>
               <marker id="arr-on" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
                 <path d="M0,0 L6,3 L0,6 Z" fill={stepColor} />
@@ -124,7 +126,7 @@ export default function ArchitectureDiagram() {
               return (
                 <g key={i}>
                   <line x1={f.x} y1={f.y} x2={t.x} y2={t.y}
-                    stroke={on ? stepColor : '#1e3d60'}
+                    stroke={on ? stepColor : T.connLine}
                     strokeWidth={on ? 1.4 : 0.8}
                     strokeDasharray={on ? 'none' : '3 2'}
                     markerEnd={on ? 'url(#arr-on)' : 'url(#arr)'}
@@ -132,7 +134,7 @@ export default function ArchitectureDiagram() {
                     style={{ transition: 'all 0.3s' }} />
                   {c.bi && (
                     <line x1={t.x} y1={t.y} x2={f.x} y2={f.y}
-                      stroke={on ? '#0ea5e9' : '#1e3d60'}
+                      stroke={on ? '#0ea5e9' : T.connLine}
                       strokeWidth={on ? 1.4 : 0.8}
                       strokeDasharray={on ? 'none' : '3 2'}
                       markerEnd={on ? 'url(#arr-on)' : 'url(#arr)'}
@@ -141,7 +143,7 @@ export default function ArchitectureDiagram() {
                   )}
                   {c.label && (
                     <text x={lx} y={ly} textAnchor="middle" fontSize="3"
-                      fill={on ? '#86efac' : '#2a4f78'}
+                      fill={on ? '#86efac' : T.connLabel}
                       style={{ transition: 'all 0.3s', fontFamily: 'monospace' }}>
                       {c.label}
                     </text>
@@ -160,21 +162,21 @@ export default function ArchitectureDiagram() {
                   onClick={() => { setActiveStep(null); setActiveNode(activeNode === comp.id ? null : comp.id as CompId); }}>
                   {inHL && <circle r="16" fill={comp.color} opacity="0.10" filter="url(#glow)" />}
                   <rect x={BX} y={BY} width={BW} height={BH} rx="3"
-                    fill={inHL ? comp.color + '1a' : dim ? '#050d18' : '#0b1828'}
-                    stroke={inHL ? comp.color : dim ? '#080f1c' : '#1e3a5f'}
+                    fill={inHL ? comp.color + '1a' : dim ? T.nodeBgDim : T.nodeBg}
+                    stroke={inHL ? comp.color : dim ? T.nodeBorderDim : T.nodeBorder}
                     strokeWidth={inHL ? 1.0 : 0.5}
                     style={{ transition: 'all 0.3s' }} />
                   <rect x={BX} y={BY} width="2.5" height={BH} rx="1.2"
-                    fill={inHL ? comp.color : dim ? '#080f1c' : '#1e3a5f'}
+                    fill={inHL ? comp.color : dim ? T.nodeBorderDim : T.nodeBorder}
                     style={{ transition: 'all 0.3s' }} />
                   <text x={BX + 5} y="-1.2" fontSize="4.0"
-                    fill={inHL ? '#f1f5f9' : dim ? '#151f2b' : '#7a9ab8'}
+                    fill={inHL ? (T.dark ? '#f1f5f9' : '#0f172a') : dim ? T.nodeTextDim : T.nodeText}
                     dominantBaseline="middle" fontWeight="700"
                     style={{ transition: 'all 0.3s' }}>
                     {comp.label}
                   </text>
                   <text x={BX + 5} y="4.2" fontSize="3.0"
-                    fill={inHL ? comp.color : dim ? '#0d1824' : '#2a4560'}
+                    fill={inHL ? comp.color : dim ? T.nodeSublabelDim : T.nodeSublabel}
                     dominantBaseline="middle"
                     style={{ transition: 'all 0.3s' }}>
                     {comp.sublabel}
@@ -193,17 +195,17 @@ export default function ArchitectureDiagram() {
             ].map(({ c, l }) => (
               <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
                 <div style={{ width: 20, height: 2, background: c, borderRadius: 1 }} />
-                <span style={{ color: '#2a4060' }}>{l}</span>
+                <span style={{ color: T.muted }}>{l}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Right panel */}
-        <div style={{ width: 308, borderLeft: '1px solid #1a3550', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+        <div style={{ width: 308, borderLeft: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
           {/* Node detail */}
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid #0d1e30', minHeight: 105 }}>
-            <div style={{ fontSize: 9, letterSpacing: 3, color: '#2a4060', marginBottom: 7, textTransform: 'uppercase' }}>
+          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${T.borderSoft}`, minHeight: 105 }}>
+            <div style={{ fontSize: 9, letterSpacing: 3, color: T.dim, marginBottom: 7, textTransform: 'uppercase' }}>
               {activeNode ? 'Componente seleccionado' : '← Haz click en un nodo'}
             </div>
             {activeNode && COMPONENTS[activeNode] ? (
@@ -211,12 +213,12 @@ export default function ArchitectureDiagram() {
                 <div style={{ fontSize: 12, fontWeight: 700, color: COMPONENTS[activeNode].color, marginBottom: 5 }}>
                   {COMPONENTS[activeNode].label}
                 </div>
-                <div style={{ fontSize: 11, color: '#7a9ab8', lineHeight: 1.65 }}>
+                <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.65 }}>
                   {COMPONENTS[activeNode].desc}
                 </div>
               </>
             ) : (
-              <div style={{ fontSize: 11, color: '#1a3550' }}>
+              <div style={{ fontSize: 11, color: T.dim }}>
                 Selecciona un componente para ver sus detalles, o elige un paso del flujo de operación para resaltar los nodos involucrados.
               </div>
             )}
@@ -224,7 +226,7 @@ export default function ArchitectureDiagram() {
 
           {/* Flow steps */}
           <div style={{ padding: '12px 16px 16px', flex: 1 }}>
-            <div style={{ fontSize: 9, letterSpacing: 3, color: '#2a4060', marginBottom: 10, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: 9, letterSpacing: 3, color: T.dim, marginBottom: 10, textTransform: 'uppercase' }}>
               Flujo Operativo · {STEPS.length} Pasos
             </div>
             {STEPS.map((s, i) => (
@@ -239,21 +241,21 @@ export default function ArchitectureDiagram() {
                 }}>
                 <div style={{
                   width: 19, height: 19, borderRadius: '50%', flexShrink: 0,
-                  background: activeStep === i ? s.color : '#08121e',
-                  border: `1px solid ${activeStep === i ? s.color : '#1a3550'}`,
+                  background: activeStep === i ? s.color : T.panel,
+                  border: `1px solid ${activeStep === i ? s.color : T.border}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 8, fontWeight: 700,
-                  color: activeStep === i ? '#fff' : '#2a4060',
+                  color: activeStep === i ? '#fff' : T.dim,
                   transition: 'all 0.2s',
                 }}>
                   {i + 1}
                 </div>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: activeStep === i ? s.color : '#4a6a88', marginBottom: activeStep === i ? 3 : 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: activeStep === i ? s.color : T.muted, marginBottom: activeStep === i ? 3 : 0 }}>
                     {s.label}
                   </div>
                   {activeStep === i && (
-                    <div style={{ fontSize: 10, color: '#7a9ab8', lineHeight: 1.55 }}>{s.desc}</div>
+                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.55 }}>{s.desc}</div>
                   )}
                 </div>
               </div>

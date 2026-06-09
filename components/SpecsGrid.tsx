@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTheme } from '../context/ThemeContext';
 
 const SPECS = [
   {
@@ -44,10 +45,11 @@ const SPECS = [
 ];
 
 export default function SpecsGrid() {
+  const T = useTheme();
   return (
     <div style={{
-      background: 'linear-gradient(160deg,#06101c 0%,#0a1520 100%)',
-      borderTop: '1px solid #1a3550',
+      background: T.bgGrad,
+      borderTop: `1px solid ${T.border}`,
       padding: '48px 24px 64px',
     }}>
       {/* Header */}
@@ -55,7 +57,7 @@ export default function SpecsGrid() {
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
           Componentes
         </div>
-        <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: '#f1f5f9' }}>
+        <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: T.text }}>
           Especificaciones Técnicas
         </div>
       </div>
@@ -70,21 +72,21 @@ export default function SpecsGrid() {
       }}>
         {SPECS.map((s) => (
           <div key={s.id} style={{
-            background: '#0b1828',
+            background: T.panel,
             border: `1px solid ${s.color}22`,
             borderLeft: `3px solid ${s.color}`,
             borderRadius: 8,
             padding: '18px 20px',
             transition: 'border-color 0.2s, background 0.2s',
           }}
-            onMouseEnter={e => (e.currentTarget.style.background = `${s.color}08`)}
-            onMouseLeave={e => (e.currentTarget.style.background = '#0b1828')}
+            onMouseEnter={e => (e.currentTarget.style.background = `${s.color}0d`)}
+            onMouseLeave={e => (e.currentTarget.style.background = T.panel)}
           >
             <div style={{ fontSize: 13, fontWeight: 700, color: s.color, marginBottom: 4 }}>{s.title}</div>
-            <div style={{ fontSize: 10, color: '#2a4060', marginBottom: 14, letterSpacing: 0.5 }}>{s.subtitle}</div>
+            <div style={{ fontSize: 10, color: T.dim, marginBottom: 14, letterSpacing: 0.5 }}>{s.subtitle}</div>
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
               {s.specs.map((spec) => (
-                <li key={spec} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: '#7a9ab8', marginBottom: 5, lineHeight: 1.5 }}>
+                <li key={spec} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: T.muted, marginBottom: 5, lineHeight: 1.5 }}>
                   <span style={{ color: s.color, flexShrink: 0, marginTop: 2 }}>›</span>
                   {spec}
                 </li>

@@ -1233,13 +1233,15 @@ export default function CobotLiveView() {
       joints: urdfDeg.map((d) => THREE.MathUtils.degToRad(d)) as TeachPose['joints'],
     })), []);
 
-  // lib2GhostRads: converts a named lib2 pose to URDF radians, adding 2π to
-  // joints just above 180° (≤200°) to avoid a 341° visual jump from wrapTo180.
-  const lib2GhostRads = (name: string) => {
-    const raw = POSE_LIBRARY_DEG[name] ?? POSE_LIBRARY_DEG.HOME;
-    const rads = controllerDegToUrdfRad(lib2CtrlDeg(name));
-    return rads.map((rad, i) => (i !== 5 && raw[i] > 180 && raw[i] <= 200) ? rad + 2 * Math.PI : rad);
-  };
+  // lib2GhostRads: converts a named lib2 pose to URDF radians.
+  // lib2BaseCtrlDeg→controllerDegToUrdfRad is a mathematical identity
+  // (JOINT_SIGN²=1 cancels offsets), so the result equals degToRad(raw[i]).
+  // J1's URDF limit is [0, 2π], so all raw values in [0°,360°] land safely.
+  // The old +2π correction compensated for a wrapTo180 step that no longer
+  // exists — it pushed J1≈185.8° from 3.24 rad to 9.53 rad, above the
+  // 6.28 upper limit, causing urdf-loader to clamp to 360°/0° (≈180° error).
+  const lib2GhostRads = (name: string) =>
+    controllerDegToUrdfRad(lib2CtrlDeg(name));
 
   // Ghost always shows the target/selected pose — the gray real-cobot model
   // already mirrors live telemetry, so the ghost should always show the

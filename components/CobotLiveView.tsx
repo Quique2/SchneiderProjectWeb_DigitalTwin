@@ -13,6 +13,8 @@
 // gateway is served over https.
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
+import type { Theme } from '../context/ThemeContext';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -418,21 +420,25 @@ function TurntableDriver({
 }
 
 // ── Telemetry panel helpers ─────────────────────────────────────────────────
-const statRow: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between',
-  fontSize: 11, fontFamily: 'monospace', color: '#abc', padding: '3px 0',
-};
-const numInput: React.CSSProperties = {
-  fontFamily: 'monospace', fontSize: 11, color: '#dde4f0',
-  background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4,
-  padding: '4px 6px', outline: 'none',
-};
-function ctrlBtn(enabled: boolean, c1: string, c2: string): React.CSSProperties {
+function statRow(T: Theme): React.CSSProperties {
+  return {
+    display: 'flex', justifyContent: 'space-between',
+    fontSize: 11, fontFamily: 'monospace', color: T.muted, padding: '3px 0',
+  };
+}
+function numInput(T: Theme): React.CSSProperties {
+  return {
+    fontFamily: 'monospace', fontSize: 11, color: T.text,
+    background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 4,
+    padding: '4px 6px', outline: 'none',
+  };
+}
+function ctrlBtn(enabled: boolean, c1: string, c2: string, T?: Theme): React.CSSProperties {
   return {
     fontFamily: SANS_FONT, fontSize: 11, fontWeight: 700, color: '#fff',
     cursor: enabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
     padding: '8px 6px',
-    background: enabled ? `linear-gradient(180deg,${c1} 0%,${c2} 100%)` : '#2a3548',
+    background: enabled ? `linear-gradient(180deg,${c1} 0%,${c2} 100%)` : (T?.dark === false ? '#c8d0d9' : '#2a3548'),
     opacity: enabled ? 1 : 0.55,
   };
 }
@@ -459,6 +465,7 @@ function NumField({
   value: number; onChange: (n: number) => void; disabled?: boolean;
   min?: number; max?: number; decimals?: number; width?: number | string;
 }) {
+  const T = useTheme();
   const [text, setText] = useState(() => fmtNum(value, decimals));
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (!editing) setText(fmtNum(value, decimals)); }, [value, editing, decimals]);
@@ -484,14 +491,15 @@ function NumField({
         onChange(fixed);
         setText(fmtNum(fixed, decimals));
       }}
-      style={{ ...numInput, width, textAlign: 'left' }}
+      style={{ ...numInput(T), width, textAlign: 'left' }}
     />
   );
 }
 function Flag({ label, on, goodWhenOn = true }: { label: string; on: boolean; goodWhenOn?: boolean }) {
+  const T = useTheme();
   const good = goodWhenOn ? on : !on;
   return (
-    <div style={{ ...statRow }}>
+    <div style={{ ...statRow(T) }}>
       <span>{label}</span>
       <span style={{ color: good ? '#22dd55' : '#ff5566', fontWeight: 700 }}>
         {on ? 'YES' : 'NO'}
@@ -500,13 +508,14 @@ function Flag({ label, on, goodWhenOn = true }: { label: string; on: boolean; go
   );
 }
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const T = useTheme();
   return (
     <div style={{
-      border: '1px solid #1d2c44', borderRadius: 8, padding: 12,
-      background: 'rgba(20,30,48,0.45)',
+      border: `1px solid ${T.border}`, borderRadius: 8, padding: 12,
+      background: T.dark ? 'rgba(20,30,48,0.45)' : T.panel,
     }}>
       <div style={{
-        fontSize: 9, letterSpacing: 2, color: '#5a6c84',
+        fontSize: 9, letterSpacing: 2, color: T.dim,
         textTransform: 'uppercase', fontWeight: 700, marginBottom: 8,
       }}>{title}</div>
       {children}
@@ -515,6 +524,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function CobotLiveView() {
+  const T = useTheme();
+  const cBtn = (e: boolean, c1: string, c2: string) => ctrlBtn(e, c1, c2, T);
   const [mode, setMode] = useState<ConnMode>('demo');
   // Permanent ngrok static domain fronting the RPi gateway (https/wss so it
   // works from the HTTPS Railway deploy — no mixed-content block).  Swap to
@@ -1173,7 +1184,7 @@ export default function CobotLiveView() {
   const dotColor = backendDemo ? '#fbbf24'
     : mode === 'live' ? '#22dd55'
     : mode === 'connecting' ? '#fbbf24'
-    : mode === 'error' ? '#ff5566' : '#5a6c84';
+    : mode === 'error' ? '#ff5566' : T.dim;
   const modeLabel = backendDemo ? 'GATEWAY OK · Modbus en demo'
     : mode === 'live' ? 'EN VIVO'
     : mode === 'connecting' ? 'CONECTANDO…'
@@ -1210,7 +1221,7 @@ export default function CobotLiveView() {
     rpiState === 'running' ? '#22dd55' :
     rpiState === 'done'    ? '#3b8bff' :
     rpiState === 'alarm'   ? '#ef4444' :
-    rpiState === 'stopped' ? '#fbbf24' : '#5a6c84';
+    rpiState === 'stopped' ? '#fbbf24' : T.dim;
 
   // Ghost target: custom slider pose, V26 dropdown, or library-2.
   // For lib2: use the full wrap→transform pipeline (same as robot command) but
@@ -1257,12 +1268,12 @@ export default function CobotLiveView() {
   const tablePos = table?.position ?? 'limit1';
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#07111e', fontFamily: SANS_FONT }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.bg, fontFamily: SANS_FONT }}>
       {/* Connection bar */}
       <div style={{
         flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12,
-        padding: '10px 16px', borderBottom: '1px solid #1a2c44',
-        background: 'linear-gradient(180deg,#0c1a2c 0%,#091320 100%)',
+        padding: '10px 16px', borderBottom: `1px solid ${T.topbarBorder}`,
+        background: T.topbar,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200 }}>
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: dotColor, boxShadow: `0 0 8px ${dotColor}` }} />
@@ -1270,7 +1281,7 @@ export default function CobotLiveView() {
             <span style={{ fontSize: 9, letterSpacing: 2, color: '#22c55e', textTransform: 'uppercase', fontWeight: 600 }}>
               Raspberry Pi · Modbus TCP
             </span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{modeLabel}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{modeLabel}</span>
           </div>
         </div>
         <input
@@ -1279,8 +1290,8 @@ export default function CobotLiveView() {
           placeholder="ws://192.168.1.167:8000/ws/cobot  ó  http://…/api/cobot/state"
           spellCheck={false}
           style={{
-            flex: 1, fontFamily: 'monospace', fontSize: 12, color: '#dde4f0',
-            background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 6,
+            flex: 1, fontFamily: 'monospace', fontSize: 12, color: T.text,
+            background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
             padding: '8px 10px', outline: 'none',
           }} />
         {mode === 'live' || mode === 'connecting' ? (
@@ -1314,7 +1325,7 @@ export default function CobotLiveView() {
           <Canvas
             shadows
             camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
-            style={{ background: '#07111e' }}
+            style={{ background: T.bg }}
             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
           >
             <ZUp />
@@ -1373,14 +1384,14 @@ export default function CobotLiveView() {
             </Suspense>
             <Html position={[COBOT_BASE[0], COBOT_BASE[1], 1.85]} center zIndexRange={[99, 0]}>
               <div style={{
-                fontSize: 9, color: '#60a5fa', background: 'rgba(6,16,28,0.82)',
+                fontSize: 9, color: '#60a5fa', background: T.dark ? 'rgba(6,16,28,0.82)' : 'rgba(255,255,255,0.88)',
                 border: '1px solid #60a5fa44', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
               }}>Lexium Cobot {applyToModel ? '· live joints' : '· HOME'}</div>
             </Html>
             <Html position={[0.750 + layout.visionOffset[0], 0.804 + layout.visionOffset[1], 2.0]} center zIndexRange={[99, 0]}>
               <div style={{
-                fontSize: 9, color: '#e879f9', background: 'rgba(6,16,28,0.82)',
+                fontSize: 9, color: '#e879f9', background: T.dark ? 'rgba(6,16,28,0.82)' : 'rgba(255,255,255,0.88)',
                 border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
               }}>Cámara Datalogic</div>
@@ -1413,9 +1424,9 @@ export default function CobotLiveView() {
           {/* model-source toggle */}
           <button onClick={() => setApplyToModel((v) => !v)} style={{
             position: 'absolute', left: 12, bottom: 12, fontFamily: SANS_FONT,
-            fontSize: 11, fontWeight: 600, color: '#fff', cursor: 'pointer',
-            border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
-            background: applyToModel ? 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)' : 'rgba(20,30,48,0.85)',
+            fontSize: 11, fontWeight: 600, color: applyToModel ? '#fff' : T.text, cursor: 'pointer',
+            border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
+            background: applyToModel ? 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
             {applyToModel ? '◉ 3D sigue joints en vivo' : '◯ 3D fijo en HOME'}
           </button>
@@ -1423,9 +1434,9 @@ export default function CobotLiveView() {
           {/* ghost-preview toggle */}
           <button onClick={() => setShowGhost((v) => !v)} style={{
             position: 'absolute', left: 12, bottom: 50, fontFamily: SANS_FONT,
-            fontSize: 11, fontWeight: 600, color: '#fff', cursor: 'pointer',
-            border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
-            background: showGhost ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)' : 'rgba(20,30,48,0.85)',
+            fontSize: 11, fontWeight: 600, color: showGhost ? '#fff' : T.text, cursor: 'pointer',
+            border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
+            background: showGhost ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
             {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{ghostLabel}
           </button>
@@ -1433,9 +1444,9 @@ export default function CobotLiveView() {
           {/* Teach Pendant toggle */}
           <button onClick={() => setShowPendant((v) => !v)} style={{
             position: 'absolute', left: 12, bottom: 88, fontFamily: SANS_FONT,
-            fontSize: 11, fontWeight: 600, color: '#fff', cursor: 'pointer',
-            border: '1px solid #1d2c44', borderRadius: 6, padding: '7px 12px',
-            background: showPendant ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.85)',
+            fontSize: 11, fontWeight: 600, color: showPendant ? '#fff' : T.text, cursor: 'pointer',
+            border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
+            background: showPendant ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
             {showPendant ? '◉ TEACH PENDANT' : '◯ Teach Pendant'}
           </button>
@@ -1474,15 +1485,15 @@ export default function CobotLiveView() {
               onMouseDown={onHmiDragDown}
               style={{
                 flexShrink: 0,
-                background: 'linear-gradient(180deg,#0c1828,#070f1a)',
+                background: T.topbar,
                 padding: '5px 10px', cursor: 'grab',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderBottom: '1px solid #1E3A5F',
+                borderBottom: `1px solid ${T.border}`,
               }}
             >
               <span style={{ fontSize: 10, color: '#6FA8FF', letterSpacing: 2, fontWeight: 700 }}>HMI OPERADOR</span>
               <button onClick={() => setShowHmi(false)} style={{
-                background: 'none', border: 'none', color: '#5a6c84', cursor: 'pointer',
+                background: 'none', border: 'none', color: T.dim, cursor: 'pointer',
                 fontSize: 18, lineHeight: 1, padding: '0 3px', fontFamily: 'inherit',
               }}>×</button>
             </div>
@@ -1513,8 +1524,8 @@ export default function CobotLiveView() {
           width: 320, flexShrink: 0,
           overflowY: 'auto', padding: 14,
           display: 'flex', flexDirection: 'column', gap: 12,
-          borderLeft: '1px solid #1d2c44',
-          background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
+          borderLeft: `1px solid ${T.border}`,
+          background: T.topbar,
         }}>
           {/* Panel tabs */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, flexShrink: 0 }}>
@@ -1524,8 +1535,8 @@ export default function CobotLiveView() {
                 <button key={t} onClick={() => { if (t === 'hmi') setShowHmi(v => !v); }} style={{
                   fontFamily: SANS_FONT, fontSize: 11, fontWeight: 600, padding: '8px 4px',
                   border: 'none', cursor: 'pointer', letterSpacing: 0.5,
-                  background: isActive ? 'linear-gradient(180deg,#1d2c44,#152236)' : 'transparent',
-                  color: isActive ? '#f1f5f9' : '#5a6c84',
+                  background: isActive ? T.panel : 'transparent',
+                  color: isActive ? T.text : T.dim,
                   borderBottom: isActive ? '2px solid #22c55e' : '2px solid transparent',
                 }}>{t === 'hmi' ? 'HMI' : 'Control'}</button>
               );
@@ -1561,7 +1572,7 @@ export default function CobotLiveView() {
               return (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                    <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
                       Potencia motores
                     </div>
                     <div style={{
@@ -1569,17 +1580,17 @@ export default function CobotLiveView() {
                       background: powered ? '#22dd55' : '#475569',
                       boxShadow: powered ? '0 0 6px #22dd55' : 'none',
                     }} />
-                    <span style={{ fontSize: 9, color: powered ? '#22dd55' : '#5a6c84', fontFamily: 'monospace', fontWeight: 700 }}>
+                    <span style={{ fontSize: 9, color: powered ? '#22dd55' : T.dim, fontFamily: 'monospace', fontWeight: 700 }}>
                       {powered ? 'ON' : 'OFF'}
                     </span>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     <button onClick={cobotPowerOn} disabled={!controlEnabled || cmdBusy || powered}
-                      style={ctrlBtn(!controlEnabled || cmdBusy || powered ? false : true, '#22c55e', '#15803d')}>
+                      style={cBtn(!controlEnabled || cmdBusy || powered ? false : true, '#22c55e', '#15803d')}>
                       ⚡ Power ON
                     </button>
                     <button onClick={cobotPowerOff} disabled={!controlEnabled || cmdBusy || !powered}
-                      style={ctrlBtn(!controlEnabled || cmdBusy || !powered ? false : true, '#dc2626', '#991b1b')}>
+                      style={cBtn(!controlEnabled || cmdBusy || !powered ? false : true, '#dc2626', '#991b1b')}>
                       ⏻ Power OFF
                     </button>
                   </div>
@@ -1589,12 +1600,12 @@ export default function CobotLiveView() {
 
             {/* Enable / Disable */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 8 }}>
-              <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#22cc55', '#15803d')}>ENABLE</button>
-              <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={ctrlBtn(controlEnabled, '#f47835', '#d96416')}>DISABLE</button>
+              <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#22cc55', '#15803d')}>ENABLE</button>
+              <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#f47835', '#d96416')}>DISABLE</button>
             </div>
 
             {/* Pneumatic gripper — 3-state selector (open / close / off) */}
-            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '2px 0 4px' }}>
+            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '2px 0 4px' }}>
               Gripper Neumático
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
@@ -1614,7 +1625,7 @@ export default function CobotLiveView() {
                       border: active ? '2px solid #fff' : 'none', borderRadius: 6, padding: '8px 4px',
                       opacity: controlEnabled ? 1 : 0.55,
                       boxShadow: active ? `0 0 12px ${c1}88` : 'none',
-                      background: !controlEnabled ? '#2a3548'
+                      background: !controlEnabled ? (T.dark ? '#2a3548' : T.borderSoft)
                         : active ? `linear-gradient(180deg,${c1} 0%,${c2} 100%)`
                         : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
                     }}>
@@ -1629,7 +1640,7 @@ export default function CobotLiveView() {
               width: '100%', fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
               cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
               padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
-              background: controlEnabled ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : '#2a3548',
+              background: controlEnabled ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : (T.dark ? '#2a3548' : T.borderSoft),
             }}>
               📷 Panel de Cámara
             </button>
@@ -1637,7 +1648,7 @@ export default function CobotLiveView() {
             {/* Joint jog sliders — editing any joint previews the pose on the
                 green ghost (tagged PERSONALIZADO) before MOVER JOINTS is sent. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '6px 0 4px' }}>
-              <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+              <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
                 Joints (°, convención robot)
               </span>
               {ghostSource === 'custom' && (
@@ -1651,7 +1662,7 @@ export default function CobotLiveView() {
               };
               return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#abc', width: 22 }}>J{i + 1}</span>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: T.muted, width: 22 }}>J{i + 1}</span>
                 <input type="range" min={-JOINT_LIMITS_DEG[i]} max={JOINT_LIMITS_DEG[i]} step={0.5}
                   value={v} disabled={!controlEnabled}
                   onChange={(e) => editJoint(parseFloat(e.target.value))}
@@ -1663,44 +1674,44 @@ export default function CobotLiveView() {
               );
             })}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <span style={{ fontSize: 10, color: '#abc' }}>vel %</span>
+              <span style={{ fontSize: 10, color: T.muted }}>vel %</span>
               <input type="range" min={1} max={100} step={1} value={jointSpeed} disabled={!controlEnabled}
                 onChange={(e) => setJointSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
               <NumField value={jointSpeed} disabled={!controlEnabled} min={1} max={100} decimals={0} width={44}
                 onChange={setJointSpeed} />
             </div>
-            <button onClick={moveJoint} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
+            <button onClick={moveJoint} disabled={!controlEnabled || cmdBusy} style={{ ...cBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
               ▸ MOVER JOINTS
             </button>
 
             {/* Cartesian move */}
-            <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '10px 0 4px' }}>
+            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '10px 0 4px' }}>
               Cartesiano (mm / °)
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
               {(['x', 'y', 'z', 'rx', 'ry', 'rz'] as const).map((k) => (
                 <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase' }}>{k}</span>
+                  <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase' }}>{k}</span>
                   <NumField value={cart[k]} disabled={!controlEnabled} decimals={2} width="100%"
                     onChange={(nv) => setCart({ ...cart, [k]: nv })} />
                 </label>
               ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <span style={{ fontSize: 10, color: '#abc' }}>vel mm/s</span>
+              <span style={{ fontSize: 10, color: T.muted }}>vel mm/s</span>
               <input type="range" min={1} max={500} step={1} value={cartSpeed} disabled={!controlEnabled}
                 onChange={(e) => setCartSpeed(parseFloat(e.target.value))} style={{ flex: 1, accentColor: '#22cc55' }} />
               <NumField value={cartSpeed} disabled={!controlEnabled} min={1} max={500} decimals={0} width={44}
                 onChange={setCartSpeed} />
             </div>
-            <button onClick={moveCartesian} disabled={!controlEnabled || cmdBusy} style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
+            <button onClick={moveCartesian} disabled={!controlEnabled || cmdBusy} style={{ ...cBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
               ▸ MOVER LINEAL
             </button>
 
             <button onClick={syncCmdFromLive} disabled={!controlEnabled} style={{
               width: '100%', marginTop: 6, fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600,
-              color: '#9bb0c8', cursor: controlEnabled ? 'pointer' : 'not-allowed',
-              border: '1px solid #1d2c44', borderRadius: 6, padding: '6px', background: 'rgba(20,30,48,0.6)',
+              color: T.muted, cursor: controlEnabled ? 'pointer' : 'not-allowed',
+              border: `1px solid ${T.border}`, borderRadius: 6, padding: '6px', background: T.dark ? 'rgba(20,30,48,0.6)' : T.panel2,
             }}>↺ Sincronizar con pose actual</button>
 
             {cmdStatus && (
@@ -1720,7 +1731,7 @@ export default function CobotLiveView() {
           <Section title="Poses (librería 2)">
             <select value={selectedLib2}
               onChange={(e) => { setSelectedLib2(e.target.value); setSaveName(e.target.value); setGhostSource('lib2'); }}
-              style={{ ...numInput, width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+              style={{ ...numInput(T), width: '100%', textAlign: 'left', cursor: 'pointer' }}>
               {Object.keys(POSE_LIBRARY_DEG).map((name) => (
                 <option key={name} value={name}>{hasOverride(name) ? '✎ ' : ''}{name.replace(/_/g, ' ')}</option>
               ))}
@@ -1728,7 +1739,7 @@ export default function CobotLiveView() {
 
             {/* Joint preview (wrapped + transformed) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '8px 0 4px' }}>
-              <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+              <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
                 Joints a enviar (°, robot)
               </span>
               {hasOverride(selectedLib2) && (
@@ -1738,9 +1749,9 @@ export default function CobotLiveView() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
               {lib2CtrlDeg(selectedLib2).map((d, i) => {
                 return (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
-                    <span style={{ color: '#5a6c84' }}>J{i + 1}</span>
-                    <span style={{ color: '#dde4f0' }}>{d.toFixed(1)}</span>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 4, padding: '3px 5px' }}>
+                    <span style={{ color: T.dim }}>J{i + 1}</span>
+                    <span style={{ color: T.text }}>{d.toFixed(1)}</span>
                   </div>
                 );
               })}
@@ -1749,14 +1760,14 @@ export default function CobotLiveView() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
               <button onClick={() => { setCmdJoints(lib2CtrlDeg(selectedLib2)); setGhostSource('custom'); setShowGhost(true); }}
                 disabled={!controlEnabled}
-                style={ctrlBtn(controlEnabled, '#475569', '#334155')}>↧ Cargar en sliders</button>
+                style={cBtn(controlEnabled,'#475569', '#334155')}>↧ Cargar en sliders</button>
               <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
-                style={ctrlBtn(controlEnabled, '#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
+                style={cBtn(controlEnabled,'#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
             </div>
 
             {/* ── Cartesian tuner ── */}
-            <div style={{ borderTop: '1px solid #1d2c44', marginTop: 10, paddingTop: 8 }}>
-              <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+            <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 10, paddingTop: 8 }}>
+              <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
                 Tuner cartesiano (TCP real)
               </div>
 
@@ -1766,8 +1777,8 @@ export default function CobotLiveView() {
                   ['X', telemetry.tcp_position.x_mm, 'mm'], ['Y', telemetry.tcp_position.y_mm, 'mm'], ['Z', telemetry.tcp_position.z_mm, 'mm'],
                   ['RX', telemetry.tcp_position.rx_deg, '°'], ['RY', telemetry.tcp_position.ry_deg, '°'], ['RZ', telemetry.tcp_position.rz_deg, '°'],
                 ] as const).map(([k, v]) => (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 4, padding: '3px 5px' }}>
-                    <span style={{ color: '#5a6c84' }}>{k}</span>
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 4, padding: '3px 5px' }}>
+                    <span style={{ color: T.dim }}>{k}</span>
                     <span style={{ color: '#9bf' }}>{v.toFixed(1)}</span>
                   </div>
                 ))}
@@ -1775,13 +1786,13 @@ export default function CobotLiveView() {
 
               {/* Step sizes */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: 10, color: '#abc' }}>paso</span>
+                <span style={{ fontSize: 10, color: T.muted }}>paso</span>
                 <NumField value={tunerStepMm} disabled={!controlEnabled} min={0.5} max={100} decimals={1} width={50}
                   onChange={setTunerStepMm} />
-                <span style={{ fontSize: 10, color: '#5a6c84' }}>mm</span>
+                <span style={{ fontSize: 10, color: T.dim }}>mm</span>
                 <NumField value={tunerStepDeg} disabled={!controlEnabled} min={0.5} max={30} decimals={1} width={50}
                   onChange={setTunerStepDeg} />
-                <span style={{ fontSize: 10, color: '#5a6c84' }}>°</span>
+                <span style={{ fontSize: 10, color: T.dim }}>°</span>
               </div>
 
               {/* Nudge buttons per axis */}
@@ -1790,24 +1801,24 @@ export default function CobotLiveView() {
                 { axis: 'rx', label: 'RX', unit: '°' }, { axis: 'ry', label: 'RY', unit: '°' }, { axis: 'rz', label: 'RZ', unit: '°' },
               ] as const).map(({ axis, label }) => (
                 <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#abc', width: 26 }}>{label}</span>
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: T.muted, width: 26 }}>{label}</span>
                   <button onClick={() => nudgeTcp(axis, -1)} disabled={!controlEnabled || cmdBusy}
-                    style={{ ...ctrlBtn(controlEnabled, '#475569', '#334155'), flex: 1, padding: '7px 4px', fontSize: 13 }}>−</button>
+                    style={{ ...cBtn(controlEnabled, '#475569', '#334155'), flex: 1, padding: '7px 4px', fontSize: 13 }}>−</button>
                   <button onClick={() => nudgeTcp(axis, +1)} disabled={!controlEnabled || cmdBusy}
-                    style={{ ...ctrlBtn(controlEnabled, '#3b8bff', '#2563eb'), flex: 1, padding: '7px 4px', fontSize: 13 }}>+</button>
+                    style={{ ...cBtn(controlEnabled, '#3b8bff', '#2563eb'), flex: 1, padding: '7px 4px', fontSize: 13 }}>+</button>
                 </div>
               ))}
 
               {/* Save as pose */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
                 <select value={saveName} onChange={(e) => setSaveName(e.target.value)}
-                  style={{ ...numInput, flex: 1, textAlign: 'left', cursor: 'pointer' }}>
+                  style={{ ...numInput(T), flex: 1, textAlign: 'left', cursor: 'pointer' }}>
                   {Object.keys(POSE_LIBRARY_DEG).map((name) => (
                     <option key={name} value={name}>{name.replace(/_/g, ' ')}</option>
                   ))}
                 </select>
                 <button onClick={() => saveLib2Pose(saveName)} disabled={!controlEnabled}
-                  style={{ ...ctrlBtn(controlEnabled, '#22cc55', '#15803d'), padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                  style={{ ...cBtn(controlEnabled, '#22cc55', '#15803d'), padding: '8px 10px', whiteSpace: 'nowrap' }}>
                   💾 Guardar
                 </button>
               </div>
@@ -1821,7 +1832,7 @@ export default function CobotLiveView() {
               )}
             </div>
 
-            <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 8, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 9, color: T.dim, marginTop: 8, lineHeight: 1.4 }}>
               Poses de la simulación (wrap ±180 → transform V26). El tuner mueve
               por eje cartesiano (vel {cartSpeed} mm/s) y "Guardar" fija los joints
               actuales como la pose elegida. STOP aborta.
@@ -1844,15 +1855,15 @@ export default function CobotLiveView() {
               const frac = tableMoving ? 0.5 : tablePos === 'limit1' ? 0 : tablePos === 'limit2' ? 1 : 0.5;
               const lamp = (touched: boolean) => ({
                 width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
-                background: touched ? '#22dd55' : '#2a3548',
+                background: touched ? '#22dd55' : (T.dark ? '#2a3548' : T.borderSoft),
                 boxShadow: touched ? '0 0 10px #22dd55' : 'none',
-                border: `1px solid ${touched ? '#22dd55' : '#1d2c44'}`,
+                border: `1px solid ${touched ? '#22dd55' : T.border}`,
                 transition: 'all 0.2s',
               });
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 10px' }}>
                   <div style={lamp(table?.limit1_touched ?? false)} title="Límite 1" />
-                  <div style={{ flex: 1, position: 'relative', height: 10, background: '#0a1422', border: '1px solid #1d2c44', borderRadius: 5 }}>
+                  <div style={{ flex: 1, position: 'relative', height: 10, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 5 }}>
                     {/* carriage */}
                     <div style={{
                       position: 'absolute', top: '50%', left: `${frac * 100}%`,
@@ -1876,7 +1887,7 @@ export default function CobotLiveView() {
                 onClick={() => tableMove('limit1')}
                 disabled={!tableAvailable || tableMoving || tablePos === 'limit1'}
                 style={{
-                  ...ctrlBtn(tableAvailable && !tableMoving && tablePos !== 'limit1', '#3b8bff', '#2563eb'),
+                  ...cBtn(tableAvailable && !tableMoving && tablePos !== 'limit1', '#3b8bff', '#2563eb'),
                   padding: '12px 6px', fontSize: 12,
                 }}>
                 ← LÍMITE 1
@@ -1885,7 +1896,7 @@ export default function CobotLiveView() {
                 onClick={() => tableMove('limit2')}
                 disabled={!tableAvailable || tableMoving || tablePos === 'limit2'}
                 style={{
-                  ...ctrlBtn(tableAvailable && !tableMoving && tablePos !== 'limit2', '#3b8bff', '#2563eb'),
+                  ...cBtn(tableAvailable && !tableMoving && tablePos !== 'limit2', '#3b8bff', '#2563eb'),
                   padding: '12px 6px', fontSize: 12,
                 }}>
                 LÍMITE 2 →
@@ -1903,7 +1914,7 @@ export default function CobotLiveView() {
               ■ STOP MESA
             </button>
 
-            <div style={{ ...statRow, marginTop: 8 }}>
+            <div style={{ ...statRow(T), marginTop: 8 }}>
               <span>posición</span>
               <span style={{ color: tableMoving ? '#fbbf24' : '#22dd55', fontWeight: 700 }}>
                 {tableMoving ? '⟳ moviendo…' : tablePos === 'limit1' ? '◄ Límite 1' : tablePos === 'limit2' ? 'Límite 2 ►' : '— centro'}
@@ -1920,13 +1931,13 @@ export default function CobotLiveView() {
               { label: 'Fixture A (CAFI)', on: fixtureA },
               { label: 'Fixture B (CAFI)', on: fixtureB },
             ] as const).map(({ label, on }) => (
-              <div key={label} style={{ ...statRow, alignItems: 'center' }}>
+              <div key={label} style={{ ...statRow(T), alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{
                     width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
-                    background: on ? '#22dd55' : '#2a3548',
+                    background: on ? '#22dd55' : (T.dark ? '#2a3548' : T.borderSoft),
                     boxShadow: on ? '0 0 10px #22dd55' : 'none',
-                    border: `1px solid ${on ? '#22dd55' : '#1d2c44'}`,
+                    border: `1px solid ${on ? '#22dd55' : T.border}`,
                     transition: 'all 0.12s',
                   }} />
                   {label}
@@ -1943,7 +1954,7 @@ export default function CobotLiveView() {
               cursor: controlEnabled ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 6,
               padding: '10px', opacity: controlEnabled ? 1 : 0.55,
               color: conveyorOn ? '#06101c' : '#fff',
-              background: !controlEnabled ? '#2a3548'
+              background: !controlEnabled ? (T.dark ? '#2a3548' : T.borderSoft)
                 : conveyorOn ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)'
                 : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
             }}>
@@ -1951,7 +1962,7 @@ export default function CobotLiveView() {
             </button>
 
             {/* Auto-stop on sensor detection */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 10, color: '#abc', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 10, color: T.muted, cursor: 'pointer' }}>
               <input type="checkbox" checked={autoStopConveyor} onChange={(e) => setAutoStopConveyor(e.target.checked)} style={{ accentColor: '#22cc55' }} />
               Auto-detener al detectar objeto en el sensor
             </label>
@@ -1964,9 +1975,9 @@ export default function CobotLiveView() {
             <Flag label="Protective stop" on={s.protective_stop} goodWhenOn={false} />
             <Flag label="Emergency stop" on={s.emergency_stop} goodWhenOn={false} />
             <Flag label="Soft limit" on={s.on_soft_limit} goodWhenOn={false} />
-            <div style={statRow}><span>Motion mode</span><span style={{ color: '#9bf' }}>{s.motion_mode_name}</span></div>
-            <div style={statRow}><span>Error code</span><span style={{ color: '#fbbf24' }}>{s.motion_errcode}</span></div>
-            <div style={statRow}>
+            <div style={statRow(T)}><span>Motion mode</span><span style={{ color: '#9bf' }}>{s.motion_mode_name}</span></div>
+            <div style={statRow(T)}><span>Error code</span><span style={{ color: '#fbbf24' }}>{s.motion_errcode}</span></div>
+            <div style={statRow(T)}>
               <span>Gripper neumático</span>
               <span style={{
                 color: pneuState === 'open' ? '#22dd55' : pneuState === 'close' ? '#3b8bff' : '#788090',
@@ -1978,27 +1989,27 @@ export default function CobotLiveView() {
           </Section>
 
           <Section title="Controlador">
-            <div style={statRow}><span>Temperatura</span><span style={{ color: '#fb923c' }}>{telemetry.controller.temperature_c.toFixed(1)} °C</span></div>
-            <div style={statRow}><span>Potencia media</span><span>{telemetry.controller.avg_power_w.toFixed(1)} W</span></div>
-            <div style={statRow}><span>Corriente media</span><span>{telemetry.controller.avg_current_a.toFixed(2)} A</span></div>
-            <div style={statRow}><span>Speed magnif.</span><span>{(s.speed_magnification_pct * 100).toFixed(0)} %</span></div>
+            <div style={statRow(T)}><span>Temperatura</span><span style={{ color: '#fb923c' }}>{telemetry.controller.temperature_c.toFixed(1)} °C</span></div>
+            <div style={statRow(T)}><span>Potencia media</span><span>{telemetry.controller.avg_power_w.toFixed(1)} W</span></div>
+            <div style={statRow(T)}><span>Corriente media</span><span>{telemetry.controller.avg_current_a.toFixed(2)} A</span></div>
+            <div style={statRow(T)}><span>Speed magnif.</span><span>{(s.speed_magnification_pct * 100).toFixed(0)} %</span></div>
           </Section>
 
           <Section title="Articulaciones (J1–J6)">
             <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 0.8fr 0.8fr', gap: 2, fontSize: 10, fontFamily: 'monospace' }}>
-              <span style={{ color: '#5a6c84' }}>eje</span>
-              <span style={{ color: '#5a6c84', textAlign: 'right' }}>ángulo</span>
-              <span style={{ color: '#5a6c84', textAlign: 'right' }}>temp</span>
-              <span style={{ color: '#5a6c84', textAlign: 'right' }}>amp</span>
+              <span style={{ color: T.dim }}>eje</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>ángulo</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>temp</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>amp</span>
               {telemetry.joint_positions_deg.map((deg, i) => {
                 const js = telemetry.joint_states[i];
                 const bad = js && (js.error || js.collision);
                 return (
                   <React.Fragment key={i}>
-                    <span style={{ color: bad ? '#ff5566' : js?.enabled ? '#22dd55' : '#abc' }}>J{i + 1}</span>
-                    <span style={{ textAlign: 'right', color: '#dde4f0' }}>{deg.toFixed(2)}°</span>
+                    <span style={{ color: bad ? '#ff5566' : js?.enabled ? '#22dd55' : T.muted }}>J{i + 1}</span>
+                    <span style={{ textAlign: 'right', color: T.text }}>{deg.toFixed(2)}°</span>
                     <span style={{ textAlign: 'right', color: '#fb923c' }}>{telemetry.joint_temperatures_c[i]}°</span>
-                    <span style={{ textAlign: 'right', color: '#abc' }}>{(js?.current_a ?? 0).toFixed(1)}</span>
+                    <span style={{ textAlign: 'right', color: T.muted }}>{(js?.current_a ?? 0).toFixed(1)}</span>
                   </React.Fragment>
                 );
               })}
@@ -2006,20 +2017,20 @@ export default function CobotLiveView() {
           </Section>
 
           <Section title="TCP — Tool Center Point">
-            <div style={statRow}><span>X</span><span style={{ color: '#dde4f0' }}>{telemetry.tcp_position.x_mm.toFixed(2)} mm</span></div>
-            <div style={statRow}><span>Y</span><span style={{ color: '#dde4f0' }}>{telemetry.tcp_position.y_mm.toFixed(2)} mm</span></div>
-            <div style={statRow}><span>Z</span><span style={{ color: '#dde4f0' }}>{telemetry.tcp_position.z_mm.toFixed(2)} mm</span></div>
-            <div style={statRow}><span>RX</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.rx_deg.toFixed(2)}°</span></div>
-            <div style={statRow}><span>RY</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.ry_deg.toFixed(2)}°</span></div>
-            <div style={statRow}><span>RZ</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.rz_deg.toFixed(2)}°</span></div>
+            <div style={statRow(T)}><span>X</span><span style={{ color: T.text }}>{telemetry.tcp_position.x_mm.toFixed(2)} mm</span></div>
+            <div style={statRow(T)}><span>Y</span><span style={{ color: T.text }}>{telemetry.tcp_position.y_mm.toFixed(2)} mm</span></div>
+            <div style={statRow(T)}><span>Z</span><span style={{ color: T.text }}>{telemetry.tcp_position.z_mm.toFixed(2)} mm</span></div>
+            <div style={statRow(T)}><span>RX</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.rx_deg.toFixed(2)}°</span></div>
+            <div style={statRow(T)}><span>RY</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.ry_deg.toFixed(2)}°</span></div>
+            <div style={statRow(T)}><span>RZ</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.rz_deg.toFixed(2)}°</span></div>
           </Section>
 
           <Section title="Fuerza / Par (end-effector)">
-            <div style={statRow}><span>Fx / Fy / Fz</span><span>{telemetry.end_effector.fx_n.toFixed(1)} / {telemetry.end_effector.fy_n.toFixed(1)} / {telemetry.end_effector.fz_n.toFixed(1)} N</span></div>
-            <div style={statRow}><span>Tx / Ty / Tz</span><span>{telemetry.end_effector.torque_rx_nm.toFixed(1)} / {telemetry.end_effector.torque_ry_nm.toFixed(1)} / {telemetry.end_effector.torque_rz_nm.toFixed(1)} Nm</span></div>
+            <div style={statRow(T)}><span>Fx / Fy / Fz</span><span>{telemetry.end_effector.fx_n.toFixed(1)} / {telemetry.end_effector.fy_n.toFixed(1)} / {telemetry.end_effector.fz_n.toFixed(1)} N</span></div>
+            <div style={statRow(T)}><span>Tx / Ty / Tz</span><span>{telemetry.end_effector.torque_rx_nm.toFixed(1)} / {telemetry.end_effector.torque_ry_nm.toFixed(1)} / {telemetry.end_effector.torque_rz_nm.toFixed(1)} Nm</span></div>
           </Section>
 
-          <div style={{ fontSize: 9, color: '#5a6c84', fontFamily: 'monospace', textAlign: 'center' }}>
+          <div style={{ fontSize: 9, color: T.dim, fontFamily: 'monospace', textAlign: 'center' }}>
             {telemetry.timestamp} · 10.5.5.100:6502 · FC04
           </div>
           </>  {/* end control tab */}
@@ -2039,21 +2050,21 @@ export default function CobotLiveView() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 'min(680px, 96vw)', maxHeight: '94vh', overflowY: 'auto',
-              background: 'linear-gradient(180deg,#0c1828 0%,#0a1422 100%)',
-              border: '1px solid #1d2c44', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+              background: T.topbar,
+              border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
             }}>
             {/* Header */}
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 18px', borderBottom: '1px solid #1a2c44',
-              background: 'linear-gradient(90deg,#0c1a2c,#071420)',
+              padding: '14px 18px', borderBottom: `1px solid ${T.topbarBorder}`,
+              background: T.topbar,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', boxShadow: '0 0 8px #8b5cf6' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Panel de Cámara · Datalogic P15</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Panel de Cámara · Datalogic P15</span>
               </div>
               <button onClick={() => setCameraOpen(false)} style={{
-                fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: '#9bb0c8',
+                fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: T.muted,
                 background: 'transparent', border: 'none', cursor: 'pointer', padding: 4,
               }}>✕</button>
             </div>
@@ -2062,10 +2073,10 @@ export default function CobotLiveView() {
             <div style={{ padding: 18 }}>
               {/* ── Shutter control ── */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                <span style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
+                <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
                   Obturación (µs)
                 </span>
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: appliedShutter != null ? '#22dd55' : '#5a6c84' }}>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: appliedShutter != null ? '#22dd55' : T.dim }}>
                   {appliedShutter != null ? `aplicado: ${appliedShutter.toLocaleString()}` : 'sin aplicar'}
                 </span>
               </div>
@@ -2085,15 +2096,15 @@ export default function CobotLiveView() {
                   <button key={us} onClick={() => setShutterUs(us)} disabled={cameraLoading} style={{
                     fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600, color: '#fff',
                     cursor: cameraLoading ? 'wait' : 'pointer',
-                    border: shutterUs === us ? '2px solid #fff' : '1px solid #1d2c44', borderRadius: 6, padding: '6px 4px',
-                    background: shutterUs === us ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : 'rgba(20,30,48,0.7)',
+                    border: shutterUs === us ? '2px solid #fff' : `1px solid ${T.border}`, borderRadius: 6, padding: '6px 4px',
+                    background: shutterUs === us ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : (T.dark ? 'rgba(20,30,48,0.7)' : T.panel2),
                   }}>{label}</button>
                 ))}
               </div>
               <button onClick={applyShutter} disabled={cameraLoading} style={{
                 width: '100%', marginBottom: 14, fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
                 cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 6, padding: '9px',
-                background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#6d28d9 0%,#4c1d95 100%)',
+                background: cameraLoading ? (T.dark ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : T.borderSoft) : 'linear-gradient(180deg,#6d28d9 0%,#4c1d95 100%)',
               }}>
                 ⚙ Aplicar obturación
               </button>
@@ -2103,12 +2114,12 @@ export default function CobotLiveView() {
                 <button onClick={fetchCameraFeed} disabled={cameraLoading} style={{
                   fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
                   cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px 6px',
-                  background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)',
+                  background: cameraLoading ? (T.dark ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : T.borderSoft) : 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)',
                 }}>📷 Live Feed (5s)</button>
                 <button onClick={runInspection} disabled={cameraLoading} style={{
                   fontFamily: SANS_FONT, fontSize: 12, fontWeight: 700, color: '#fff',
                   cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 8, padding: '11px 6px',
-                  background: cameraLoading ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
+                  background: cameraLoading ? (T.dark ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : T.borderSoft) : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
                 }}>🔍 Inspección</button>
               </div>
 
@@ -2139,10 +2150,10 @@ export default function CobotLiveView() {
                   <div style={{ textAlign: 'center', color: '#8b5cf6' }}>
                     <div style={{
                       width: 44, height: 44, margin: '0 auto 12px',
-                      border: '4px solid #1d2c44', borderTopColor: '#8b5cf6', borderRadius: '50%',
+                      border: `4px solid ${T.border}`, borderTopColor: '#8b5cf6', borderRadius: '50%',
                       animation: 'cam-spin 0.9s linear infinite',
                     }} />
-                    <div style={{ fontSize: 12, color: '#9bb0c8' }}>{cameraBusyLabel || 'Procesando…'} (~6 s)</div>
+                    <div style={{ fontSize: 12, color: T.muted }}>{cameraBusyLabel || 'Procesando…'} (~6 s)</div>
                   </div>
                 ) : cameraError ? (
                   <div style={{ textAlign: 'center', padding: 24 }}>
@@ -2152,7 +2163,7 @@ export default function CobotLiveView() {
                 ) : camView === 'inspect' && inspectResult && !inspectResult.cafi_detected ? (
                   <div style={{ textAlign: 'center', padding: 24 }}>
                     <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
-                    <div style={{ fontSize: 13, color: '#9bb0c8', lineHeight: 1.5, maxWidth: 320 }}>
+                    <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, maxWidth: 320 }}>
                       No se detectó ningún CAFI en el fixture.<br/>Coloca la pieza y vuelve a inspeccionar.
                     </div>
                   </div>
@@ -2163,7 +2174,7 @@ export default function CobotLiveView() {
                   <img src={cameraGifUrl} alt="Live feed cámara Datalogic"
                     style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 ) : (
-                  <div style={{ fontSize: 12, color: '#5a6c84', textAlign: 'center', padding: 24 }}>
+                  <div style={{ fontSize: 12, color: T.dim, textAlign: 'center', padding: 24 }}>
                     Usa <b style={{ color: '#8b5cf6' }}>Live Feed</b> o <b style={{ color: '#3b8bff' }}>Inspección</b> para empezar.
                   </div>
                 )}
@@ -2172,20 +2183,20 @@ export default function CobotLiveView() {
               {/* ── Hole list (inspection only) ── */}
               {camView === 'inspect' && inspectResult && inspectResult.holes.length > 0 && !cameraLoading && (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 9, color: '#5a6c84', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
+                  <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
                     Huecos del CAFI
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     {inspectResult.holes.map((h) => (
                       <div key={h.label} style={{
                         display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 6,
-                        background: 'rgba(20,30,48,0.6)', border: `1px solid ${h.found ? '#22dd5544' : '#ff556644'}`,
+                        background: T.dark ? 'rgba(20,30,48,0.6)' : T.panel2, border: `1px solid ${h.found ? '#22dd5544' : '#ff556644'}`,
                       }}>
                         <span style={{ fontSize: 14, color: h.found ? '#22dd55' : '#ff5566', fontWeight: 800 }}>
                           {h.found ? '✓' : '✗'}
                         </span>
                         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#dde4f0' }}>{h.label}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{h.label}</span>
                           <span style={{ fontSize: 9, color: '#788090', whiteSpace: 'nowrap' }}>{h.name}</span>
                         </div>
                       </div>
@@ -2194,7 +2205,7 @@ export default function CobotLiveView() {
                 </div>
               )}
 
-              <div style={{ fontSize: 9, color: '#5a6c84', marginTop: 12, textAlign: 'center', lineHeight: 1.4 }}>
+              <div style={{ fontSize: 9, color: T.dim, marginTop: 12, textAlign: 'center', lineHeight: 1.4 }}>
                 Datalogic P15 · 1280×1024 grayscale · una operación a la vez (~3–6 s c/u).
               </div>
             </div>

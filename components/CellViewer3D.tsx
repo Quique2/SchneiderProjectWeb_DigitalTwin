@@ -4,6 +4,8 @@
 // hand-rolled CobotChain.  All meshes/poses come from V53.
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
+import type { Theme } from '../context/ThemeContext';
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -3952,6 +3954,7 @@ function HMIPanel({
   poseRegenWarnings: string[];
   regeneratePoseLib: () => void;
 }) {
+  const T = useTheme();
   const [, force] = useState(0);
   // Tick 100 ms: refresca los readouts vivos del panel. Los controles manuales
   // (jog / pose / TCP) viven ahora en <TeachPendant>, que maneja sus campos.
@@ -3977,17 +3980,17 @@ function HMIPanel({
   return (
     <div style={{
       position: 'absolute', top: 0, right: 0, bottom: 0, width: 300,
-      background: 'linear-gradient(180deg, #0c1828 0%, #0a1422 100%)',
-      borderLeft: '1px solid #1d2c44', padding: 14, color: '#dde4f0',
+      background: T.topbar,
+      borderLeft: `1px solid ${T.border}`, padding: 14, color: T.text,
       overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12,
       zIndex: 25,
     }}>
       {/* Tab bar.  HMI = automático ROS-like; DEBUG = manual/diagnóstico. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-        <button onClick={() => cellSim.switchMode('HMI')} style={tabBtnStyle(tab === 'hmi')}>
+        <button onClick={() => cellSim.switchMode('HMI')} style={tabBtnStyle(tab === 'hmi', T)}>
           HMI
         </button>
-        <button onClick={() => cellSim.switchMode('DEBUG')} style={tabBtnStyle(tab === 'debug')}>
+        <button onClick={() => cellSim.switchMode('DEBUG')} style={tabBtnStyle(tab === 'debug', T)}>
           DEBUG
         </button>
       </div>
@@ -4069,7 +4072,7 @@ function HMIPanel({
                   style={{
                     ...btnStyle, padding: '6px 4px', fontSize: 10,
                     background: !p.playing
-                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                      ? T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft
                       : 'linear-gradient(180deg,#f47835 0%,#d96416 100%)',
                     cursor: !p.playing ? 'not-allowed' : 'pointer',
                   }}>⏸ PAUSE</button>
@@ -4078,7 +4081,7 @@ function HMIPanel({
                   style={{
                     ...btnStyle, padding: '6px 4px', fontSize: 10,
                     background: (p.playing || finished)
-                      ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                      ? T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft
                       : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
                     cursor: (p.playing || finished) ? 'not-allowed' : 'pointer',
                   }}>▶ RESUME</button>
@@ -4087,7 +4090,7 @@ function HMIPanel({
                   background: 'linear-gradient(180deg,#475569 0%,#334155 100%)',
                 }}>⏮ RESET</button>
               </div>
-              <div style={{ ...statRow, marginTop: 8 }}>
+              <div style={{ ...statRow(T), marginTop: 8 }}>
                 <span>verdict</span>
                 <span style={{ color: verdictColour, fontWeight: 700 }}>{verdictLabel}</span>
               </div>
@@ -4174,11 +4177,11 @@ function HMIPanel({
             fontSize: 11, padding: '8px 10px',
             background: showCollisions
               ? 'linear-gradient(180deg,#33dffe 0%,#1ba0c0 100%)'
-              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)',
+              : T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft,
           }}>
           {showCollisions ? '◉ HIDE' : '◯ SHOW'} ({COLLISION_BOXES.length} boxes)
         </button>
-        <div style={{ ...statRow, marginTop: 8 }}>
+        <div style={{ ...statRow(T), marginTop: 8 }}>
           <span>status</span>
           <span style={{
             color: collisions.length > 0 ? '#ff5566' : '#22dd55',
@@ -4209,13 +4212,13 @@ function HMIPanel({
           style={{
             ...btnStyle, fontSize: 11, padding: '8px 10px',
             background: ikRunning
-              ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+              ? T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft
               : 'linear-gradient(180deg,#b87333 0%,#8b5a25 100%)',
             cursor: ikRunning ? 'wait' : 'pointer',
           }}>
           {ikRunning ? '⏳ SOLVING…' : '🔧 RETARGET current pose'}
         </button>
-        <div style={{ ...statRow, marginTop: 6, fontSize: 9, color: '#7a8090' }}>
+        <div style={{ ...statRow(T), marginTop: 6, fontSize: 9, color: T.dim }}>
           Re-solves joints to keep TCP at the current world XYZ while
           avoiding collision boxes (DLS + random restarts).
         </div>
@@ -4231,21 +4234,21 @@ function HMIPanel({
             ),
             borderRadius: 4,
           }}>
-            <div style={statRow}>
+            <div style={statRow(T)}>
               <span>pos error</span>
               <span>{(ikResult.positionError * 1000).toFixed(2)} mm</span>
             </div>
-            <div style={statRow}>
+            <div style={statRow(T)}>
               <span>rot error</span>
               <span>{(ikResult.rotationError * 180 / Math.PI).toFixed(2)}°</span>
             </div>
-            <div style={statRow}>
+            <div style={statRow(T)}>
               <span>collisions</span>
               <span style={{ color: ikResult.collisions.length === 0 ? '#22dd55' : '#ff5566' }}>
                 {ikResult.collisions.length === 0 ? '✓ clear' : `✗ ${ikResult.collisions.length}`}
               </span>
             </div>
-            <div style={statRow}>
+            <div style={statRow(T)}>
               <span>iter / attempts</span>
               <span>{ikResult.iterations} / {ikResult.attempts}</span>
             </div>
@@ -4260,7 +4263,7 @@ function HMIPanel({
                   ...btnStyle, fontSize: 10, padding: '6px 8px',
                   background: ikResult.converged
                     ? 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)'
-                    : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)',
+                    : T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft,
                 }}>
                 ✓ APPLY
               </button>
@@ -4274,7 +4277,7 @@ function HMIPanel({
 
         {/* V26 POSE_LIB regeneration status + manual trigger */}
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #1a2434' }}>
-          <div style={statRow}>
+          <div style={statRow(T)}>
             <span>POSE_LIB (V26)</span>
             <span style={{
               color: poseRegenStatus === 'fresh' ? '#22dd55'
@@ -4298,7 +4301,7 @@ function HMIPanel({
             style={{
               ...btnStyle, fontSize: 10, padding: '6px 8px', marginTop: 4,
               background: poseRegenStatus === 'running'
-                ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)'
+                ? T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft
                 : 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)',
               cursor: poseRegenStatus === 'running' ? 'wait' : 'pointer',
             }}>
@@ -4326,17 +4329,17 @@ function HMIPanel({
           <button onClick={() => setGripper(true)}
             style={{ ...btnStyle, background: gripIsOpen
               ? 'linear-gradient(180deg,#22cc55 0%,#1aa044 100%)'
-              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' }}>
+              : T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft }}>
             OPEN
           </button>
           <button onClick={() => setGripper(false)}
             style={{ ...btnStyle, background: !gripIsOpen
               ? 'linear-gradient(180deg,#f47835 0%,#d96416 100%)'
-              : 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' }}>
+              : T.dark ? 'linear-gradient(180deg,#3a4f6a 0%,#2a3548 100%)' : T.borderSoft }}>
             CLOSE
           </button>
         </div>
-        <div style={statRow}>
+        <div style={statRow(T)}>
           <span>jaw</span>
           <span>{(gripperLiveRef.current * 1000).toFixed(1)} mm ({gripPct.toFixed(0)}%)</span>
         </div>
@@ -4344,7 +4347,7 @@ function HMIPanel({
             gripper centre without moving the cobot.  Only takes effect
             when the CAFI is in_gripper. */}
         <div style={{ marginTop: 8 }}>
-          <div style={statRow}>
+          <div style={statRow(T)}>
             <span>CAFI yaw (Z)</span>
             <span>{(cafiGraspYawRef.current * 180 / Math.PI).toFixed(1)}°</span>
           </div>
@@ -4354,7 +4357,7 @@ function HMIPanel({
             style={{ width: '100%' }} />
         </div>
         <div style={{ marginTop: 6 }}>
-          <div style={statRow}>
+          <div style={statRow(T)}>
             <span>CAFI pitch (X)</span>
             <span>{(cafiGraspPitchRef.current * 180 / Math.PI).toFixed(1)}°</span>
           </div>
@@ -4364,7 +4367,7 @@ function HMIPanel({
             style={{ width: '100%' }} />
         </div>
         <div style={{ marginTop: 6 }}>
-          <div style={statRow}>
+          <div style={statRow(T)}>
             <span>CAFI roll (Y)</span>
             <span>{(cafiGraspRollRef.current * 180 / Math.PI).toFixed(1)}°</span>
           </div>
@@ -4396,14 +4399,14 @@ function HMIPanel({
           defaultValue={0}
           onInput={(e) => setDiscAngle(parseFloat((e.target as HTMLInputElement).value))}
           style={{ width: '100%' }} />
-        <div style={statRow}><span>angle</span><span>{(discAngleRef.current * 180 / Math.PI).toFixed(1)}°</span></div>
+        <div style={statRow(T)}><span>angle</span><span>{(discAngleRef.current * 180 / Math.PI).toFixed(1)}°</span></div>
       </Section>
 
       {/* Telemetry */}
       <Section title="Telemetry (TCP world XYZ)">
-        <div style={statRow}><span>x</span><span>{g[0].toFixed(3)} m</span></div>
-        <div style={statRow}><span>y</span><span>{g[1].toFixed(3)} m</span></div>
-        <div style={statRow}><span>z</span><span>{g[2].toFixed(3)} m</span></div>
+        <div style={statRow(T)}><span>x</span><span>{g[0].toFixed(3)} m</span></div>
+        <div style={statRow(T)}><span>y</span><span>{g[1].toFixed(3)} m</span></div>
+        <div style={statRow(T)}><span>z</span><span>{g[2].toFixed(3)} m</span></div>
       </Section>
 
       {/* El TeachPendant vive como overlay flotante sobre el canvas 3D,
@@ -4419,16 +4422,14 @@ function HMIPanel({
 }
 
 // Tab button styling — bordered top tabs, active = orange, inactive = dim.
-const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+const tabBtnStyle = (active: boolean, T: Theme): React.CSSProperties => ({
   background: active
     ? 'linear-gradient(180deg, #b87333 0%, #8b5a25 100%)'
-    : 'linear-gradient(180deg, #1a2434 0%, #0c1828 100%)',
-  color: active ? '#fff' : '#7a8090',
-  // longhand por lado (evita mezclar `border` shorthand con `borderBottom` →
-  // React advierte "shorthand/non-shorthand" al re-renderizar cada 100 ms).
-  borderTop: '1px solid ' + (active ? '#b87333' : '#1d2c44'),
-  borderLeft: '1px solid ' + (active ? '#b87333' : '#1d2c44'),
-  borderRight: '1px solid ' + (active ? '#b87333' : '#1d2c44'),
+    : T.dark ? 'linear-gradient(180deg, #1a2434 0%, #0c1828 100%)' : T.panel,
+  color: active ? '#fff' : T.dim,
+  borderTop: '1px solid ' + (active ? '#b87333' : T.border),
+  borderLeft: '1px solid ' + (active ? '#b87333' : T.border),
+  borderRight: '1px solid ' + (active ? '#b87333' : T.border),
   borderBottom: 'none',
   padding: '8px 4px', fontSize: 11, fontWeight: 700,
   letterSpacing: 1.5, cursor: 'pointer',
@@ -4443,6 +4444,7 @@ function OffsetControl({ label, valueRef, setter }: {
   valueRef: React.MutableRefObject<number>;
   setter: (v: number) => void;
 }) {
+  const T = useTheme();
   const handle = (v: string) => {
     const n = parseFloat(v);
     if (Number.isFinite(n)) setter(n);
@@ -4450,7 +4452,7 @@ function OffsetControl({ label, valueRef, setter }: {
   const v = valueRef.current;
   return (
     <div style={{ marginBottom: 6 }}>
-      <div style={statRow}>
+      <div style={statRow(T)}>
         <span>{label}</span>
         <span>{(v * 1000).toFixed(1)} mm</span>
       </div>
@@ -4463,8 +4465,8 @@ function OffsetControl({ label, valueRef, setter }: {
           value={v.toFixed(4)}
           onChange={(e) => handle((e.target as HTMLInputElement).value)}
           style={{
-            background: '#0c1828', color: '#dde4f0',
-            border: '1px solid #2a4060', borderRadius: 3,
+            background: T.panel2, color: T.text,
+            border: `1px solid ${T.border}`, borderRadius: 3,
             padding: '3px 4px', fontSize: 10, fontFamily: 'monospace',
             width: '100%',
           }} />
@@ -4474,13 +4476,14 @@ function OffsetControl({ label, valueRef, setter }: {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const T = useTheme();
   return (
     <div style={{
-      background: 'rgba(20, 30, 48, 0.55)', border: '1px solid #1d2c44',
+      background: T.dark ? 'rgba(20, 30, 48, 0.55)' : T.panel, border: `1px solid ${T.border}`,
       borderRadius: 6, padding: 10,
     }}>
       <div style={{
-        fontSize: 9, letterSpacing: 2, color: '#688',
+        fontSize: 9, letterSpacing: 2, color: T.dim,
         textTransform: 'uppercase', marginBottom: 8, fontWeight: 600,
       }}>{title}</div>
       {children}
@@ -4495,26 +4498,33 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer', letterSpacing: 0.5, width: '100%',
 };
 
-const jogBtnStyle: React.CSSProperties = {
-  background: 'linear-gradient(180deg,#2a3548 0%,#1a2434 100%)',
-  color: '#dde4f0', border: '1px solid #2a4060', borderRadius: 3,
-  padding: '4px 2px', fontSize: 9, fontWeight: 600,
-  cursor: 'pointer', letterSpacing: 0.2, fontFamily: 'monospace',
-};
+function jogBtnStyle(T: Theme): React.CSSProperties {
+  return {
+    background: T.dark ? 'linear-gradient(180deg,#2a3548 0%,#1a2434 100%)' : T.panel,
+    color: T.text, border: `1px solid ${T.border}`, borderRadius: 3,
+    padding: '4px 2px', fontSize: 9, fontWeight: 600,
+    cursor: 'pointer', letterSpacing: 0.2, fontFamily: 'monospace',
+  };
+}
 
-const statRow: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between',
-  fontSize: 10, fontFamily: 'monospace', color: '#abc', padding: '2px 0',
-};
+function statRow(T: Theme): React.CSSProperties {
+  return {
+    display: 'flex', justifyContent: 'space-between',
+    fontSize: 10, fontFamily: 'monospace', color: T.muted, padding: '2px 0',
+  };
+}
 
-const numInputStyle: React.CSSProperties = {
-  width: 110, background: '#0a1422', color: '#dde4f0',
-  border: '1px solid #2a4060', borderRadius: 3, padding: '3px 6px',
-  fontSize: 11, fontFamily: 'monospace', textAlign: 'right',
-};
+function numInputStyle(T: Theme): React.CSSProperties {
+  return {
+    width: 110, background: T.panel2, color: T.text,
+    border: `1px solid ${T.border}`, borderRadius: 3, padding: '3px 6px',
+    fontSize: 11, fontFamily: 'monospace', textAlign: 'right',
+  };
+}
 
 // ── Root component ───────────────────────────────────────────────────────────
 export default function CellViewer3D() {
+  const T = useTheme();
   const jointsRef = useRef<[number, number, number, number, number, number]>([...POSE_LIB.HOME]);
   // Pose activa que el cobot "está ejecutando" en modo DEBUG: la última pose
   // seleccionada con setPose (botones Set Pose / load de Saved). Sirve de punto
@@ -4885,7 +4895,7 @@ export default function CellViewer3D() {
 
   return (
     <div style={{
-      background: '#07111e',
+      background: T.bg,
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
@@ -4895,7 +4905,7 @@ export default function CellViewer3D() {
         <Canvas
           shadows
           camera={{ position: [3.4, -2.0, 2.2], fov: 42, near: 0.05, far: 50, up: [0, 0, 1] }}
-          style={{ background: '#07111e' }}
+          style={{ background: T.bg }}
           gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
         >
           <ZUpBootstrap />
@@ -5046,9 +5056,9 @@ export default function CellViewer3D() {
         {/* Calibración en vivo del pick del conveyor (offset +X) — overlay. */}
         <div style={{
           position: 'absolute', left: 12, bottom: 12, zIndex: 20,
-          background: 'rgba(7,17,30,0.88)', border: '1px solid #1e3a52',
+          background: T.dark ? 'rgba(7,17,30,0.88)' : 'rgba(255,255,255,0.92)', border: `1px solid ${T.border}`,
           borderRadius: 8, padding: '10px 12px', width: 250,
-          fontFamily: 'monospace', color: '#cde',
+          fontFamily: 'monospace', color: T.text,
         }}>
           <div style={{ fontSize: 11, color: '#7fd1ff', marginBottom: 6, letterSpacing: '0.04em' }}>
             CALIBRACIÓN · Pick conveyor (offset X)
@@ -5078,9 +5088,9 @@ export default function CellViewer3D() {
             resalta activeCafiId y el que va en el gripper. Apagado por default. */}
         <div style={{
           position: 'absolute', left: 12, top: 12, zIndex: 20,
-          background: 'rgba(7,17,30,0.88)', border: '1px solid #1e3a52',
+          background: T.dark ? 'rgba(7,17,30,0.88)' : 'rgba(255,255,255,0.92)', border: `1px solid ${T.border}`,
           borderRadius: 8, padding: '8px 10px', width: 210,
-          fontFamily: 'monospace', color: '#cde',
+          fontFamily: 'monospace', color: T.text,
         }}>
           <button
             onClick={() => setShowCafiDebug((s) => !s)}

@@ -39,6 +39,32 @@ export default function WiringDiagram() {
       });
   }, []);
 
+  // Apply theme colors to SVG background + text whenever theme or loaded changes
+  useEffect(() => {
+    if (!loaded || !containerRef.current) return;
+    const svg = containerRef.current.querySelector('svg');
+    if (!svg) return;
+
+    const bg = T.dark ? '#07111e' : T.bg;
+    const textFill = T.dark ? '#7a9ab8' : '#475569';
+
+    // 1. SVG element inline style background
+    svg.style.background = bg;
+
+    // 2. Background rect (first <rect> = the fill behind all wires)
+    const bgRect = svg.querySelector('rect');
+    if (bgRect) bgRect.setAttribute('fill', bg);
+
+    // 3. Text fill inside the <style> block
+    const styleEl = svg.querySelector('style');
+    if (styleEl && styleEl.textContent) {
+      styleEl.textContent = styleEl.textContent.replace(
+        /fill:#[0-9a-fA-F]{6}/,
+        `fill:${textFill}`,
+      );
+    }
+  }, [loaded, T.dark, T.bg]);
+
   // Toggle wire group visibility
   useEffect(() => {
     if (!loaded || !containerRef.current) return;

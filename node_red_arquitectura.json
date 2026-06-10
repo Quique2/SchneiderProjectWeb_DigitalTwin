@@ -1,0 +1,1058 @@
+[
+  {
+    "id": "tab_arch",
+    "type": "tab",
+    "label": "Celda Remachado — Arquitectura Modbus/TCP",
+    "disabled": false,
+    "info": "DEMOSTRATIVO — Arquitectura de la Celda de Remachado Schneider.\n\nLa Raspberry Pi 4 es el PLC/Gateway central:\n  • Cobot JAKA LXMRL03S0000  → Modbus TCP :6502 + TLS/JSON :10000/:10001 + FTP :2121\n  • Datalogic P15 Camera      → HTTP :80 + Telnet :23 + CORBA :10001\n  • Schneider HMI             → Modbus TCP :502 (master)\n  • Gemelo Digital (browser)  → WSS ngrok tunnel\n\nSubnets: 192.168.1.0/24 (industrial) + 10.5.5.0/24 (cobot nativo)\nNAT via iptables MASQUERADE en RPi para rutear entre ambas redes.\n\nDependencias: node-red-contrib-modbus  node-red-node-pi-gpio"
+  },
+  {
+    "id": "mc_cobot",
+    "type": "modbus-client",
+    "name": "Cobot — Modbus TCP  10.5.5.100:6502  Unit:1",
+    "clienttype": "tcp",
+    "bufferCommands": true,
+    "stateLogEnabled": true,
+    "queueLogEnabled": false,
+    "failureLogEnabled": true,
+    "tcpHost": "10.5.5.100",
+    "tcpPort": "6502",
+    "tcpType": "DEFAULT",
+    "serialPort": "/dev/ttyUSB",
+    "serialType": "RTU-BUFFERD",
+    "serialBaudrate": "9600",
+    "serialDatabits": "8",
+    "serialStopbits": "1",
+    "serialParity": "none",
+    "serialConnectionDelay": "100",
+    "serialAsciiResponseStartDelimiter": "0x3A",
+    "unit_id": "1",
+    "commandDelay": "1",
+    "clientTimeout": "3000",
+    "reconnectOnTimeout": true,
+    "reconnectTimeout": "2000",
+    "parallelUnitIdsAllowed": true
+  },
+  {
+    "id": "mc_hmi",
+    "type": "modbus-client",
+    "name": "HMI Schneider — Modbus TCP  192.168.1.51:502  Unit:1",
+    "clienttype": "tcp",
+    "bufferCommands": true,
+    "stateLogEnabled": false,
+    "queueLogEnabled": false,
+    "failureLogEnabled": true,
+    "tcpHost": "192.168.1.51",
+    "tcpPort": "502",
+    "tcpType": "DEFAULT",
+    "serialPort": "/dev/ttyUSB",
+    "serialType": "RTU-BUFFERD",
+    "serialBaudrate": "9600",
+    "serialDatabits": "8",
+    "serialStopbits": "1",
+    "serialParity": "none",
+    "serialConnectionDelay": "100",
+    "serialAsciiResponseStartDelimiter": "0x3A",
+    "unit_id": "1",
+    "commandDelay": "1",
+    "clientTimeout": "3000",
+    "reconnectOnTimeout": true,
+    "reconnectTimeout": "2000",
+    "parallelUnitIdsAllowed": true
+  },
+  {
+    "id": "wsl_cobot",
+    "type": "websocket-listener",
+    "path": "/ws/cobot",
+    "wholemsg": "false"
+  },
+  {
+    "id": "g_internet",
+    "type": "group",
+    "name": "🌐  INTERNET / CLOUD  —  Acceso remoto via ngrok (wlan0: 10.22.160.24)",
+    "style": {
+      "stroke": "#3b82f6",
+      "stroke-opacity": "1",
+      "fill": "#1e3a5f",
+      "fill-opacity": "0.35",
+      "label": true,
+      "label-position": "nw",
+      "color": "#93c5fd"
+    },
+    "nodes": [
+      "n_browser",
+      "n_ngrok",
+      "n_api_gw",
+      "n_ws_url"
+    ],
+    "x": 40,
+    "y": 40,
+    "w": 2100,
+    "h": 230,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_rpi",
+    "type": "group",
+    "name": "🖥️  RASPBERRY PI 4  —  GATEWAY / PLC     eth0: 192.168.1.167  |  eth1: 10.5.5.200  |  FastAPI :8000  |  Modbus Master  |  NAT iptables",
+    "style": {
+      "stroke": "#22c55e",
+      "stroke-opacity": "1",
+      "fill": "#14532d",
+      "fill-opacity": "0.25",
+      "label": true,
+      "label-position": "nw",
+      "color": "#4ade80"
+    },
+    "nodes": [
+      "n_poll100",
+      "n_poll200",
+      "n_cmd_in",
+      "n_orchestrator",
+      "n_cycle_runner",
+      "n_nat_router",
+      "n_mb_cobot",
+      "n_mb_hmi_r",
+      "n_mb_hmi_w",
+      "n_http_cam",
+      "n_tls10000",
+      "n_tls10001",
+      "n_ftp_rpi",
+      "n_gpio_out",
+      "n_gpio_in",
+      "n_ws_bcast"
+    ],
+    "x": 40,
+    "y": 300,
+    "w": 2180,
+    "h": 560,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_camera",
+    "type": "group",
+    "name": "📷  DATALOGIC P15 SMART CAMERA  —  192.168.1.30  —  1280×1024 px  Monocromo  1.3 MP",
+    "style": {
+      "stroke": "#a855f7",
+      "stroke-opacity": "1",
+      "fill": "#2e1065",
+      "fill-opacity": "0.3",
+      "label": true,
+      "label-position": "nw",
+      "color": "#c084fc"
+    },
+    "nodes": [
+      "n_cam_trig",
+      "n_cam_img",
+      "n_cam_stat",
+      "n_cam_teln",
+      "n_cam_corba"
+    ],
+    "x": 40,
+    "y": 900,
+    "w": 500,
+    "h": 760,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_cobot",
+    "type": "group",
+    "name": "🤖  LEXIUM COBOT JAKA LXMRL03S0000  —  10.5.5.100 (primaria)  /  192.168.1.252 (ctrl)  —  6 DOF  3 kg  IP54",
+    "style": {
+      "stroke": "#f59e0b",
+      "stroke-opacity": "1",
+      "fill": "#451a03",
+      "fill-opacity": "0.3",
+      "label": true,
+      "label-position": "nw",
+      "color": "#fbbf24"
+    },
+    "nodes": [
+      "n_cob_mb_hdr",
+      "n_cob_j",
+      "n_cob_tcp_pos",
+      "n_cob_tmp",
+      "n_cob_st",
+      "n_cob_s10k",
+      "n_cob_c10k",
+      "n_cob_ftp_dev",
+      "n_cob_do",
+      "n_cob_di"
+    ],
+    "x": 580,
+    "y": 900,
+    "w": 830,
+    "h": 840,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_hmi",
+    "type": "group",
+    "name": "🖥️  HMI SCHNEIDER MASTER  —  192.168.1.51  —  Modbus TCP Slave :502  —  Panel operador celda",
+    "style": {
+      "stroke": "#ef4444",
+      "stroke-opacity": "1",
+      "fill": "#450a0a",
+      "fill-opacity": "0.3",
+      "label": true,
+      "label-position": "nw",
+      "color": "#f87171"
+    },
+    "nodes": [
+      "n_hmi_hdr",
+      "n_hmi_led",
+      "n_hmi_btn",
+      "n_hmi_reg",
+      "n_hmi_cmt"
+    ],
+    "x": 1460,
+    "y": 900,
+    "w": 460,
+    "h": 740,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_plc",
+    "type": "group",
+    "name": "⚙️  SCHNEIDER PLC TM262-15  —  192.168.1.50  —  IEC 61131-3",
+    "style": {
+      "stroke": "#64748b",
+      "stroke-opacity": "1",
+      "fill": "#1e293b",
+      "fill-opacity": "0.35",
+      "label": true,
+      "label-position": "nw",
+      "color": "#94a3b8"
+    },
+    "nodes": [
+      "n_plc_fn",
+      "n_plc_cmt"
+    ],
+    "x": 1960,
+    "y": 900,
+    "w": 360,
+    "h": 380,
+    "z": "tab_arch"
+  },
+  {
+    "id": "g_opcua",
+    "type": "group",
+    "name": "💻  OPC-UA SERVER  —  192.168.1.201  —  EcoStruxure Machine Expert",
+    "style": {
+      "stroke": "#64748b",
+      "stroke-opacity": "1",
+      "fill": "#1e293b",
+      "fill-opacity": "0.35",
+      "label": true,
+      "label-position": "nw",
+      "color": "#94a3b8"
+    },
+    "nodes": [
+      "n_opc_fn",
+      "n_opc_cmt"
+    ],
+    "x": 1960,
+    "y": 1320,
+    "w": 360,
+    "h": 360,
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_browser",
+    "type": "inject",
+    "name": "🖥️  Browser / Gemelo Digital",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 0.1,
+    "topic": "client-connect",
+    "payload": "{\"type\":\"subscribe\",\"client\":\"digital-twin\",\"url\":\"https://digitaltwinwebordo-production.up.railway.app\"}",
+    "payloadType": "json",
+    "g": "g_internet",
+    "x": 200,
+    "y": 150,
+    "wires": [
+      [
+        "n_ngrok"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_ngrok",
+    "type": "function",
+    "name": "ngrok Tunnel  (wlan0 → Internet)\nwss://unmoral-shrink-cavalry.ngrok-free.dev",
+    "func": "// Túnel ngrok gratuito en wlan0 (10.22.160.24)\n// Expone FastAPI :8000 al mundo vía HTTPS/WSS\n//\n// WSS:   wss://unmoral-shrink-cavalry.ngrok-free.dev/ws/cobot\n// HTTPS: https://unmoral-shrink-cavalry.ngrok-free.dev/api/*\n//\n// Iniciado por start_gateway.sh al arrancar la RPi\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "g": "g_internet",
+    "x": 620,
+    "y": 150,
+    "wires": [
+      [
+        "n_api_gw"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_api_gw",
+    "type": "function",
+    "name": "FastAPI / uvicorn  :8000\nWebSocket /ws/cobot  |  REST /api/*\nCORS: all origins  |  100 ms broadcast",
+    "func": "// backend.py — FastAPI + uvicorn en 0.0.0.0:8000\n//\n// Endpoints REST:\n//   GET  /health\n//   GET  /api/cobot/state\n//   POST /api/cobot/move/joint   {joints:[°×6], speed:%}\n//   POST /api/cobot/stop\n//   POST /api/cobot/power_on  /enable\n//   POST /api/cobot/gripper/open  /close\n//   POST /api/cobot/conveyor/start  /stop\n//   POST /api/camera/snapshot\n//   POST /api/table/home  /work\n//   POST /api/cycle/start  /stop  /status\n//\n// WS /ws/cobot → snapshot JSON @ 100 ms\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "g": "g_internet",
+    "x": 1100,
+    "y": 150,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_ws_url",
+    "type": "comment",
+    "name": "⬆ Railway deploy: digitaltwinwebordo-production.up.railway.app\n⬆ ngrok WS:   wss://unmoral-shrink-cavalry.ngrok-free.dev/ws/cobot\n⬆ ngrok REST: https://unmoral-shrink-cavalry.ngrok-free.dev/api/*",
+    "info": "",
+    "g": "g_internet",
+    "x": 1640,
+    "y": 150,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_poll100",
+    "type": "inject",
+    "name": "⏱ Polling 100 ms\n(Cobot Modbus + TLS stream)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "0.1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 1,
+    "topic": "poll-cobot",
+    "payload": "true",
+    "payloadType": "bool",
+    "g": "g_rpi",
+    "x": 200,
+    "y": 410,
+    "wires": [
+      [
+        "n_mb_cobot",
+        "n_tls10000"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_poll200",
+    "type": "inject",
+    "name": "⏱ Polling 200 ms\n(HMI Botones + LEDs)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "0.2",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 1.5,
+    "topic": "poll-hmi",
+    "payload": "true",
+    "payloadType": "bool",
+    "g": "g_rpi",
+    "x": 200,
+    "y": 560,
+    "wires": [
+      [
+        "n_mb_hmi_r"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cmd_in",
+    "type": "websocket in",
+    "name": "WS Server  :8000/ws/cobot\n← Comandos del browser / Railway",
+    "server": "wsl_cobot",
+    "client": "",
+    "g": "g_rpi",
+    "x": 200,
+    "y": 710,
+    "wires": [
+      [
+        "n_orchestrator"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_orchestrator",
+    "type": "function",
+    "name": "🧠 Orchestrator — State Machine\nbackend.py + cycle_runner.py\nIDLE → PICK → PLACE → RIVET → INSPECT → BIN → HOME",
+    "func": "// Máquina de estados de 32 pasos (cycle_runner.py):\n// 0-1:   Init — power_on + enable + turntable home\n// 2-11:  Pick del conveyor → Fixture A\n//        (espera DI9 photoelectric @200ms polling)\n// 12-13: Remachado 30s (turntable limit1 → limit2 → limit1)\n// 14-23: Inspección visión (→ cámara, espera 5s, trigger)\n// 24-32: Routing PASS→Bin OK / FAIL→Bin KO + return HOME\n//\n// Salidas:\n//   0 → Cobot Modbus/TLS (movimiento, gripper, conveyor)\n//   1 → HMI Modbus (LEDs, contadores)\n//   2 → Camera HTTP (trigger, captura imagen)\n//   3 → Cobot FTP  (upload programas)\n//   4 → GPIO (stepper turntable, solenoid)\nconst state = context.get('cycleState') || 'IDLE';\nmsg._state = state;\nreturn [msg, msg, msg, msg, msg];",
+    "outputs": 5,
+    "outputLabels": [
+      "→ Cobot (Modbus/TLS)",
+      "→ HMI (Modbus)",
+      "→ Camera (HTTP)",
+      "→ Cobot (FTP)",
+      "→ GPIO (Stepper/Solenoid)"
+    ],
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "g": "g_rpi",
+    "x": 570,
+    "y": 410,
+    "wires": [
+      [
+        "n_mb_cobot",
+        "n_tls10001"
+      ],
+      [
+        "n_mb_hmi_w"
+      ],
+      [
+        "n_http_cam"
+      ],
+      [
+        "n_ftp_rpi"
+      ],
+      [
+        "n_gpio_out"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cycle_runner",
+    "type": "function",
+    "name": "🔄 Cycle Runner  (cycle_pipeline.py)\nPipeline multi-pieza  |  Seguimiento piezas\ncontadores: total / aceptadas / rechazadas",
+    "func": "// cycle_pipeline.py — Async task scheduler\n// Gestiona múltiples piezas en paralelo en la pipeline:\n//   pieza_1: en conveyor   pieza_2: en inspección\n//\n// Contadores:\n//   COUNT.total      → HMI Reg 1\n//   COUNT.accepted   → HMI Reg 2\n//   COUNT.rejected   → HMI Reg 3\n//\n// Tabla lineal (table_control.py):\n//   GPIO18 STEP  GPIO23 DIR  → stepper NEMA17\n//   GPIO24 limit_HOME  GPIO25 limit_WORK\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "g": "g_rpi",
+    "x": 570,
+    "y": 560,
+    "wires": [
+      [
+        "n_orchestrator"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_nat_router",
+    "type": "function",
+    "name": "🔀 NAT Router  (cobot-nat.service)\neth0: 192.168.1.167  ↔  eth1: 10.5.5.200\niptables MASQUERADE  |  ip_forward=1",
+    "func": "// systemd service: cobot-nat.service\n// Activa al boot:\n//   sysctl net.ipv4.ip_forward=1\n//   iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE\n//   iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT\n//   iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\n//\n// Permite que 192.168.1.x llegue a 10.5.5.100 (cobot)\n// y que la RPi enrute comandos entre ambas redes\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_rpi",
+    "x": 570,
+    "y": 710,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_mb_cobot",
+    "type": "modbus-read",
+    "name": "Leer Cobot  FC04  :6502\nRegs 316→471  (156 words)  @100ms",
+    "topic": "cobot-state",
+    "showStatusActivities": true,
+    "showErrors": true,
+    "unitid": "1",
+    "dataType": "InputRegister",
+    "adr": "316",
+    "quantity": "156",
+    "rate": "100",
+    "rateUnit": "ms",
+    "delayOnStart": false,
+    "startDelayTime": 50,
+    "server": "mc_cobot",
+    "useIOFile": false,
+    "ioFile": "",
+    "useIOForPayload": false,
+    "logIOActivities": false,
+    "logErrors": false,
+    "g": "g_rpi",
+    "x": 940,
+    "y": 410,
+    "wires": [
+      [
+        "n_ws_bcast",
+        "n_cob_j"
+      ],
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_mb_hmi_r",
+    "type": "modbus-read",
+    "name": "Leer HMI Botones  FC01  :502\nCoils 101-106  START/STOP/RESUME/RESTART\nCONFIRM_CLEAN/FINALIZE  @200ms",
+    "topic": "hmi-buttons",
+    "showStatusActivities": false,
+    "showErrors": true,
+    "unitid": "1",
+    "dataType": "Coil",
+    "adr": "101",
+    "quantity": "6",
+    "rate": "200",
+    "rateUnit": "ms",
+    "delayOnStart": false,
+    "startDelayTime": 200,
+    "server": "mc_hmi",
+    "useIOFile": false,
+    "ioFile": "",
+    "useIOForPayload": false,
+    "logIOActivities": false,
+    "logErrors": false,
+    "g": "g_rpi",
+    "x": 940,
+    "y": 560,
+    "wires": [
+      [
+        "n_orchestrator",
+        "n_hmi_btn"
+      ],
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_mb_hmi_w",
+    "type": "modbus-write",
+    "name": "Escribir HMI LEDs  FC15  :502\nCoils 1-15  |  Regs 1-4 Contadores\n@200ms",
+    "topic": "hmi-write",
+    "showStatusActivities": false,
+    "showErrors": true,
+    "unitid": "1",
+    "dataType": "MCoil",
+    "adr": "1",
+    "quantity": "15",
+    "server": "mc_hmi",
+    "emptyMsgOnFail": false,
+    "keepMsgProperties": false,
+    "g": "g_rpi",
+    "x": 940,
+    "y": 710,
+    "wires": [
+      [
+        "n_hmi_led"
+      ],
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_http_cam",
+    "type": "http request",
+    "name": "Camera HTTP :80\nGET /Trigger  /image  /Status\n/Online  /Offline  /getData/<prop>",
+    "method": "GET",
+    "ret": "bin",
+    "paytoqs": "ignore",
+    "url": "http://192.168.1.30/Trigger",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "g": "g_rpi",
+    "x": 1310,
+    "y": 410,
+    "wires": [
+      [
+        "n_orchestrator",
+        "n_cam_trig"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_tls10000",
+    "type": "tcp request",
+    "name": "Cobot TLS:10000\nJSON Stream  ~6 KB / 100ms\njoint_pos, TCP, enabled, error_code",
+    "server": "10.5.5.100",
+    "port": "10000",
+    "out": "time",
+    "ret": "string",
+    "splitc": "{ }",
+    "newline": "",
+    "trim": false,
+    "tls": "",
+    "g": "g_rpi",
+    "x": 1310,
+    "y": 560,
+    "wires": [
+      [
+        "n_ws_bcast",
+        "n_cob_s10k"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_tls10001",
+    "type": "function",
+    "name": "Cobot TLS:10001\nJSON Commands  (cert auto-firmado)\njoint_move / enable / gripper / stop",
+    "func": "// Protocolo JSON sobre TLS a 10.5.5.100:10001\n// Requiere: EcoStruxure 'Remote Control' activo\n//\n// Comandos disponibles:\n//  joint_move: {cmdName, relFlag:0, jointPosition:[°×6], speed:1-100}\n//  enable_robot / disable_robot\n//  power_on / power_off\n//  set_digital_output: {index:5, val:true}   // DO6 Gripper\n//  set_digital_output: {index:12, val:true}  // DO13 Conveyor\n//  get_digital_input_status                  // DI9, DI11\n//  stop_program\n//  collision_recover / clear_error\n//  set_rapidrate: {rate: 1-100}              // velocidad %\nconst tls_payload = JSON.stringify({\n  cmdName: msg.payload.cmd || 'get_robot_status'\n});\nmsg.payload = tls_payload;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_rpi",
+    "x": 1310,
+    "y": 710,
+    "wires": [
+      [
+        "n_cob_c10k"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_ftp_rpi",
+    "type": "function",
+    "name": "Cobot FTP/TLS :2121\nUpload/Download programas .jks\nGestión de secuencias JAKA Script",
+    "func": "// FTP sobre TLS a 10.5.5.100:2121\n// Gestión de programas .jks (JAKA Script)\n//\n// Operaciones:\n//   LIST  — listar programas disponibles\n//   STOR  — subir programa al cobot\n//   RETR  — descargar programa del cobot\n//   DELE  — eliminar programa\n//\n// Cert auto-firmado (sin verificación hostname)\n// Credenciales hardcodeadas en el firmware del cobot\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_rpi",
+    "x": 1680,
+    "y": 410,
+    "wires": [
+      [
+        "n_cob_ftp_dev"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_gpio_out",
+    "type": "function",
+    "name": "GPIO OUT — Stepper + Solenoid\nGPIO18: STEP (NEMA17 mesa lineal)\nGPIO23: DIR   GPIO25: Solenoid MOSFET",
+    "g": "g_rpi",
+    "x": 1680,
+    "y": 560,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch",
+    "func": "// GPIO OUT — Raspberry Pi (node-red-node-pi-gpio)\n// GPIO18: STEP  pulse — NEMA17 mesa lineal (table_control.py)\n// GPIO23: DIR   direction\n// GPIO25: Solenoid via MOSFET (CN2 solenoid output)\n// config.txt: gpio=24,25=ip,pu  (pull-up en limit switches)\nreturn msg;",
+    "outputs": 1
+  },
+  {
+    "id": "n_gpio_in",
+    "type": "function",
+    "name": "GPIO IN — Limit Switches (pull-up)\nGPIO24: Fixture limit_HOME  (L3)\nGPIO25: Fixture limit_WORK  (L4)",
+    "g": "g_rpi",
+    "x": 1680,
+    "y": 710,
+    "wires": [
+      [
+        "n_orchestrator"
+      ]
+    ],
+    "z": "tab_arch",
+    "func": "// GPIO IN — Raspberry Pi (node-red-node-pi-gpio)\n// GPIO24 (L3): Fixture limit_HOME  — pull-up, debounce 25ms\n// GPIO25 (L4): Fixture limit_WORK  — pull-up, debounce 25ms\n// Trigger al Orchestrator cuando turntable llega a posición\nreturn msg;",
+    "outputs": 1
+  },
+  {
+    "id": "n_ws_bcast",
+    "type": "websocket out",
+    "name": "WS Broadcast → ngrok → Browser\nTelemetría completa @100ms\njoint_pos, TCP, temps, status, DI/DO",
+    "server": "wsl_cobot",
+    "client": "",
+    "g": "g_rpi",
+    "x": 2020,
+    "y": 480,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cam_trig",
+    "type": "function",
+    "name": "HTTP :80  GET /Trigger\n→ Dispara captura e inspección\nRespuesta: 'Ok'  (síncrono)",
+    "func": "// GET http://192.168.1.30/Trigger\n// Respuesta: 'Ok'\n//\n// Requiere programa cargado previamente via Telnet:\n//   LoadVPFile inspection.vp\n//\n// NOTA: /Trigger dispara pero NO devuelve resultado.\n// El resultado se obtiene via /getData/<property>\n// o leyendo el registro Modbus :502 propietario.\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_camera",
+    "x": 280,
+    "y": 970,
+    "wires": [
+      [
+        "n_cam_img"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cam_img",
+    "type": "function",
+    "name": "HTTP :80  GET /image  →  PNG ~92 KB\nWorkflow: /Offline → /image → /Online\nResolución: 1280×1024  8-bit grayscale",
+    "func": "// Secuencia de captura de imagen:\n//   1. GET /Offline   → pone cámara en modo descarga\n//   2. GET /image     → devuelve PNG ~92 KB (1280×1024)\n//   3. GET /Online    → reanuda modo ejecución/inspección\n//\n// Exposición default: 33333 µs\n// Ajustable via Telnet:\n//   SetData Vision System.Camera:Shutter Speed=(integer)300000\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_camera",
+    "x": 280,
+    "y": 1110,
+    "wires": [
+      [
+        "n_cam_stat"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cam_stat",
+    "type": "function",
+    "name": "HTTP :80  GET /getData/<prop>\nResultado: PASS / FAIL / NO_READ\nGET /Status → HTML (modelo, RAM, progs)",
+    "func": "// Lectura de resultado de inspección:\n//   GET /getData/Vision System.Inspection Tool:Result\n//   Valores: PASS, FAIL, NO_READ, NO_PART\n//\n// Estado general:\n//   GET /Status → HTML con modelo, RAM, programas cargados\n//   GET /IsOnline → '1' si en modo ejecución\n//\n// CAMERA_STATUS → HMI Reg 4:\n//   0=READY  1=PASS  2=FAIL  3=NO_READ  4=ERROR\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_camera",
+    "x": 280,
+    "y": 1250,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cam_teln",
+    "type": "function",
+    "name": "Telnet :23  (sin autenticación)\nLoadVPFile inspection.vp\nSetData Shutter/Strobe  |  Reboot  |  Temp",
+    "func": "// Telnet a 192.168.1.30:23 — acceso sin restricciones\n//\n// Comandos principales:\n//   LoadVPFile <programa.vp>     → carga programa inspección\n//   ListLoadedPrograms            → lista programas activos\n//   ListAllVPFiles                → lista todos los .vp\n//   SetData Vision System.Camera:Shutter Speed=(integer)300000\n//   SetData Vision System.Camera:Strobe 1 Duration=(integer)1000\n//   Trigger                       → dispara captura\n//   Reboot                        → reinicio cámara\n//   Temp                          → temperatura interna\n//\n// NOTA: SetData solo tiene efecto si hay programa cargado\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_camera",
+    "x": 280,
+    "y": 1390,
+    "wires": [
+      [
+        "n_cam_corba"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cam_corba",
+    "type": "function",
+    "name": "CORBA :10001  (Java / JacORB IIOP)\nVision Program Manager\nGestión programática de programas VP",
+    "func": "// CORBA IDL sobre TCP :10001\n// Implementado con JacORB (Java)\n// Protocolo IIOP (Internet Inter-ORB Protocol)\n//\n// Permite gestión avanzada de Vision Programs:\n//   - Cargar/descargar programas VP\n//   - Configurar parámetros de inspección\n//   - Leer resultados en tiempo real\n//\n// Interfaz binaria Java — no hay cliente Python nativo\n// Se usa subprocess con script Java o via Telnet como alternativa\n//\n// Puerto igual al Cobot TLS:10001 (coincidencia de puerto, distinto host)\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_camera",
+    "x": 280,
+    "y": 1530,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_mb_hdr",
+    "type": "comment",
+    "name": "─────  Modbus TCP  FC04  :6502  Unit:1  @100ms  ─────\n◀ RPi actúa como CLIENTE Modbus — cobot es SERVIDOR (solo lectura, FC04)\n◀ Big-Endian FLOAT32 pairs para datos continuos, UINT16 para estados",
+    "info": "",
+    "g": "g_cobot",
+    "x": 925,
+    "y": 950,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_j",
+    "type": "function",
+    "name": "Regs 382–393  FLOAT32×6  (12 words)\nJoint Positions  J1…J6  [°]\nJ1:±360  J2/J3:±150  J4:±180  J5:±120  J6:±180",
+    "func": "// Registros Modbus para posiciones de juntas:\n// J1: regs 382-383  J2: 384-385  J3: 386-387\n// J4: regs 388-389  J5: 390-391  J6: 392-393\n//\n// Formato: FLOAT32 big-endian (2 registros por valor)\n// Unidades: grados (°)\n//\n// Transformación URDF para gemelo digital:\n//   urdf_deg = JOINT_SIGN[i] * ctrl_deg + JOINT_OFFSET_DEG[i]\n//   JOINT_SIGN    = [1,-1,1,1,1,1]\n//   JOINT_OFFSET  = [-90,90,0,-90,0,0]\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 740,
+    "y": 1050,
+    "wires": [
+      [
+        "n_cob_tcp_pos"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_tcp_pos",
+    "type": "function",
+    "name": "Regs 406–417  FLOAT32×6  (12 words)\nTCP Position  X,Y,Z [mm]  Rx,Ry,Rz [°]\nRegs 418–429: TCP Speed [mm/s] [°/s]",
+    "func": "// Tool Center Point (TCP) en frame base:\n// X:  regs 406-407    Y:  408-409    Z:  410-411\n// Rx: regs 412-413    Ry: 414-415    Rz: 416-417\n//\n// Velocidades TCP (regs 418-429):\n// Vx[mm/s] Vy[mm/s] Vz[mm/s] Vrx[°/s] Vry[°/s] Vrz[°/s]\n//\n// Usado por el gemelo digital para visualizar\n// la posición cartesiana del extremo del brazo\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 740,
+    "y": 1190,
+    "wires": [
+      [
+        "n_cob_tmp"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_tmp",
+    "type": "function",
+    "name": "Regs 316–327  INT32×6  Temperaturas [°C]\nRegs 358–369  FLOAT32×6  Corrientes [A]\nRegs 370–381  FLOAT32×6  Fuerza/Torque EE",
+    "func": "// Temperatura de juntas (INT32 pairs):\n// J1: regs 316-317  J2: 318-319  J3: 320-321\n// J4: regs 322-323  J5: 324-325  J6: 326-327\n//\n// Corrientes J1-J6 [A] (FLOAT32 pairs, regs 358-369)\n//\n// Fuerza/Torque End-Effector (FLOAT32 pairs, regs 370-381):\n//   Fx[N] Fy[N] Fz[N] Tx[Nm] Ty[Nm] Tz[Nm]\n//\n// Umbral temp SCADA: warn=50°C  alarm=60°C  critical=70°C\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 740,
+    "y": 1330,
+    "wires": [
+      [
+        "n_cob_st"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_st",
+    "type": "function",
+    "name": "Regs 454–462  UINT16×9  Robot Status\npowered/enabled/mode/error/inpos/collision\nRegs 394–405: Joint Speeds [°/s]",
+    "func": "// Estado del robot (9 UINT16, regs 454-462):\n//   powered_on    enabled       motion_mode\n//   error_code    in_position   collision_detected\n//   protective_stop  emergency_stop  task_state\n//\n// Regs 462-463: Speed magnification % (FLOAT32)\n// Regs 464-465: Motion error code (INT32)\n// Regs 466-471: Ctrl temp [°C], power [W], current [A]\n//\n// Velocidades juntas J1-J6 [°/s] (regs 394-405, FLOAT32×6)\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 740,
+    "y": 1470,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_s10k",
+    "type": "function",
+    "name": "TLS :10000  →  JSON Stream\n~6 KB por paquete  @100ms  (cert auto-firmado)\njoint_position, cartesian_position, enabled, task_state",
+    "func": "// Stream de estado en tiempo real via TLS a :10000\n// Paquetes JSON ~6KB cada 100ms:\n// {\n//   joint_position: [°×6],\n//   cartesian_position: [x_mm, y_mm, z_mm, rx°, ry°, rz°],\n//   enabled: true/false,\n//   powered_on: 1/0,\n//   error_code: '0x0',\n//   tcp_speed: float,\n//   task_state: int,\n//   protective_stop: 0/1,\n//   emergency_stop: 0/1\n// }\n//\n// Certificado TLS auto-firmado — sin verificación hostname\n// Failover: prueba 192.168.1.252, luego 10.5.5.100\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 1110,
+    "y": 1050,
+    "wires": [
+      [
+        "n_cob_c10k"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_c10k",
+    "type": "function",
+    "name": "TLS :10001  ←→  JSON Commands\njoint_move  /  enable_robot  /  power_on\ngripper (DO6)  /  conveyor (DO13)  /  stop",
+    "func": "// Comandos JSON via TLS a :10001\n// Prerequisito: EcoStruxure 'Remote Control' activo\n//   errorCode:'3' = permiso denegado si no está activo\n//\n// Ejemplos:\n//   {cmdName:'joint_move', relFlag:0,\n//    jointPosition:[180,0,0,90,-90,0], speed:50, accel:80}\n//\n//   {cmdName:'set_digital_output', index:5, val:true}   // Gripper\n//   {cmdName:'set_digital_output', index:12, val:true}  // Conveyor\n//   {cmdName:'get_digital_input_status'}                // DI9,DI11\n//\n//   {cmdName:'enable_robot'}  / {cmdName:'power_on'}\n//   {cmdName:'stop_program'}  / {cmdName:'clear_error'}\n//   {cmdName:'collision_recover'}\n//   {cmdName:'set_rapidrate', rate:50}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 1110,
+    "y": 1190,
+    "wires": [
+      [
+        "n_cob_ftp_dev"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_ftp_dev",
+    "type": "function",
+    "name": "FTP/TLS :2121\nUpload / Download  programas .jks\n(JAKA Script  —  secuencias de movimiento)",
+    "func": "// FTP sobre TLS a 10.5.5.100:2121\n// Gestión de programas .jks (JAKA Script)\n//\n// Operaciones:\n//   LIST  → listar programas en el cobot\n//   STOR  → subir programa desde RPi al cobot\n//   RETR  → descargar programa del cobot\n//   DELE  → eliminar programa\n//\n// Los programas .jks son secuencias de movimiento\n// grabadas en el teach pendant del cobot.\n// La RPi los sube para ejecución autónoma.\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 1110,
+    "y": 1330,
+    "wires": [
+      [
+        "n_cob_do"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_do",
+    "type": "function",
+    "name": "Digital Outputs  (via TLS:10001)\nDO6  (idx 5):  Gripper Magnético\nDO7/8 (idx 6/7): Gripper Neumático\nDO13 (idx 12): Motor Conveyor  CN4",
+    "func": "// Control de salidas digitales via set_digital_output:\n//\n// CN2 DO6  (index 5):  Gripper magnético ON/OFF\n// CN2 DO7  (index 6):  Válvula neumática A (abrir)\n// CN2 DO8  (index 7):  Válvula neumática B (cerrar)\n// CN4 DO13 (index 12): Motor del conveyor  ON/OFF\n//\n// LEDs correspondientes en HMI:\n//   Coil 5: GRIPPER_OPEN    Coil 6: GRIPPER_CLOSED\n//   Coil 8: CONVEYOR_MOTOR\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 1110,
+    "y": 1470,
+    "wires": [
+      [
+        "n_cob_di"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_cob_di",
+    "type": "function",
+    "name": "Digital Inputs  (via TLS:10001)\nDI9  (idx 8):  Photoelectric Conveyor  CN3\nDI11 (idx 10): Sensor Visión  CN3",
+    "func": "// Lectura de entradas digitales via get_digital_input_status\n//\n// CN3 DI9  (index 8):  Sensor fotoelétrico del conveyor\n//                       Detecta pieza lista para pick\n//                       Polling @200ms hasta detección\n// CN3 DI11 (index 10): Sensor del sistema de visión\n//                       Confirma pieza en posición inspección\n//\n// LED correspondiente en HMI:\n//   Coil 1: CONVEYOR_PHOTOEYE  (pieza detectada)\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_cobot",
+    "x": 1110,
+    "y": 1610,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_hmi_hdr",
+    "type": "comment",
+    "name": "────  Modbus TCP Slave :502  @200ms  ────\n◀ RPi = MASTER  |  HMI = SLAVE\n◀ FC01 read coils  |  FC05/FC15 write coils  |  FC03/FC16 holding regs",
+    "info": "",
+    "g": "g_hmi",
+    "x": 1670,
+    "y": 960,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_hmi_led",
+    "type": "function",
+    "name": "WRITE  Coils 1–15  (FC15)\n💡 Indicadores LED  —  RPi → HMI\nConveyor/Fixture/Cobot/Gripper/Camera/Table/Rivet/Stacklight",
+    "func": "// Coils escritos por la RPi al HMI (FC05/FC15):\n// Coil 1:  CONVEYOR_PHOTOEYE    (pieza en conveyor)\n// Coil 2:  FIXTURE_1_PRESENT    (pieza en fixture 1)\n// Coil 3:  FIXTURE_2_PRESENT    (pieza en fixture 2)\n// Coil 4:  COBOT_MOVING         (brazo en movimiento)\n// Coil 5:  COBOT_READY          (brazo en HOME/listo)\n// Coil 6:  GRIPPER_OPEN         (pinza abierta)\n// Coil 7:  GRIPPER_CLOSED       (pinza cerrada)\n// Coil 8:  CONVEYOR_MOTOR       (motor conveyor ON)\n// Coil 9:  CAMERA_TRIGGER       (inspección activa)\n// Coil 10: TABLE_NEMA_MOVING    (mesa lineal en mov)\n// Coil 11: RIVET_ACTIVE         (remachando)\n// Coil 12: CYCLE_RUNNING        (ciclo en curso)\n// Coil 13: STACKLIGHT_RED       (alarma/error)\n// Coil 14: STACKLIGHT_YELLOW    (advertencia)\n// Coil 15: STACKLIGHT_GREEN     (sistema OK)\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_hmi",
+    "x": 1670,
+    "y": 1080,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_hmi_btn",
+    "type": "function",
+    "name": "READ  Coils 101–106  (FC01)\n🔘 Botones Panel Operador  —  HMI → RPi\nSTART / STOP / RESUME / RESTART / CONFIRM / FINALIZE",
+    "func": "// Coils leídos por la RPi del HMI (FC01) @200ms:\n// Coil 101: HMI_START          → inicia ciclo\n// Coil 102: HMI_STOP           → para ciclo (suave)\n// Coil 103: HMI_RESUME         → reanuda ciclo pausado\n// Coil 104: HMI_RESTART        → reinicio completo\n// Coil 105: HMI_CONFIRM_CLEAN  → confirma limpieza manual\n// Coil 106: HMI_FINALIZE       → finaliza turno/sesión\n//\n// Detección de flanco ascendente (rising edge)\n// Auto-reset del coil tras detección para evitar duplicados\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_hmi",
+    "x": 1670,
+    "y": 1220,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_hmi_reg",
+    "type": "function",
+    "name": "WRITE  Holding Regs 1–4  (FC16)\nReg 1: Total piezas  Reg 2: Aceptadas\nReg 3: Rechazadas    Reg 4: Estado Cámara 0-4",
+    "func": "// Holding Registers escritos por la RPi al HMI (FC16):\n// Reg 1: COUNT.total       (piezas procesadas en total)\n// Reg 2: COUNT.accepted    (piezas inspeccionadas OK)\n// Reg 3: COUNT.rejected    (piezas inspeccionadas FAIL)\n// Reg 4: CAMERA_STATUS\n//         0 = READY     (cámara lista)\n//         1 = PASS      (última inspección OK)\n//         2 = FAIL      (última inspección FAIL)\n//         3 = NO_READ   (sin lectura)\n//         4 = ERROR     (error de cámara)\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_hmi",
+    "x": 1670,
+    "y": 1360,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_hmi_cmt",
+    "type": "comment",
+    "name": "Polling @200ms  |  Pull-up config.txt gpio=24,25=ip,pu\nStacklight: Verde=OK  Amarillo=Warning  Rojo=Error/Parada",
+    "info": "",
+    "g": "g_hmi",
+    "x": 1670,
+    "y": 1490,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_plc_fn",
+    "type": "function",
+    "name": "Schneider TM262-15\nModbus TCP :502  [Integración futura]\nBridge hacia OPC-UA  192.168.1.201:4840",
+    "func": "// PLC Schneider TM262-15\n// IP: 192.168.1.50  Puerto: 502 (Modbus TCP)\n//\n// Estado actual: NO integrado activamente\n// Integración futura planeada:\n//   - RPi como cliente Modbus → leer/escribir variables PLC\n//   - Bridge OPC-UA: PLC ↔ EcoStruxure ↔ OPC-UA Server\n//   - Coordinación con lógica IEC 61131-3 del PLC\n//\n// EcoStruxure Machine Expert en PC 192.168.1.201\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_plc",
+    "x": 2130,
+    "y": 1010,
+    "wires": [
+      [
+        "n_opc_fn"
+      ]
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_plc_cmt",
+    "type": "comment",
+    "name": "IEC 61131-3  |  EcoStruxure Machine Expert\nFuturo: node-red-contrib-modbus → :502\nFuturo: OPC-UA bridge → :4840",
+    "info": "",
+    "g": "g_plc",
+    "x": 2130,
+    "y": 1160,
+    "wires": [],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_opc_fn",
+    "type": "function",
+    "name": "Windows PC  192.168.1.201\nOPC-UA Server :4840  [Integración futura]\nEcoStruxure Machine Expert  IEC 62541",
+    "func": "// OPC-UA Server en Windows PC\n// IP: 192.168.1.201  Puerto: 4840 (OPC-UA TCP)\n//\n// Expone datos de EcoStruxure / PLC TM262-15\n// Estándar IEC 62541 (OPC Unified Architecture)\n//\n// Integración futura con RPi:\n//   npm: node-red-contrib-opcua\n//   o Python: opcua-asyncio\n//\n// También aloja EcoStruxure Cobot Expert:\n//   Requiere 'Remote Control' activo para cmdos TLS\n//   IP dual-NIC: 10.5.5.101 / 192.168.1.201\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "g": "g_opcua",
+    "x": 2130,
+    "y": 1370,
+    "wires": [
+      []
+    ],
+    "z": "tab_arch"
+  },
+  {
+    "id": "n_opc_cmt",
+    "type": "comment",
+    "name": "EcoStruxure Cobot Expert  (dual-NIC: 10.5.5.101)\nHabilitar 'Remote Control' para comandos TLS:10001\nnpm: node-red-contrib-opcua  |  Python: opcua-asyncio",
+    "info": "",
+    "g": "g_opcua",
+    "x": 2130,
+    "y": 1510,
+    "wires": [],
+    "z": "tab_arch"
+  }
+]

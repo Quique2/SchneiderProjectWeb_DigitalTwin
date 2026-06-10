@@ -9,6 +9,7 @@
 import React from 'react';
 import type { UseCellSimulation } from './useCellSimulation';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 const COLOR_ON   = '#22dd55';
 const COLOR_WARN = '#ff5566';
@@ -126,6 +127,7 @@ function SensorDot({ on, label, accent }: { on: boolean; label: string; accent: 
 
 export default function OperatorHMI({ sim }: { sim: UseCellSimulation }) {
   const T = useTheme();
+  const { t } = useLanguage();
   const s = sim.snapshot;
   const tt = s.turntable;
 
@@ -164,85 +166,85 @@ export default function OperatorHMI({ sim }: { sim: UseCellSimulation }) {
   const verdictColor = s.verdict === 'PASS' ? COLOR_ON : s.verdict === 'FAIL' ? COLOR_WARN : T.dim;
 
   const fixtureText = (f: typeof s.fixtureA): string =>
-    `${f.cafiId != null ? `CAFI #${f.cafiId}` : 'vacío'} · ${f.role === 'OUTSIDE' ? 'externo' : 'remache'}`;
+    `${f.cafiId != null ? `CAFI #${f.cafiId}` : t('hmi.lbl.empty')} · ${f.role === 'OUTSIDE' ? t('hmi.lbl.roleOutside') : t('hmi.lbl.roleRivet')}`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Header */}
       <div>
         <div style={{ fontSize: 9, letterSpacing: 2.5, color: '#22c55e', textTransform: 'uppercase', fontWeight: 600 }}>
-          schneider_hmi · ROS-like
+          {t('hmi.label')}
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: T.text, letterSpacing: -0.2 }}>
-          Operator HMI — Celda de Remachado
+          {t('hmi.title')}
         </div>
       </div>
 
       {/* Operator buttons */}
       <div style={{ display: 'flex', gap: 6 }}>
-        <OpButton label="Start"        color="#22aa55" enabled={startEnabled} onClick={sim.start} />
-        <OpButton label="Colocar CAFI" color="#3399ff" enabled={cafiEnabled}  onClick={sim.placeCafi} />
-        <OpButton label="Stop"         color="#dd5500" enabled={stopEnabled}  onClick={sim.stop} />
+        <OpButton label={t('hmi.btn.start')}    color="#22aa55" enabled={startEnabled} onClick={sim.start} />
+        <OpButton label={t('hmi.btn.placeCafi')} color="#3399ff" enabled={cafiEnabled} onClick={sim.placeCafi} />
+        <OpButton label={t('hmi.btn.stop')}     color="#dd5500" enabled={stopEnabled}  onClick={sim.stop} />
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <OpButton label="Resume"             color="#2563eb" enabled={resumeEnabled}  onClick={sim.resume} />
-        <OpButton label="Restart"            color="#d97706" enabled={restartEnabled} onClick={sim.restart} />
-        <OpButton label="Confirmar limpieza" color="#16a34a" enabled={cleanEnabled}   onClick={sim.confirmClean} />
-        {resetEnabled && <OpButton label="Reset" color="#a23bff" enabled={resetEnabled} onClick={sim.reset} />}
+        <OpButton label={t('hmi.btn.resume')}  color="#2563eb" enabled={resumeEnabled}  onClick={sim.resume} />
+        <OpButton label={t('hmi.btn.restart')} color="#d97706" enabled={restartEnabled} onClick={sim.restart} />
+        <OpButton label={t('hmi.btn.clean')}   color="#16a34a" enabled={cleanEnabled}   onClick={sim.confirmClean} />
+        {resetEnabled && <OpButton label={t('hmi.btn.reset')} color="#a23bff" enabled={resetEnabled} onClick={sim.reset} />}
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <OpButton label={s.finalizing ? 'Finalizando…' : 'Finalizar'} color="#0e7490" enabled={finalizeEnabled} onClick={sim.finalize} />
+        <OpButton label={s.finalizing ? t('hmi.btn.finalizing') : t('hmi.btn.finalize')} color="#0e7490" enabled={finalizeEnabled} onClick={sim.finalize} />
       </div>
 
       {/* Cell state */}
-      <Section title="Cell State">
-        <StatRow label="Celda"            value={s.cell}            color={cellColor} />
-        <StatRow label="Cobot"            value={s.cobotTask}       color="#a78bfa" />
-        <StatRow label="Cámara (verdict)" value={s.verdict || '--'} color={verdictColor} />
+      <Section title={t('hmi.sec.cellState')}>
+        <StatRow label={t('hmi.lbl.cell')}   value={s.cell}            color={cellColor} />
+        <StatRow label={t('hmi.lbl.cobot')}  value={s.cobotTask}       color="#a78bfa" />
+        <StatRow label={t('hmi.lbl.camera')} value={s.verdict || '--'} color={verdictColor} />
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-          <Pill text={s.spawnAllowed ? 'SPAWN ALLOWED' : 'SPAWN BLOCKED'} on warn={!s.spawnAllowed} />
-          {s.cobotInTableZone ? <Pill text="COBOT EN ZONA" on warn /> : null}
+          <Pill text={s.spawnAllowed ? t('hmi.pill.spawnAllowed') : t('hmi.pill.spawnBlocked')} on warn={!s.spawnAllowed} />
+          {s.cobotInTableZone ? <Pill text={t('hmi.pill.cobotZone')} on warn /> : null}
           {s.fault ? <Pill text={s.faultReason || 'FAULT'} on warn /> : null}
         </div>
         {!s.spawnAllowed && s.spawnBlockReason ? (
           <div style={{ fontSize: 9, color: T.muted, marginTop: 6, fontStyle: 'italic' }}>
-            Motivo: {s.spawnBlockReason}
+            {t('hmi.lbl.reason')}: {s.spawnBlockReason}
           </div>
         ) : null}
         {s.cell === 'CLEANING_REQUIRED' ? (
           <div style={{ fontSize: 9.5, color: '#fca5a5', marginTop: 6 }}>
-            Retira los CAFIs atrapados y presiona "Confirmar limpieza".
+            {t('hmi.lbl.cleanMsg')}
           </div>
         ) : null}
       </Section>
 
       {/* Contadores / cola */}
-      <Section title="Producción · Cola">
-        <StatRow label="Aceptados"      value={String(s.counts.accepted)} color={COLOR_ON} />
-        <StatRow label="Rechazados"     value={String(s.counts.rejected)} color={s.counts.rejected > 0 ? COLOR_WARN : T.text} />
-        <StatRow label="En proceso"     value={String(s.counts.inProcess)} />
-        <StatRow label="CAFIs esperando" value={`${s.waitingCount} / 2`}  color={s.waitingCount >= 2 ? COLOR_WARN : T.text} />
-        <StatRow label="Sensor banda"   value={s.sensorOccupied ? `OCUPADO (#${s.sensorCafiId})` : 'libre'} color={s.sensorOccupied ? '#fb923c' : COLOR_ON} />
+      <Section title={t('hmi.sec.production')}>
+        <StatRow label={t('hmi.lbl.accepted')}    value={String(s.counts.accepted)} color={COLOR_ON} />
+        <StatRow label={t('hmi.lbl.rejected')}    value={String(s.counts.rejected)} color={s.counts.rejected > 0 ? COLOR_WARN : T.text} />
+        <StatRow label={t('hmi.lbl.inProcess')}   value={String(s.counts.inProcess)} />
+        <StatRow label={t('hmi.lbl.cafiWaiting')} value={`${s.waitingCount} / 2`} color={s.waitingCount >= 2 ? COLOR_WARN : T.text} />
+        <StatRow label={t('hmi.lbl.sensorBand')}  value={s.sensorOccupied ? `${t('hmi.lbl.occupied')} (#${s.sensorCafiId})` : t('hmi.lbl.free')} color={s.sensorOccupied ? '#fb923c' : COLOR_ON} />
       </Section>
 
       {/* Mesa rotatoria + fixtures */}
-      <Section title="Mesa Rotatoria · Fixtures">
-        <StatRow label="Posición"        value={tt.state}                    color={tt.state === 'ERROR' ? COLOR_WARN : '#a78bfa'} />
-        <StatRow label="Ángulo"          value={`${tt.angleDeg.toFixed(1)}°`} />
-        <StatRow label="Fixture externo" value={s.outsideFixtureId} />
-        <StatRow label="Fixture remache" value={s.rivetFixtureId} />
-        <StatRow label="Fixture A"       value={fixtureText(s.fixtureA)}     color={s.fixtureA.present ? '#fb923c' : T.muted} />
-        <StatRow label="Fixture B"       value={fixtureText(s.fixtureB)}     color={s.fixtureB.present ? '#fb923c' : T.muted} />
+      <Section title={t('hmi.sec.turntable')}>
+        <StatRow label={t('hmi.lbl.position')}     value={tt.state}                    color={tt.state === 'ERROR' ? COLOR_WARN : '#a78bfa'} />
+        <StatRow label={t('hmi.lbl.angle')}        value={`${tt.angleDeg.toFixed(1)}°`} />
+        <StatRow label={t('hmi.lbl.fixtureExt')}   value={s.outsideFixtureId} />
+        <StatRow label={t('hmi.lbl.fixtureRivet')} value={s.rivetFixtureId} />
+        <StatRow label={t('hmi.lbl.fixtureA')}     value={fixtureText(s.fixtureA)} color={s.fixtureA.present ? '#fb923c' : T.muted} />
+        <StatRow label={t('hmi.lbl.fixtureB')}     value={fixtureText(s.fixtureB)} color={s.fixtureB.present ? '#fb923c' : T.muted} />
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-          <Pill text="LIMIT HOME" on={tt.limitHome} />
-          <Pill text="LIMIT WORK" on={tt.limitWork} />
+          <Pill text={t('hmi.pill.limitHome')} on={tt.limitHome} />
+          <Pill text={t('hmi.pill.limitWork')} on={tt.limitWork} />
         </div>
       </Section>
 
       {/* Remachado (30 s) */}
-      <Section title="Remachado (30 s)">
-        <StatRow label="Estado"       value={s.riveting}             color={s.riveting === 'ACTIVE' ? '#fb923c' : s.riveting === 'FAULT' ? COLOR_WARN : T.muted} />
-        <StatRow label="Remache listo" value={s.rivetingDone ? 'SÍ' : 'no'} color={s.rivetingDone ? COLOR_ON : T.muted} />
+      <Section title={t('hmi.sec.rivet')}>
+        <StatRow label={t('hmi.lbl.rivetState')} value={s.riveting}             color={s.riveting === 'ACTIVE' ? '#fb923c' : s.riveting === 'FAULT' ? COLOR_WARN : T.muted} />
+        <StatRow label={t('hmi.lbl.rivetDone')}  value={s.rivetingDone ? t('hmi.lbl.yes') : t('hmi.lbl.no')} color={s.rivetingDone ? COLOR_ON : T.muted} />
         {s.riveting === 'ACTIVE' && (
           <div style={{ marginTop: 6 }}>
             <div style={{ fontSize: 9, color: '#fb923c', marginBottom: 4 }}>
@@ -256,60 +258,60 @@ export default function OperatorHMI({ sim }: { sim: UseCellSimulation }) {
       </Section>
 
       {/* Sensores — Mesa & Fixtures */}
-      <Section title="Limit Switches · Mesa & Fixtures">
+      <Section title={t('hmi.sec.limitTable')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          <SensorDot on={sensors.limitSwitchHome} label="Mesa · HOME (0°)"   accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.limitSwitchWork} label="Mesa · WORK (180°)" accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.fixtureA}        label="Fixture A presente"  accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.fixtureB}        label="Fixture B presente"  accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.limitSwitchHome} label={t('hmi.sensor.mesaHome')}  accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.limitSwitchWork} label={t('hmi.sensor.mesaWork')}  accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.fixtureA}        label={t('hmi.sensor.fixtureA')}  accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.fixtureB}        label={t('hmi.sensor.fixtureB')}  accent={ACCENT_RASP_INPUT} />
         </div>
       </Section>
 
       {/* Sensores — Conveyor & Visión */}
-      <Section title="Limit Switches Conveyor · Fotoeléctricos">
+      <Section title={t('hmi.sec.limitConv')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          <SensorDot on={sensors.limitConveyor1} label="Conveyor · INICIO"      accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.limitConveyor2} label="Conveyor · FIN"         accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.photoConveyor}  label="Fotoeléctrico conveyor"  accent={ACCENT_RASP_INPUT} />
-          <SensorDot on={sensors.photoCamera}    label="Fotoeléctrico cámara"    accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.limitConveyor1} label={t('hmi.sensor.convStart')}   accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.limitConveyor2} label={t('hmi.sensor.convEnd')}     accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.photoConveyor}  label={t('hmi.sensor.photoConv')}   accent={ACCENT_RASP_INPUT} />
+          <SensorDot on={sensors.photoCamera}    label={t('hmi.sensor.photoCamera')} accent={ACCENT_RASP_INPUT} />
         </div>
       </Section>
 
       {/* Confirmaciones del cobot */}
-      <Section title="Confirmaciones Cobot · Outputs Cobot">
+      <Section title={t('hmi.sec.cobotConf')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          <SensorDot on={sensors.cobotPickConfirm}   label="Pick confirm · grip cerrado"  accent={ACCENT_COBOT_OUT} />
-          <SensorDot on={sensors.cobotPlaceConfirm}  label="Place confirm · grip abierto" accent={ACCENT_COBOT_OUT} />
+          <SensorDot on={sensors.cobotPickConfirm}  label={t('hmi.sensor.pickConf')}  accent={ACCENT_COBOT_OUT} />
+          <SensorDot on={sensors.cobotPlaceConfirm} label={t('hmi.sensor.placeConf')} accent={ACCENT_COBOT_OUT} />
         </div>
       </Section>
 
       {/* Digital Inputs */}
-      <Section title="Digital Inputs (4)">
+      <Section title={t('hmi.sec.di')}>
         <div style={{ display: 'flex', gap: 4 }}>
-          <Lamp on={s.di.conveyor}   label="Conveyor" />
-          <Lamp on={s.di.rivet}      label="Remachado" />
-          <Lamp on={s.di.vision}     label="Visión" />
-          <Lamp on={s.di.cobotReady} label="Cobot ready" />
+          <Lamp on={s.di.conveyor}   label={t('hmi.lamp.conveyor')} />
+          <Lamp on={s.di.rivet}      label={t('hmi.lamp.rivet')} />
+          <Lamp on={s.di.vision}     label={t('hmi.lamp.vision')} />
+          <Lamp on={s.di.cobotReady} label={t('hmi.lamp.cobotReady')} />
         </div>
       </Section>
 
       {/* Digital Outputs */}
-      <Section title="Digital Outputs (8)">
+      <Section title={t('hmi.sec.doOut')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          <Lamp on={s.do.convMotor} label="Conv Motor" />
-          <Lamp on={s.do.disco}     label="Disco" />
-          <Lamp on={s.do.remachado} label="Remachado" warn />
-          <Lamp on={s.do.camara}    label="Cámara" />
-          <Lamp on={s.do.gripOpen}  label="Grip Open" />
-          <Lamp on={s.do.gripClose} label="Grip Close" />
-          <Lamp on={s.do.solLeft}   label="Sol Left" />
-          <Lamp on={s.do.reservado} label="Reservado" />
+          <Lamp on={s.do.convMotor} label={t('hmi.lamp.convMotor')} />
+          <Lamp on={s.do.disco}     label={t('hmi.lamp.disco')} />
+          <Lamp on={s.do.remachado} label={t('hmi.lamp.remachado')} warn />
+          <Lamp on={s.do.camara}    label={t('hmi.lamp.camara')} />
+          <Lamp on={s.do.gripOpen}  label={t('hmi.lamp.gripOpen')} />
+          <Lamp on={s.do.gripClose} label={t('hmi.lamp.gripClose')} />
+          <Lamp on={s.do.solLeft}   label={t('hmi.lamp.solLeft')} />
+          <Lamp on={s.do.reservado} label={t('hmi.lamp.reservado')} />
         </div>
       </Section>
 
       {/* Modo */}
       <div style={{ fontSize: 9, color: T.dim, textAlign: 'center', letterSpacing: 0.5 }}>
-        MODO HMI · simulación automática ROS-like
+        {t('hmi.modeLabel')}
       </div>
     </div>
   );

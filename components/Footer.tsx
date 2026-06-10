@@ -1,8 +1,10 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Footer() {
   const T = useTheme();
+  const { t } = useLanguage();
   return (
     <div style={{
       borderTop: `1px solid ${T.border}`,
@@ -18,15 +20,15 @@ export default function Footer() {
         <div style={{ width: 4, height: 24, background: 'linear-gradient(180deg,#22c55e,#0ea5e9)', borderRadius: 2 }} />
         <div>
           <div style={{ fontSize: 10, letterSpacing: 3, color: '#22c55e', textTransform: 'uppercase' }}>
-            Schneider Electric · ITESM Challenge 3.0
+            {t('footer.challenge')}
           </div>
           <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-            Equipo 3 · Tecnológico de Monterrey · 2026
+            {t('footer.team')}
           </div>
         </div>
       </div>
       <div style={{ fontSize: 10, color: T.dim }}>
-        Gemelo digital generado a partir de workspace ROS V13 · 102 links · 101 joints
+        {t('footer.generated')}
       </div>
     </div>
   );

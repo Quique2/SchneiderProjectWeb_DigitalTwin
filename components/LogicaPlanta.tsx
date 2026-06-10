@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 const MONO = "'JetBrains Mono','Fira Code','IBM Plex Mono',monospace";
 const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif';
@@ -155,18 +156,21 @@ const TIMELINE = [
   { t: 'ACCEPTED_BIN', d: 'Cobot coloca en bin' },
 ];
 
-const SECTIONS = [
-  { id: 'resumen',     label: 'Resumen',              color: A.blue    },
-  { id: 'flujo',       label: 'Flujo de producción',  color: '#0ea5e9' },
-  { id: 'componentes', label: 'Componentes',           color: A.orange  },
-  { id: 'senales',     label: 'Sensores y señales',    color: A.cyan    },
-  { id: 'fixtures',    label: 'Fixtures A / B',        color: A.purple  },
-  { id: 'celda',       label: 'Estados de celda',      color: A.green   },
-  { id: 'cafi',        label: 'Estados del CAFI',      color: '#38bdf8' },
-  { id: 'timeline',    label: 'Timeline del ciclo',    color: A.amber   },
-  { id: 'reglas',      label: 'Reglas de bloqueo',     color: A.red     },
-  { id: 'seguridad',   label: 'STOP · Prioridades',    color: '#f97316' },
-] as const;
+const SECTION_DEFS = [
+  { id: 'resumen',     color: A.blue    },
+  { id: 'flujo',       color: '#0ea5e9' },
+  { id: 'componentes', color: A.orange  },
+  { id: 'senales',     color: A.cyan    },
+  { id: 'fixtures',    color: A.purple  },
+  { id: 'celda',       color: A.green   },
+  { id: 'cafi',        color: '#38bdf8' },
+  { id: 'timeline',    color: A.amber   },
+  { id: 'reglas',      color: A.red     },
+  { id: 'seguridad',   color: '#f97316' },
+];
+function getSections(t: (k: string) => string) {
+  return SECTION_DEFS.map((s) => ({ ...s, label: t(`logic.tabs.${s.id}`) }));
+}
 
 // ─── Componentes UI reutilizables ────────────────────────────────────────────
 function Badge({ label, color, glow }: { label: string; color: string; glow?: boolean }) {
@@ -244,6 +248,8 @@ function Accordion({ title, color, open, onToggle, children }: {
 export default function LogicaPlanta() {
   const T = useTheme();
   const C = makeC(T);
+  const { t } = useLanguage();
+  const SECTIONS = getSections(t);
   const refMap = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string>('resumen');
@@ -298,7 +304,7 @@ export default function LogicaPlanta() {
       }}>
         <div style={{ padding: '0 8px 14px' }}>
           <div style={{ fontFamily: MONO, fontSize: 10, color: C.red, letterSpacing: '0.18em', fontWeight: 800 }}>SCHNEIDER</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginTop: 3, lineHeight: 1.25 }}>Lógica de la celda</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginTop: 3, lineHeight: 1.25 }}>{t('logic.label')}</div>
           <div style={{ fontFamily: MONO, fontSize: 9, color: C.dim, marginTop: 3, letterSpacing: '0.06em' }}>RIVETING CELL · DOCS</div>
         </div>
         {SECTIONS.map((s, i) => (
@@ -325,7 +331,7 @@ export default function LogicaPlanta() {
         <div style={{ maxWidth: 1080, margin: '0 auto' }}>
 
           {/* 1 · RESUMEN */}
-          <Section id="resumen" title="Resumen del proceso" color={C.blue} refMap={refMap}>
+          <Section id="resumen" title={t('logic.tabs.resumen')} color={C.blue} refMap={refMap}>
             <Card accent={C.blue} style={{ marginBottom: 12 }}>
               <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7, color: C.muted }}>
                 Celda automática de remachado. Una pieza <b style={{ color: C.text }}>CAFI</b> recorre:
@@ -354,7 +360,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 2 · FLUJO */}
-          <Section id="flujo" title="Flujo de producción" color="#0ea5e9" refMap={refMap}>
+          <Section id="flujo" title={t('logic.sec.flujo')} color="#0ea5e9" refMap={refMap}>
             <Card>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                 {FLOW_DATA.map((n, i) => (
@@ -378,7 +384,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 3 · COMPONENTES */}
-          <Section id="componentes" title="Componentes principales" color={C.orange} refMap={refMap}>
+          <Section id="componentes" title={t('logic.sec.componentes')} color={C.orange} refMap={refMap}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
               {COMPONENTS_DATA.map((c) => (
                 <Card key={c.name} accent={c.color}>
@@ -393,7 +399,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 4 · SEÑALES I/O */}
-          <Section id="senales" title="Sensores y señales (I/O)" color={C.cyan} refMap={refMap}>
+          <Section id="senales" title={t('logic.sec.senales')} color={C.cyan} refMap={refMap}>
             <Card style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', background: C.panel2, borderBottom: `1px solid ${C.border}`, padding: '8px 14px', fontWeight: 700 }}>
                 <span>I/O</span><span>Señal · descripción</span>
@@ -415,7 +421,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 5 · FIXTURES A/B */}
-          <Section id="fixtures" title="Fixtures A / B y limit switches" color={C.purple} refMap={refMap}>
+          <Section id="fixtures" title={t('logic.tabs.fixtures')} color={C.purple} refMap={refMap}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 }}>
               <Card accent={C.purple}>
                 <Badge label="FIXTURE A" color={C.purple} />
@@ -443,7 +449,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 6 · ESTADOS DE CELDA (interactivo) */}
-          <Section id="celda" title="Estados de la celda" color={C.green} refMap={refMap}>
+          <Section id="celda" title={t('logic.tabs.celda')} color={C.green} refMap={refMap}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
               {Object.entries(CELL_STATES).map(([key, s]) => {
                 const isActive = key === activeCellState;
@@ -506,7 +512,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 7 · ESTADOS DEL CAFI (interactivo) */}
-          <Section id="cafi" title="Estados del CAFI" color="#38bdf8" refMap={refMap}>
+          <Section id="cafi" title={t('logic.tabs.cafi')} color="#38bdf8" refMap={refMap}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontFamily: MONO, fontSize: 11, color: C.dim }}>
               Activo: <Badge label={activeCafiState} color={CAFI_STATES[activeCafiState]?.color || C.dim} />
               <span>· click en estado para explorar, en transición para simular</span>
@@ -574,7 +580,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 8 · TIMELINE */}
-          <Section id="timeline" title="Timeline del ciclo (camino aceptado)" color={C.amber} refMap={refMap}>
+          <Section id="timeline" title={t('logic.tabs.timeline')} color={C.amber} refMap={refMap}>
             <Card>
               <div style={{ position: 'relative', paddingLeft: 8 }}>
                 {TIMELINE.map((step, i) => (
@@ -592,7 +598,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 9 · REGLAS (accordions) */}
-          <Section id="reglas" title="Reglas de bloqueo (interlocks)" color={C.red} refMap={refMap}>
+          <Section id="reglas" title={t('logic.tabs.reglas')} color={C.red} refMap={refMap}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {RULE_BLOCKS.map((block, i) => (
                 <Accordion key={i} title={block.title} color={block.color} open={!!openRules[i]} onToggle={() => setOpenRules((o) => ({ ...o, [i]: !o[i] }))}>
@@ -607,7 +613,7 @@ export default function LogicaPlanta() {
           </Section>
 
           {/* 10 · SEGURIDAD */}
-          <Section id="seguridad" title="STOP / RESUME / RESTART · prioridades de seguridad" color="#f97316" refMap={refMap}>
+          <Section id="seguridad" title={t('logic.tabs.seguridad')} color="#f97316" refMap={refMap}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10, marginBottom: 12 }}>
               <Card accent={C.red}>
                 <Badge label="STOP" color={C.red} />

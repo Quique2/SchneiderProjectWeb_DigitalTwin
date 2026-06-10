@@ -15,6 +15,7 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -525,6 +526,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function CobotLiveView() {
   const T = useTheme();
+  const { t } = useLanguage();
   const cBtn = (e: boolean, c1: string, c2: string) => ctrlBtn(e, c1, c2, T);
   const [mode, setMode] = useState<ConnMode>('demo');
   // Permanent ngrok static domain fronting the RPi gateway (https/wss so it
@@ -1185,10 +1187,10 @@ export default function CobotLiveView() {
     : mode === 'live' ? '#22dd55'
     : mode === 'connecting' ? '#fbbf24'
     : mode === 'error' ? '#ff5566' : T.dim;
-  const modeLabel = backendDemo ? 'GATEWAY OK · Modbus en demo'
-    : mode === 'live' ? 'EN VIVO'
-    : mode === 'connecting' ? 'CONECTANDO…'
-    : mode === 'error' ? 'ERROR' : 'DEMO (snapshot RPi)';
+  const modeLabel = backendDemo ? t('cobot.modeBackendDemo')
+    : mode === 'live' ? t('cobot.modeLive')
+    : mode === 'connecting' ? t('cobot.modeConnecting')
+    : mode === 'error' ? t('cobot.modeError') : t('cobot.modeDemo');
   // Control commands only make sense against a reachable gateway.
   const controlEnabled = mode === 'live';
   // Pneumatic gripper state (last commanded), drives the 3-button selector.
@@ -1279,7 +1281,7 @@ export default function CobotLiveView() {
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: dotColor, boxShadow: `0 0 8px ${dotColor}` }} />
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: 9, letterSpacing: 2, color: '#22c55e', textTransform: 'uppercase', fontWeight: 600 }}>
-              Raspberry Pi · Modbus TCP
+              {t('cobot.connLabel')}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{modeLabel}</span>
           </div>
@@ -1299,13 +1301,13 @@ export default function CobotLiveView() {
             fontFamily: SANS_FONT, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
             border: 'none', borderRadius: 6, padding: '9px 18px',
             background: 'linear-gradient(180deg,#f47835 0%,#d96416 100%)',
-          }}>DESCONECTAR</button>
+          }}>{t('cobot.btnDisconnect')}</button>
         ) : (
           <button onClick={() => connect(url, false)} style={{
             fontFamily: SANS_FONT, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
             border: 'none', borderRadius: 6, padding: '9px 18px',
             background: 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',
-          }}>CONECTAR</button>
+          }}>{t('cobot.btnConnect')}</button>
         )}
       </div>
 
@@ -1314,7 +1316,7 @@ export default function CobotLiveView() {
           flexShrink: 0, padding: '6px 16px', background: 'rgba(80,20,20,0.4)',
           borderBottom: '1px solid #ff556644', color: '#ff8a98', fontSize: 11, fontFamily: 'monospace',
         }}>
-          ⚠ {connErr} — mostrando snapshot DEMO.
+          ⚠ {connErr} {t('cobot.errSuffix')}
         </div>
       )}
 
@@ -1547,13 +1549,13 @@ export default function CobotLiveView() {
           <>
 
           {/* === Control panel === */}
-          <Section title="Control del robot">
+          <Section title={t('cobot.sec.control')}>
             {!controlEnabled && (
               <div style={{
                 fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)',
                 border: '1px solid #fbbf2433', borderRadius: 4, padding: '6px 8px', marginBottom: 8,
               }}>
-                Conéctate al gateway (EN VIVO) para enviar comandos.
+                {t('cobot.lbl.connectWarn')}
               </div>
             )}
 
@@ -1573,7 +1575,7 @@ export default function CobotLiveView() {
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                     <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
-                      Potencia motores
+                      {t('cobot.lbl.motorPower')}
                     </div>
                     <div style={{
                       width: 8, height: 8, borderRadius: '50%',
@@ -1587,11 +1589,11 @@ export default function CobotLiveView() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     <button onClick={cobotPowerOn} disabled={!controlEnabled || cmdBusy || powered}
                       style={cBtn(!controlEnabled || cmdBusy || powered ? false : true, '#22c55e', '#15803d')}>
-                      ⚡ Power ON
+                      {t('cobot.lbl.powerOn')}
                     </button>
                     <button onClick={cobotPowerOff} disabled={!controlEnabled || cmdBusy || !powered}
                       style={cBtn(!controlEnabled || cmdBusy || !powered ? false : true, '#dc2626', '#991b1b')}>
-                      ⏻ Power OFF
+                      {t('cobot.lbl.powerOff')}
                     </button>
                   </div>
                 </div>
@@ -1600,19 +1602,19 @@ export default function CobotLiveView() {
 
             {/* Enable / Disable */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 8 }}>
-              <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#22cc55', '#15803d')}>ENABLE</button>
-              <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#f47835', '#d96416')}>DISABLE</button>
+              <button onClick={cobotEnable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#22cc55', '#15803d')}>{t('cobot.lbl.enable')}</button>
+              <button onClick={cobotDisable} disabled={!controlEnabled || cmdBusy} style={cBtn(controlEnabled,'#f47835', '#d96416')}>{t('cobot.lbl.disable')}</button>
             </div>
 
             {/* Pneumatic gripper — 3-state selector (open / close / off) */}
             <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '2px 0 4px' }}>
-              Gripper Neumático
+              {t('cobot.lbl.gripperLabel')}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
               {([
-                { action: 'open',  label: '⊟ Abrir',  c1: '#22cc55', c2: '#15803d' },
-                { action: 'close', label: '⊡ Cerrar', c1: '#3b8bff', c2: '#2563eb' },
-                { action: 'off',   label: '○ Apagar', c1: '#f47835', c2: '#d96416' },
+                { action: 'open',  label: t('cobot.lbl.gripOpen'),  c1: '#22cc55', c2: '#15803d' },
+                { action: 'close', label: t('cobot.lbl.gripClose'), c1: '#3b8bff', c2: '#2563eb' },
+                { action: 'off',   label: t('cobot.lbl.gripOff'),   c1: '#f47835', c2: '#d96416' },
               ] as const).map(({ action, label, c1, c2 }) => {
                 const active = pneuState === action;
                 return (
@@ -1642,17 +1644,17 @@ export default function CobotLiveView() {
               padding: '10px', marginBottom: 8, opacity: controlEnabled ? 1 : 0.55,
               background: controlEnabled ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : (T.dark ? '#2a3548' : T.borderSoft),
             }}>
-              📷 Panel de Cámara
+              {t('cobot.lbl.cameraPanel')}
             </button>
 
             {/* Joint jog sliders — editing any joint previews the pose on the
                 green ghost (tagged PERSONALIZADO) before MOVER JOINTS is sent. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '6px 0 4px' }}>
               <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
-                Joints (°, convención robot)
+                {t('cobot.lbl.jointsLabel')}
               </span>
               {ghostSource === 'custom' && (
-                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>● PERSONALIZADO</span>
+                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>{t('cobot.lbl.customPose')}</span>
               )}
             </div>
             {cmdJoints.map((v, i) => {
@@ -1681,12 +1683,12 @@ export default function CobotLiveView() {
                 onChange={setJointSpeed} />
             </div>
             <button onClick={moveJoint} disabled={!controlEnabled || cmdBusy} style={{ ...cBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
-              ▸ MOVER JOINTS
+              {t('cobot.lbl.moveJoints')}
             </button>
 
             {/* Cartesian move */}
             <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, margin: '10px 0 4px' }}>
-              Cartesiano (mm / °)
+              {t('cobot.lbl.cartesianLabel')}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
               {(['x', 'y', 'z', 'rx', 'ry', 'rz'] as const).map((k) => (
@@ -1705,14 +1707,14 @@ export default function CobotLiveView() {
                 onChange={setCartSpeed} />
             </div>
             <button onClick={moveCartesian} disabled={!controlEnabled || cmdBusy} style={{ ...cBtn(controlEnabled, '#3b8bff', '#2563eb'), width: '100%', marginTop: 6 }}>
-              ▸ MOVER LINEAL
+              {t('cobot.lbl.moveLinear')}
             </button>
 
             <button onClick={syncCmdFromLive} disabled={!controlEnabled} style={{
               width: '100%', marginTop: 6, fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600,
               color: T.muted, cursor: controlEnabled ? 'pointer' : 'not-allowed',
               border: `1px solid ${T.border}`, borderRadius: 6, padding: '6px', background: T.dark ? 'rgba(20,30,48,0.6)' : T.panel2,
-            }}>↺ Sincronizar con pose actual</button>
+            }}>{t('cobot.lbl.syncPose')}</button>
 
             {cmdStatus && (
               <div style={{
@@ -1728,7 +1730,7 @@ export default function CobotLiveView() {
           </Section>
 
           {/* === Second pose library (teammate, controller-convention) === */}
-          <Section title="Poses (librería 2)">
+          <Section title={t('cobot.sec.poseLib2')}>
             <select value={selectedLib2}
               onChange={(e) => { setSelectedLib2(e.target.value); setSaveName(e.target.value); setGhostSource('lib2'); }}
               style={{ ...numInput(T), width: '100%', textAlign: 'left', cursor: 'pointer' }}>
@@ -1740,10 +1742,10 @@ export default function CobotLiveView() {
             {/* Joint preview (wrapped + transformed) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '8px 0 4px' }}>
               <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
-                Joints a enviar (°, robot)
+                {t('cobot.lbl.jointsToSend')}
               </span>
               {hasOverride(selectedLib2) && (
-                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>✎ AJUSTADA</span>
+                <span style={{ fontSize: 9, color: '#22dd55', fontWeight: 700, letterSpacing: 1 }}>{t('cobot.lbl.adjusted')}</span>
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, fontSize: 10, fontFamily: 'monospace' }}>
@@ -1760,9 +1762,9 @@ export default function CobotLiveView() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
               <button onClick={() => { setCmdJoints(lib2CtrlDeg(selectedLib2)); setGhostSource('custom'); setShowGhost(true); }}
                 disabled={!controlEnabled}
-                style={cBtn(controlEnabled,'#475569', '#334155')}>↧ Cargar en sliders</button>
+                style={cBtn(controlEnabled,'#475569', '#334155')}>{t('cobot.lbl.loadSliders')}</button>
               <button onClick={sendLib2ToRobot} disabled={!controlEnabled || cmdBusy}
-                style={cBtn(controlEnabled,'#8b5cf6', '#6d28d9')}>▸ Enviar al robot</button>
+                style={cBtn(controlEnabled,'#8b5cf6', '#6d28d9')}>{t('cobot.lbl.sendRobot')}</button>
             </div>
 
             {/* ── Cartesian tuner ── */}
@@ -1819,7 +1821,7 @@ export default function CobotLiveView() {
                 </select>
                 <button onClick={() => saveLib2Pose(saveName)} disabled={!controlEnabled}
                   style={{ ...cBtn(controlEnabled, '#22cc55', '#15803d'), padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                  💾 Guardar
+                  {t('cobot.lbl.save')}
                 </button>
               </div>
               {hasOverride(selectedLib2) && (
@@ -1840,13 +1842,13 @@ export default function CobotLiveView() {
           </Section>
 
           {/* === Linear table control === */}
-          <Section title="Mesa lineal">
+          <Section title={t('cobot.sec.tableLinear')}>
             {!tableAvailable && (
               <div style={{
                 fontSize: 10, color: '#fbbf24', background: 'rgba(80,60,20,0.3)',
                 border: '1px solid #fbbf2433', borderRadius: 4, padding: '6px 8px', marginBottom: 8,
               }}>
-                {mode === 'live' ? 'Mesa no disponible en el gateway.' : 'Conéctate al gateway (EN VIVO) para controlar la mesa.'}
+                {mode === 'live' ? t('cobot.lbl.tableNotAvail') : t('cobot.lbl.tableConnWarn')}
               </div>
             )}
 
@@ -1890,7 +1892,7 @@ export default function CobotLiveView() {
                   ...cBtn(tableAvailable && !tableMoving && tablePos !== 'limit1', '#3b8bff', '#2563eb'),
                   padding: '12px 6px', fontSize: 12,
                 }}>
-                ← LÍMITE 1
+                {t('cobot.lbl.btnLimit1')}
               </button>
               <button
                 onClick={() => tableMove('limit2')}
@@ -1899,7 +1901,7 @@ export default function CobotLiveView() {
                   ...cBtn(tableAvailable && !tableMoving && tablePos !== 'limit2', '#3b8bff', '#2563eb'),
                   padding: '12px 6px', fontSize: 12,
                 }}>
-                LÍMITE 2 →
+                {t('cobot.lbl.btnLimit2')}
               </button>
             </div>
             <button
@@ -1911,25 +1913,25 @@ export default function CobotLiveView() {
                 border: 'none', borderRadius: 6, padding: '9px',
                 background: tableAvailable ? 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)' : '#3a2530',
               }}>
-              ■ STOP MESA
+              {t('cobot.lbl.btnStopTable')}
             </button>
 
             <div style={{ ...statRow(T), marginTop: 8 }}>
-              <span>posición</span>
+              <span>{t('cobot.lbl.tablePos')}</span>
               <span style={{ color: tableMoving ? '#fbbf24' : '#22dd55', fontWeight: 700 }}>
-                {tableMoving ? '⟳ moviendo…' : tablePos === 'limit1' ? '◄ Límite 1' : tablePos === 'limit2' ? 'Límite 2 ►' : '— centro'}
+                {tableMoving ? t('cobot.lbl.tableMoving') : tablePos === 'limit1' ? t('cobot.lbl.tableLimit1') : tablePos === 'limit2' ? t('cobot.lbl.tableLimit2') : t('cobot.lbl.tableCentre')}
               </span>
             </div>
           </Section>
 
           {/* === Sensors + conveyor belt === */}
-          <Section title="Sensores y banda">
+          <Section title={t('cobot.sec.sensors')}>
             {/* Live photoelectric sensor LEDs (read-only from the WS stream) */}
             {([
-              { label: 'Sensor Conveyor',  on: sensorConveyor },
-              { label: 'Sensor Visión',    on: sensorVision },
-              { label: 'Fixture A (CAFI)', on: fixtureA },
-              { label: 'Fixture B (CAFI)', on: fixtureB },
+              { label: t('cobot.lbl.sensorConveyor'), on: sensorConveyor },
+              { label: t('cobot.lbl.sensorVision'),   on: sensorVision },
+              { label: t('cobot.lbl.fixtureA'),       on: fixtureA },
+              { label: t('cobot.lbl.fixtureB'),       on: fixtureB },
             ] as const).map(({ label, on }) => (
               <div key={label} style={{ ...statRow(T), alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1943,7 +1945,7 @@ export default function CobotLiveView() {
                   {label}
                 </span>
                 <span style={{ color: on ? '#22dd55' : '#788090', fontWeight: 700 }}>
-                  {on ? 'DETECTA' : '— libre'}
+                  {on ? t('cobot.lbl.detecting') : t('cobot.lbl.sensorFree')}
                 </span>
               </div>
             ))}
@@ -1958,17 +1960,17 @@ export default function CobotLiveView() {
                 : conveyorOn ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)'
                 : 'linear-gradient(180deg,#475569 0%,#334155 100%)',
             }}>
-              ⥁ {conveyorOn ? 'MOTOR ON — clic para APAGAR' : 'MOTOR OFF — clic para ENCENDER'}
+              ⥁ {conveyorOn ? t('cobot.lbl.conveyorOn') : t('cobot.lbl.conveyorOff')}
             </button>
 
             {/* Auto-stop on sensor detection */}
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 10, color: T.muted, cursor: 'pointer' }}>
               <input type="checkbox" checked={autoStopConveyor} onChange={(e) => setAutoStopConveyor(e.target.checked)} style={{ accentColor: '#22cc55' }} />
-              Auto-detener al detectar objeto en el sensor
+              {t('cobot.lbl.autoStop')}
             </label>
           </Section>
 
-          <Section title="Estado del robot">
+          <Section title={t('cobot.sec.robotState')}>
             <Flag label="Power ON" on={s.power_on} />
             <Flag label="Robot enabled" on={s.robot_enabled} />
             <Flag label="In position" on={s.inpos} />
@@ -1988,14 +1990,14 @@ export default function CobotLiveView() {
             </div>
           </Section>
 
-          <Section title="Controlador">
+          <Section title={t('cobot.sec.controller')}>
             <div style={statRow(T)}><span>Temperatura</span><span style={{ color: '#fb923c' }}>{telemetry.controller.temperature_c.toFixed(1)} °C</span></div>
             <div style={statRow(T)}><span>Potencia media</span><span>{telemetry.controller.avg_power_w.toFixed(1)} W</span></div>
             <div style={statRow(T)}><span>Corriente media</span><span>{telemetry.controller.avg_current_a.toFixed(2)} A</span></div>
             <div style={statRow(T)}><span>Speed magnif.</span><span>{(s.speed_magnification_pct * 100).toFixed(0)} %</span></div>
           </Section>
 
-          <Section title="Articulaciones (J1–J6)">
+          <Section title={t('cobot.sec.joints')}>
             <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 0.8fr 0.8fr', gap: 2, fontSize: 10, fontFamily: 'monospace' }}>
               <span style={{ color: T.dim }}>eje</span>
               <span style={{ color: T.dim, textAlign: 'right' }}>ángulo</span>
@@ -2016,7 +2018,7 @@ export default function CobotLiveView() {
             </div>
           </Section>
 
-          <Section title="TCP — Tool Center Point">
+          <Section title={t('cobot.sec.tcp')}>
             <div style={statRow(T)}><span>X</span><span style={{ color: T.text }}>{telemetry.tcp_position.x_mm.toFixed(2)} mm</span></div>
             <div style={statRow(T)}><span>Y</span><span style={{ color: T.text }}>{telemetry.tcp_position.y_mm.toFixed(2)} mm</span></div>
             <div style={statRow(T)}><span>Z</span><span style={{ color: T.text }}>{telemetry.tcp_position.z_mm.toFixed(2)} mm</span></div>
@@ -2025,7 +2027,7 @@ export default function CobotLiveView() {
             <div style={statRow(T)}><span>RZ</span><span style={{ color: '#9bf' }}>{telemetry.tcp_position.rz_deg.toFixed(2)}°</span></div>
           </Section>
 
-          <Section title="Fuerza / Par (end-effector)">
+          <Section title={t('cobot.sec.wrench')}>
             <div style={statRow(T)}><span>Fx / Fy / Fz</span><span>{telemetry.end_effector.fx_n.toFixed(1)} / {telemetry.end_effector.fy_n.toFixed(1)} / {telemetry.end_effector.fz_n.toFixed(1)} N</span></div>
             <div style={statRow(T)}><span>Tx / Ty / Tz</span><span>{telemetry.end_effector.torque_rx_nm.toFixed(1)} / {telemetry.end_effector.torque_ry_nm.toFixed(1)} / {telemetry.end_effector.torque_rz_nm.toFixed(1)} Nm</span></div>
           </Section>

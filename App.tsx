@@ -9,17 +9,19 @@ import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
 import { ThemeProvider, useThemeCtx } from './context/ThemeContext';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { LANG_LABELS, Lang } from './translations';
 
 type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic' | 'scada';
-interface TabDef { id: TabId; label: string }
+interface TabDef { id: TabId; labelKey: string }
 
 const TABS: TabDef[] = [
-  { id: 'inicio',  label: 'Inicio' },
-  { id: 'wiring',  label: 'Cableado' },
-  { id: 'cell',    label: 'Celda 3D' },
-  { id: 'live',    label: 'Cobot en Vivo' },
-  { id: 'logic',   label: 'Lógica' },
-  { id: 'scada',   label: 'SCADA' },
+  { id: 'inicio', labelKey: 'app.tabs.home' },
+  { id: 'wiring', labelKey: 'app.tabs.wiring' },
+  { id: 'cell',   labelKey: 'app.tabs.cell3d' },
+  { id: 'live',   labelKey: 'app.tabs.cobotLive' },
+  { id: 'logic',  labelKey: 'app.tabs.logic' },
+  { id: 'scada',  labelKey: 'app.tabs.scada' },
 ];
 
 const TOPBAR_HEIGHT = 60;
@@ -43,13 +45,16 @@ export default function App() {
   if (standalone) return <ScadaView />;
   return (
     <ThemeProvider>
-      <AppShell />
+      <LanguageProvider>
+        <AppShell />
+      </LanguageProvider>
     </ThemeProvider>
   );
 }
 
 function AppShell() {
   const { T, isDark, toggle } = useThemeCtx();
+  const { t, lang, setLang } = useLanguage();
   const [tab, setTab] = useState<TabId>('inicio');
 
   useEffect(() => {
@@ -111,20 +116,20 @@ function AppShell() {
           minWidth: 200, gap: 1,
         }}>
           <div style={{ fontSize: 9, letterSpacing: 3.5, color: '#22c55e', textTransform: 'uppercase', fontWeight: 600 }}>
-            Gemelo Digital · V60
+            {t('app.brandLabel')}
           </div>
           <div style={{ fontSize: 16, fontWeight: 600, color: T.text, letterSpacing: -0.2 }}>
-            Schneider Riveting Cell
+            {t('app.brandTitle')}
           </div>
         </div>
 
         {/* Tabs */}
         <nav style={{ display: 'flex', gap: 4, flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          {TABS.map((t) => {
-            const active = t.id === tab;
+          {TABS.map((tabDef) => {
+            const active = tabDef.id === tab;
             return (
-              <button key={t.id}
-                onClick={() => { if (t.id === 'scada') openScadaPage(); else setTab(t.id); }}
+              <button key={tabDef.id}
+                onClick={() => { if (tabDef.id === 'scada') openScadaPage(); else setTab(tabDef.id); }}
                 style={{
                   position: 'relative',
                   background: active ? 'rgba(184,115,51,0.12)' : 'transparent',
@@ -142,7 +147,7 @@ function AppShell() {
                 }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = T.text); }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = T.muted); }}>
-                {t.label}{t.id === 'scada' ? ' ↗' : ''}
+                {t(tabDef.labelKey)}{tabDef.id === 'scada' ? ' ↗' : ''}
                 {active && (
                   <div style={{
                     position: 'absolute', left: 12, right: 12, bottom: 0, height: 2,
@@ -155,8 +160,24 @@ function AppShell() {
           })}
         </nav>
 
-        {/* Right side: theme toggle + credit */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 200, justifyContent: 'flex-end' }}>
+        {/* Right side: language selector + theme toggle + credit */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, justifyContent: 'flex-end' }}>
+
+          {/* Language selector */}
+          <select
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            style={{
+              background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
+              color: T.text, fontSize: 11, fontWeight: 600, padding: '5px 6px',
+              cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
+            }}
+          >
+            {(Object.keys(LANG_LABELS) as Lang[]).map((l) => (
+              <option key={l} value={l}>{LANG_LABELS[l]}</option>
+            ))}
+          </select>
+
           {/* Light / Dark toggle */}
           <div style={{
             display: 'flex', gap: 2,
@@ -173,7 +194,7 @@ function AppShell() {
                 color: !isDark ? '#fff' : T.muted,
                 transition: 'all 0.15s',
               }}
-            >☀ Light</button>
+            >☀ {t('app.themeLight')}</button>
             <button
               onClick={() => !isDark && toggle()}
               style={{
@@ -183,14 +204,14 @@ function AppShell() {
                 color: isDark ? '#7ab4f0' : T.muted,
                 transition: 'all 0.15s',
               }}
-            >☽ Dark</button>
+            >☽ {t('app.themeDark')}</button>
           </div>
 
           {/* Credit */}
           <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right', gap: 2 }}>
-            <div style={{ fontSize: 11, color: T.text, fontWeight: 500 }}>Equipo 3</div>
+            <div style={{ fontSize: 11, color: T.text, fontWeight: 500 }}>{t('app.team')}</div>
             <div style={{ fontSize: 9, letterSpacing: 1.5, color: T.muted, textTransform: 'uppercase' }}>
-              ITESM × Schneider Challenge 3.0
+              {t('app.challenge')}
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 const COMPONENTS = {
   hmi:        { id: 'hmi',        label: '7" HMI Panel',            sublabel: 'Operator Interface',          color: '#0ea5e9', desc: 'Botón START · Indicadores PASS/FAIL · Estado del sistema · Historial de turno' },
@@ -62,6 +63,7 @@ const STEPS = [
 
 export default function ArchitectureDiagram() {
   const T = useTheme();
+  const { t } = useLanguage();
   const [activeNode, setActiveNode] = useState<CompId | null>(null);
   const [activeStep, setActiveStep] = useState<number | null>(null);
 
@@ -83,13 +85,13 @@ export default function ArchitectureDiagram() {
       {/* Section header */}
       <div style={{ padding: '32px 24px 0', textAlign: 'center' }}>
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
-          Arquitectura del Sistema
+          {t('arch.label')}
         </div>
         <div style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 700, color: T.text }}>
-          Diagrama de Componentes Interactivo
+          {t('arch.title')}
         </div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
-          Haz click en un nodo o en un paso del flujo para ver los detalles
+          {t('arch.hint')}
         </div>
       </div>
 
@@ -206,7 +208,7 @@ export default function ArchitectureDiagram() {
           {/* Node detail */}
           <div style={{ padding: '14px 16px', borderBottom: `1px solid ${T.borderSoft}`, minHeight: 105 }}>
             <div style={{ fontSize: 9, letterSpacing: 3, color: T.dim, marginBottom: 7, textTransform: 'uppercase' }}>
-              {activeNode ? 'Componente seleccionado' : '← Haz click en un nodo'}
+              {activeNode ? t('arch.selectedComp') : t('arch.clickPrompt')}
             </div>
             {activeNode && COMPONENTS[activeNode] ? (
               <>
@@ -227,7 +229,7 @@ export default function ArchitectureDiagram() {
           {/* Flow steps */}
           <div style={{ padding: '12px 16px 16px', flex: 1 }}>
             <div style={{ fontSize: 9, letterSpacing: 3, color: T.dim, marginBottom: 10, textTransform: 'uppercase' }}>
-              Flujo Operativo · {STEPS.length} Pasos
+              {t('arch.flowTitle')} · {STEPS.length} {t('arch.steps')}
             </div>
             {STEPS.map((s, i) => (
               <div key={i}

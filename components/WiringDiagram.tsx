@@ -1,28 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 // Generado desde diagramadeconexiones_final.dxf (diagram_tools/dxf_to_svg.py).
 // Los cables principales del DXF están sin color de función (ACI 7); se
 // muestran como "Cableado principal". El color por tipo de cable existe en
 // las entidades de acento + el bloque 2D insertado (GPIO/conectores/pines).
 const WIRE_GROUPS = [
-  { hex: '#9FB3C8', label: 'Estructura',      count: 13852 },
-  { hex: '#A953A0', label: 'Rasp inputs',     count:    24 },
-  { hex: '#58BA48', label: 'Ethernet',        count:    22 },
-  { hex: '#FF0000', label: '+24 V',           count:    22 },
-  { hex: '#F1EB1F', label: 'Motor NEMA 17',   count:    20 },
-  { hex: '#7AAFDF', label: 'Línea neumática', count:    17 },
-  { hex: '#F8991E', label: 'Rasp outputs',    count:    10 },
-  { hex: '#FEEAB9', label: 'Outputs Cobot',   count:     5 },
-  { hex: '#991B1E', label: '+5 V',            count:     5 },
-  { hex: '#ED1F24', label: '+12 V',           count:     4 },
-  { hex: '#C8C92D', label: 'Inputs Cobot',    count:     4 },
+  { hex: '#9FB3C8', labelKey: 'wiring.groups.structure', count: 13852 },
+  { hex: '#A953A0', labelKey: 'wiring.groups.raspIn',    count:    24 },
+  { hex: '#58BA48', labelKey: 'wiring.groups.ethernet',  count:    22 },
+  { hex: '#FF0000', labelKey: 'wiring.groups.v24',       count:    22 },
+  { hex: '#F1EB1F', labelKey: 'wiring.groups.nema',      count:    20 },
+  { hex: '#7AAFDF', labelKey: 'wiring.groups.pneumatic', count:    17 },
+  { hex: '#F8991E', labelKey: 'wiring.groups.raspOut',   count:    10 },
+  { hex: '#FEEAB9', labelKey: 'wiring.groups.cobotOut',  count:     5 },
+  { hex: '#991B1E', labelKey: 'wiring.groups.v5',        count:     5 },
+  { hex: '#ED1F24', labelKey: 'wiring.groups.v12',       count:     4 },
+  { hex: '#C8C92D', labelKey: 'wiring.groups.cobotIn',   count:     4 },
 ];
 
 const ALL_HEX = new Set(WIRE_GROUPS.map(w => w.hex));
 
 export default function WiringDiagram() {
   const T = useTheme();
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Set<string>>(new Set(ALL_HEX));
   const [loaded, setLoaded] = useState(false);
@@ -100,13 +102,13 @@ export default function WiringDiagram() {
       {/* Header */}
       <div style={{ padding: '32px 24px 16px', textAlign: 'center' }}>
         <div style={{ fontSize: 9, letterSpacing: 5, color: '#22c55e', textTransform: 'uppercase', marginBottom: 8 }}>
-          Gemelo Digital
+          {t('wiring.label')}
         </div>
         <div style={{ fontSize: 'clamp(18px,2.8vw,28px)', fontWeight: 700, color: T.text }}>
-          Diagrama de Conexiones del Sistema
+          {t('wiring.title')}
         </div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
-          Haz clic en un cable para aislarlo · Shift+clic para activar/desactivar
+          {t('wiring.hint')}
         </div>
       </div>
 
@@ -116,13 +118,13 @@ export default function WiringDiagram() {
         padding: '0 24px 20px',
       }}>
         {/* All/None buttons */}
-        <button onClick={showAll} style={ctrlBtn(allOn, '#94a3b8', T.text)}>Todos</button>
-        <button onClick={hideAll} style={ctrlBtn(allOff, '#f87171', T.text)}>Ninguno</button>
+        <button onClick={showAll} style={ctrlBtn(allOn, '#94a3b8', T.text)}>{t('wiring.btnAll')}</button>
+        <button onClick={hideAll} style={ctrlBtn(allOff, '#f87171', T.text)}>{t('wiring.btnNone')}</button>
 
         <div style={{ width: 1, background: T.border, margin: '0 4px' }} />
 
         {/* Wire-color buttons */}
-        {WIRE_GROUPS.map(({ hex, label, count }) => {
+        {WIRE_GROUPS.map(({ hex, labelKey, count }) => {
           const on = active.has(hex);
           return (
             <button
@@ -149,14 +151,14 @@ export default function WiringDiagram() {
                 border: `1.5px solid ${on ? hex : hex + '66'}`,
                 flexShrink: 0, transition: 'all 0.15s',
               }} />
-              {label}
+              {t(labelKey)}
               <span style={{ opacity: 0.45, fontSize: 9 }}>{count}</span>
             </button>
           );
         })}
 
         <button onClick={showAll} style={{ ...ctrlBtn(false, '#94a3b8', T.text), marginLeft: 4, fontSize: 10 }}>
-          ↺ Reset
+          {t('wiring.btnReset')}
         </button>
       </div>
 
@@ -171,7 +173,7 @@ export default function WiringDiagram() {
             height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: T.muted, fontSize: 13,
           }}>
-            Cargando diagrama…
+            {t('wiring.loading')}
           </div>
         )}
         <div
@@ -191,7 +193,7 @@ export default function WiringDiagram() {
         textAlign: 'center', paddingBottom: 24,
         fontSize: 10, color: T.dim,
       }}>
-        Shift+clic para selección múltiple · Haz clic en "Todos" para restaurar
+        {t('wiring.hint2')}
       </div>
     </div>
   );

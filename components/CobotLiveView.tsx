@@ -703,18 +703,18 @@ export default function CobotLiveView() {
   };
 
   const moveJoint = () => {
-    if (!cmdJoints.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: 'Hay un joint con valor inválido — corrígelo antes de mover.' }); return; }
+    if (!cmdJoints.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: t('cobot.lbl.errInvalidJoint') }); return; }
     postControl('/api/cobot/move/joint', { joints: cmdJoints, speed: jointSpeed, relative: false });
   };
   const moveCartesian = () => {
     const vals = [cart.x, cart.y, cart.z, cart.rx, cart.ry, cart.rz];
-    if (!vals.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: 'Hay un valor cartesiano inválido (revisa X/Y/Z/RX/RY/RZ).' }); return; }
+    if (!vals.every(Number.isFinite)) { setCmdStatus({ ok: false, msg: t('cobot.lbl.errInvalidCartesian') }); return; }
     postControl('/api/cobot/move/cartesian', { x: cart.x, y: cart.y, z: cart.z, rx: cart.rx, ry: cart.ry, rz: cart.rz, speed: cartSpeed });
   };
   const cobotStop = () => postControl('/api/cobot/stop');
   const cobotPowerOn = () => postControl('/api/cobot/power_on');
   const cobotPowerOff = () => {
-    if (!window.confirm('¿Apagar la potencia del cobot? El robot quedará sin par de motores.')) return;
+    if (!window.confirm(t('cobot.lbl.errPowerOff'))) return;
     postControl('/api/cobot/power_off');
   };
   const cobotEnable = () => postControl('/api/cobot/enable');
@@ -738,7 +738,7 @@ export default function CobotLiveView() {
       const res = await fetch(`${gatewayBase(url)}/api/camera/live5?t=${Date.now()}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store',
       });
-      if (res.status === 503) { setCameraError('La cámara está ocupada, espera unos segundos.'); return; }
+      if (res.status === 503) { setCameraError(t('cobot.lbl.errCameraBusy')); return; }
       if (!res.ok) { setCameraError(`Error ${res.status} al obtener el live feed.`); return; }
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
@@ -763,7 +763,7 @@ export default function CobotLiveView() {
       });
       const j: InspectResult = await res.json().catch(() => ({} as InspectResult));
       if (!res.ok || j.ok === false) {
-        const msg = /busy/i.test(j.error || '') ? 'La cámara está ocupada, espera unos segundos.'
+        const msg = /busy/i.test(j.error || '') ? t('cobot.lbl.errCameraBusy')
           : (j.error || `Error ${res.status} en la inspección.`);
         setCameraError(msg); return;
       }
@@ -793,7 +793,7 @@ export default function CobotLiveView() {
   // Apply the shutter slider value (µs) via CORBA on the backend.
   const applyShutter = async () => {
     if (cameraLoading) return;
-    setCameraLoading(true); setCameraBusyLabel('Aplicando obturación…'); setCameraError(null);
+    setCameraLoading(true); setCameraBusyLabel(t('cobot.lbl.errApplyingShutter')); setCameraError(null);
     try {
       const res = await fetch(`${gatewayBase(url)}/api/camera/shutter`, {
         method: 'POST',
@@ -802,7 +802,7 @@ export default function CobotLiveView() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok || j.ok === false) {
-        setCameraError(/busy/i.test(j.error || '') ? 'La cámara está ocupada, espera unos segundos.'
+        setCameraError(/busy/i.test(j.error || '') ? t('cobot.lbl.errCameraBusy')
           : (j.error || `Error ${res.status} al cambiar la obturación.`));
         return;
       }
@@ -946,7 +946,7 @@ export default function CobotLiveView() {
   // Save the robot's CURRENT real joints as the override for a library-2 pose.
   const saveLib2Pose = (name: string) => {
     const jp = telemetry.joint_positions_deg;
-    if (!jp || jp.length !== 6) { setCmdStatus({ ok: false, msg: 'Sin telemetría de joints para guardar.' }); return; }
+    if (!jp || jp.length !== 6) { setCmdStatus({ ok: false, msg: t('cobot.lbl.errNoTelemetry') }); return; }
     const next = { ...lib2Overrides, [name]: [...jp] };
     setLib2Overrides(next);
     try { localStorage.setItem(LIB2_OVERRIDE_KEY, JSON.stringify(next)); } catch { /* quota */ }
@@ -1396,7 +1396,7 @@ export default function CobotLiveView() {
                 fontSize: 9, color: '#e879f9', background: T.dark ? 'rgba(6,16,28,0.82)' : 'rgba(255,255,255,0.88)',
                 border: '1px solid #e879f944', padding: '2px 7px', borderRadius: 4,
                 whiteSpace: 'nowrap', fontFamily: 'monospace', pointerEvents: 'none',
-              }}>Cámara Datalogic</div>
+              }}>{t('cobot.lbl.cameraDatalogic')}</div>
             </Html>
 
             {/* Live HMI mirrored onto the physical 3D screen
@@ -1770,7 +1770,7 @@ export default function CobotLiveView() {
             {/* ── Cartesian tuner ── */}
             <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 10, paddingTop: 8 }}>
               <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
-                Tuner cartesiano (TCP real)
+                {t('cobot.lbl.tunerTitle')}
               </div>
 
               {/* Live TCP readout */}
@@ -1788,7 +1788,7 @@ export default function CobotLiveView() {
 
               {/* Step sizes */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: 10, color: T.muted }}>paso</span>
+                <span style={{ fontSize: 10, color: T.muted }}>{t('cobot.lbl.tunerStep')}</span>
                 <NumField value={tunerStepMm} disabled={!controlEnabled} min={0.5} max={100} decimals={1} width={50}
                   onChange={setTunerStepMm} />
                 <span style={{ fontSize: 10, color: T.dim }}>mm</span>
@@ -1829,15 +1829,13 @@ export default function CobotLiveView() {
                   style={{ width: '100%', marginTop: 4, fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600,
                     color: '#ff8a98', cursor: 'pointer', border: '1px solid #ff556644', borderRadius: 6,
                     padding: '6px', background: 'rgba(80,20,20,0.3)' }}>
-                  ↺ Restaurar "{selectedLib2.replace(/_/g, ' ')}" original
+                  {t('cobot.lbl.tunerRestore').replace('{name}', selectedLib2.replace(/_/g, ' '))}
                 </button>
               )}
             </div>
 
             <div style={{ fontSize: 9, color: T.dim, marginTop: 8, lineHeight: 1.4 }}>
-              Poses de la simulación (wrap ±180 → transform V26). El tuner mueve
-              por eje cartesiano (vel {cartSpeed} mm/s) y "Guardar" fija los joints
-              actuales como la pose elegida. STOP aborta.
+              {t('cobot.lbl.tunerNote').replace('{speed}', String(cartSpeed))}
             </div>
           </Section>
 
@@ -1980,29 +1978,29 @@ export default function CobotLiveView() {
             <div style={statRow(T)}><span>Motion mode</span><span style={{ color: '#9bf' }}>{s.motion_mode_name}</span></div>
             <div style={statRow(T)}><span>Error code</span><span style={{ color: '#fbbf24' }}>{s.motion_errcode}</span></div>
             <div style={statRow(T)}>
-              <span>Gripper neumático</span>
+              <span>{t('cobot.lbl.gripperLabel')}</span>
               <span style={{
                 color: pneuState === 'open' ? '#22dd55' : pneuState === 'close' ? '#3b8bff' : '#788090',
                 fontWeight: 700,
               }}>
-                {pneuState === 'open' ? 'ABIERTO' : pneuState === 'close' ? 'CERRADO' : 'OFF · mantiene'}
+                {pneuState === 'open' ? t('cobot.lbl.gripStateOpen') : pneuState === 'close' ? t('cobot.lbl.gripStateClosed') : t('cobot.lbl.gripStateOff')}
               </span>
             </div>
           </Section>
 
           <Section title={t('cobot.sec.controller')}>
-            <div style={statRow(T)}><span>Temperatura</span><span style={{ color: '#fb923c' }}>{telemetry.controller.temperature_c.toFixed(1)} °C</span></div>
-            <div style={statRow(T)}><span>Potencia media</span><span>{telemetry.controller.avg_power_w.toFixed(1)} W</span></div>
-            <div style={statRow(T)}><span>Corriente media</span><span>{telemetry.controller.avg_current_a.toFixed(2)} A</span></div>
-            <div style={statRow(T)}><span>Speed magnif.</span><span>{(s.speed_magnification_pct * 100).toFixed(0)} %</span></div>
+            <div style={statRow(T)}><span>{t('cobot.lbl.temperature')}</span><span style={{ color: '#fb923c' }}>{telemetry.controller.temperature_c.toFixed(1)} °C</span></div>
+            <div style={statRow(T)}><span>{t('cobot.lbl.avgPower')}</span><span>{telemetry.controller.avg_power_w.toFixed(1)} W</span></div>
+            <div style={statRow(T)}><span>{t('cobot.lbl.avgCurrent')}</span><span>{telemetry.controller.avg_current_a.toFixed(2)} A</span></div>
+            <div style={statRow(T)}><span>{t('cobot.lbl.speedMagnif')}</span><span>{(s.speed_magnification_pct * 100).toFixed(0)} %</span></div>
           </Section>
 
           <Section title={t('cobot.sec.joints')}>
             <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 0.8fr 0.8fr', gap: 2, fontSize: 10, fontFamily: 'monospace' }}>
-              <span style={{ color: T.dim }}>eje</span>
-              <span style={{ color: T.dim, textAlign: 'right' }}>ángulo</span>
-              <span style={{ color: T.dim, textAlign: 'right' }}>temp</span>
-              <span style={{ color: T.dim, textAlign: 'right' }}>amp</span>
+              <span style={{ color: T.dim }}>{t('cobot.lbl.jointAxis')}</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>{t('cobot.lbl.jointAngle')}</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>{t('cobot.lbl.jointTemp')}</span>
+              <span style={{ color: T.dim, textAlign: 'right' }}>{t('cobot.lbl.jointAmp')}</span>
               {telemetry.joint_positions_deg.map((deg, i) => {
                 const js = telemetry.joint_states[i];
                 const bad = js && (js.error || js.collision);
@@ -2063,7 +2061,7 @@ export default function CobotLiveView() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', boxShadow: '0 0 8px #8b5cf6' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Panel de Cámara · Datalogic P15</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{t('cobot.lbl.cameraTitle')}</span>
               </div>
               <button onClick={() => setCameraOpen(false)} style={{
                 fontFamily: SANS_FONT, fontSize: 13, fontWeight: 700, color: T.muted,
@@ -2076,10 +2074,10 @@ export default function CobotLiveView() {
               {/* ── Shutter control ── */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700 }}>
-                  Obturación (µs)
+                  {t('cobot.lbl.shutterLabel')}
                 </span>
                 <span style={{ fontSize: 10, fontFamily: 'monospace', color: appliedShutter != null ? '#22dd55' : T.dim }}>
-                  {appliedShutter != null ? `aplicado: ${appliedShutter.toLocaleString()}` : 'sin aplicar'}
+                  {appliedShutter != null ? `${t('cobot.lbl.shutterApplied')} ${appliedShutter.toLocaleString()}` : t('cobot.lbl.shutterNone')}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -2091,9 +2089,9 @@ export default function CobotLiveView() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
                 {([
-                  { us: 8000,   label: 'Oscuro 8k' },
-                  { us: 100000, label: 'Medio 100k' },
-                  { us: 200000, label: 'Brillante 200k' },
+                  { us: 8000,   label: t('cobot.lbl.shutterDark') },
+                  { us: 100000, label: t('cobot.lbl.shutterMid') },
+                  { us: 200000, label: t('cobot.lbl.shutterBright') },
                 ] as const).map(({ us, label }) => (
                   <button key={us} onClick={() => setShutterUs(us)} disabled={cameraLoading} style={{
                     fontFamily: SANS_FONT, fontSize: 10, fontWeight: 600, color: '#fff',
@@ -2108,7 +2106,7 @@ export default function CobotLiveView() {
                 cursor: cameraLoading ? 'wait' : 'pointer', border: 'none', borderRadius: 6, padding: '9px',
                 background: cameraLoading ? (T.dark ? 'linear-gradient(180deg,#3a4f6a,#2a3548)' : T.borderSoft) : 'linear-gradient(180deg,#6d28d9 0%,#4c1d95 100%)',
               }}>
-                ⚙ Aplicar obturación
+                {t('cobot.lbl.applyShutter')}
               </button>
 
               {/* ── Action buttons ── */}
@@ -2137,7 +2135,7 @@ export default function CobotLiveView() {
                 }}>
                   {inspectResult.verdict === 'PASS' ? '🟢' : '🔴'} {inspectResult.verdict} {inspectResult.holes_found}/{inspectResult.holes_expected}
                   {!inspectResult.cafi_detected && (
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>· CAFI no detectado</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{t('cobot.lbl.cafiNotDetected')}</span>
                   )}
                 </div>
               )}
@@ -2166,7 +2164,7 @@ export default function CobotLiveView() {
                   <div style={{ textAlign: 'center', padding: 24 }}>
                     <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
                     <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, maxWidth: 320 }}>
-                      No se detectó ningún CAFI en el fixture.<br/>Coloca la pieza y vuelve a inspeccionar.
+                      {t('cobot.lbl.noCafiLine1')}<br/>{t('cobot.lbl.noCafiLine2')}
                     </div>
                   </div>
                 ) : camView === 'inspect' && inspectImgUrl ? (
@@ -2177,7 +2175,7 @@ export default function CobotLiveView() {
                     style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 ) : (
                   <div style={{ fontSize: 12, color: T.dim, textAlign: 'center', padding: 24 }}>
-                    Usa <b style={{ color: '#8b5cf6' }}>Live Feed</b> o <b style={{ color: '#3b8bff' }}>Inspección</b> para empezar.
+                    {t('cobot.lbl.cameraHintPre')}<b style={{ color: '#8b5cf6' }}>Live Feed</b>{t('cobot.lbl.cameraHintMid')}<b style={{ color: '#3b8bff' }}>Inspección</b>{t('cobot.lbl.cameraHintPost')}
                   </div>
                 )}
               </div>
@@ -2186,7 +2184,7 @@ export default function CobotLiveView() {
               {camView === 'inspect' && inspectResult && inspectResult.holes.length > 0 && !cameraLoading && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, marginBottom: 6 }}>
-                    Huecos del CAFI
+                    {t('cobot.lbl.cafiHoles')}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     {inspectResult.holes.map((h) => (
@@ -2208,7 +2206,7 @@ export default function CobotLiveView() {
               )}
 
               <div style={{ fontSize: 9, color: T.dim, marginTop: 12, textAlign: 'center', lineHeight: 1.4 }}>
-                Datalogic P15 · 1280×1024 grayscale · una operación a la vez (~3–6 s c/u).
+                {t('cobot.lbl.cameraFooter')}
               </div>
             </div>
           </div>

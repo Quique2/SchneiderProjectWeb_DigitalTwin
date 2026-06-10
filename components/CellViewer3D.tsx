@@ -3579,7 +3579,7 @@ export function TeachPendant({
 
         {/* COLUMNA 1 — Joints J1-J6 */}
         <div style={{ ...colBase, width: 152 }}>
-          <div style={sTitle}>1 · Joints °</div>
+          <div style={sTitle}>{t('cobot.lbl.tpSec1')}</div>
           {[0, 1, 2, 3, 4, 5].map((i) => {
             const v = j[i]; const [lo, hi] = JOINT_LIMITS[i];
             return (
@@ -3598,7 +3598,7 @@ export function TeachPendant({
         {/* COLUMNA 2 — TCP + modo + velocidad */}
         <div style={{ ...colBase, width: 200 }}>
           <div style={sTitle} title="TCP relativo a la BASE del cobot (base_link) — X/Y/Z en mm, R/P/Yw en grados. NO es world.">
-            2 · TCP (base cobot){tcpB ? '' : ' · world'}
+            {t('cobot.lbl.tpSec2')}{tcpB ? '' : t('cobot.lbl.tpSec2world')}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px', ...mono, fontSize: 10 }}>
             <span>X <b>{(tcpB ? tcpB.xMm : g[0] * 1000).toFixed(0)}</b></span>
@@ -3622,17 +3622,17 @@ export function TeachPendant({
           <div style={{ ...mono, fontSize: 8.5, color: realMode ? '#a8431a' : '#5a6270', marginTop: 2, lineHeight: 1.3 }}>
             {realMode
               ? (mode === 'joint'
-                  ? `≤ ${Math.round(velocity * JOINT_REAL_MAX_PERCENT)}% articular (máx ${JOINT_REAL_MAX_PERCENT}%) · REAL`
-                  : `${Math.round(velocity * LINEAR_REAL_MAX_MPS * 1000)} mm/s (máx ${Math.round(LINEAR_REAL_MAX_MPS * 1000)}) · REAL MODE — speed capped`)
+                  ? t('cobot.lbl.velJointReal').replace('{v}', String(Math.round(velocity * JOINT_REAL_MAX_PERCENT))).replace('{max}', String(JOINT_REAL_MAX_PERCENT))
+                  : t('cobot.lbl.velLinearReal').replace('{v}', String(Math.round(velocity * LINEAR_REAL_MAX_MPS * 1000))).replace('{max}', String(Math.round(LINEAR_REAL_MAX_MPS * 1000))))
               : (mode === 'joint'
-                  ? `≤ ${Math.round(velocity * 120)}/${Math.round(velocity * 180)}°/s (demo)`
-                  : `TCP ${(velocity * TCP_MAX_LINEAR_SPEED).toFixed(2)} m/s (demo)`)}
+                  ? t('cobot.lbl.velJointDemo').replace('{a}', String(Math.round(velocity * 120))).replace('{b}', String(Math.round(velocity * 180)))
+                  : t('cobot.lbl.velLinearDemo').replace('{v}', (velocity * TCP_MAX_LINEAR_SPEED).toFixed(2)))}
           </div>
         </div>
 
         {/* COLUMNA 3 — Jog buttons (+ RX=0 en LIN) */}
         <div style={{ ...colBase, width: 150 }}>
-          <div style={sTitle}>3 · Jog {mode === 'joint' ? '(joint)' : '(TCP)'}</div>
+          <div style={sTitle}>{mode === 'joint' ? t('cobot.lbl.tpSec3joint') : t('cobot.lbl.tpSec3tcp')}</div>
           {mode === 'joint' && [0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '22px 30px 30px', gap: 5, marginBottom: 3, alignItems: 'center' }}>
               <span style={{ ...mono, fontWeight: 800, color: '#3a4150', fontSize: 10 }}>J{i + 1}</span>
@@ -3664,7 +3664,7 @@ export function TeachPendant({
           })}
           {mode === 'linear' && onResetRx && (
             <button onClick={() => { if (!moving) onResetRx(); }} disabled={moving}
-              title="Pone RX (roll) = 0 manteniendo X/Y/Z y RY/RZ"
+              title={t('cobot.lbl.tpRxReset')}
               style={{ ...solid(true, '#b87333'), padding: '6px 4px', marginTop: 4, opacity: moving ? 0.5 : 1, cursor: moving ? 'not-allowed' : 'pointer' }}>RX = 0</button>
           )}
           {ghostMoving && <div style={{ ...mono, fontSize: 9, color: '#2f5fbf', marginTop: 5, fontWeight: 700 }}>{t('cobot.lbl.previewMoving')}</div>}
@@ -3674,7 +3674,7 @@ export function TeachPendant({
 
         {/* COLUMNA 4 — Poses / GO TO POSE */}
         <div style={{ ...colBase, width: 236 }}>
-          <div style={sTitle}>4 · Poses (°)</div>
+          <div style={sTitle}>{t('cobot.lbl.tpSec4')}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -3957,6 +3957,7 @@ function HMIPanel({
   regeneratePoseLib: () => void;
 }) {
   const T = useTheme();
+  const { t } = useLanguage();
   const [, force] = useState(0);
   // Tick 100 ms: refresca los readouts vivos del panel. Los controles manuales
   // (jog / pose / TCP) viven ahora en <TeachPendant>, que maneja sus campos.
@@ -4006,10 +4007,7 @@ function HMIPanel({
         border: '1px solid #4a3a1a', background: 'rgba(120,80,20,0.18)', borderRadius: 8,
         padding: '8px 10px', fontSize: 10, color: '#fbbf24', lineHeight: 1.4,
       }}>
-        ⚠ Modo DEBUG (manual). La simulación automática de la HMI está pausada.
-        Los controles de abajo escriben directamente la escena y NO controlan la
-        máquina de estados. Vuelve a <b>HMI</b> y pulsa <b>Reset → Start</b> para
-        reanudar el ciclo automático.
+        {t('cobot.lbl.dbgWarnPre')}<b>HMI</b>{t('cobot.lbl.dbgWarnMid')}<b>Reset → Start</b>{t('cobot.lbl.dbgWarnPost')}
       </div>
 
       {/* === Sequence player === */}
@@ -4061,11 +4059,11 @@ function HMIPanel({
                 <button onClick={() => startCycle('accept')} style={{
                   ...btnStyle, padding: '8px 4px', fontSize: 10,
                   background: 'linear-gradient(180deg,#22cc55 0%,#15803d 100%)',
-                }}>✓ ACEPTADO</button>
+                }}>{t('cobot.lbl.dbgAccepted')}</button>
                 <button onClick={() => startCycle('reject')} style={{
                   ...btnStyle, padding: '8px 4px', fontSize: 10,
                   background: 'linear-gradient(180deg,#ef4444 0%,#b91c1c 100%)',
-                }}>✗ RECHAZADO</button>
+                }}>{t('cobot.lbl.dbgRejected')}</button>
               </div>
               {/* Pause / Resume / Reset row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginTop: 4 }}>
@@ -4134,7 +4132,7 @@ function HMIPanel({
           border: '1px solid ' + (poseDirty ? '#fbbf2466' : '#33dffe66'),
         }}>
           <div style={{ fontSize: 9, letterSpacing: 1, color: '#7a8aa0', marginBottom: 3 }}>
-            ● POSE ACTIVA {poseDirty && <span style={{ color: '#fbbf24' }}>· editada (jog)</span>}
+            {t('cobot.lbl.poseActive')} {poseDirty && <span style={{ color: '#fbbf24' }}>{t('cobot.lbl.poseEdited')}</span>}
           </div>
           <div style={{
             fontSize: 13, fontWeight: 800, fontFamily: 'monospace',

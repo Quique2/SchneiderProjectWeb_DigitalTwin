@@ -1258,7 +1258,7 @@ export default function CobotLiveView() {
       ? controllerDegToUrdfRad(cmdJoints)
       : lib2GhostRads(selectedLib2);
   const ghostLabel = ghostSource === 'custom'
-    ? 'PERSONALIZADO'
+    ? t('cobot.lbl.customLabel')
     : ghostSource === 'lib2'
       ? selectedLib2.replace(/_/g, ' ')
       : selectedLib2.replace(/_/g, ' ');
@@ -1430,7 +1430,7 @@ export default function CobotLiveView() {
             border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
             background: applyToModel ? 'linear-gradient(180deg,#3b8bff 0%,#2563eb 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
-            {applyToModel ? '◉ 3D sigue joints en vivo' : '◯ 3D fijo en HOME'}
+            {applyToModel ? `◉ ${t('cobot.btn3DLive')}` : `◯ ${t('cobot.btn3DFixed')}`}
           </button>
 
           {/* ghost-preview toggle */}
@@ -1440,7 +1440,7 @@ export default function CobotLiveView() {
             border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
             background: showGhost ? 'linear-gradient(180deg,#22dd55 0%,#15803d 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
-            {showGhost ? '◉ Fantasma: ' : '◯ Fantasma: '}{ghostLabel}
+            {showGhost ? '◉ ' : '◯ '}{t('cobot.btnGhost')}: {ghostLabel}
           </button>
 
           {/* Teach Pendant toggle */}
@@ -1450,7 +1450,7 @@ export default function CobotLiveView() {
             border: `1px solid ${T.border}`, borderRadius: 6, padding: '7px 12px',
             background: showPendant ? 'linear-gradient(180deg,#8b5cf6 0%,#6d28d9 100%)' : (T.dark ? 'rgba(20,30,48,0.85)' : 'rgba(255,255,255,0.88)'),
           }}>
-            {showPendant ? '◉ TEACH PENDANT' : '◯ Teach Pendant'}
+            {showPendant ? `◉ ${t('cobot.btnPendant')}` : `◯ ${t('cobot.btnPendant')}`}
           </button>
 
           {/* TeachPendant overlay — renders as a floating HTML panel */}
@@ -1493,7 +1493,7 @@ export default function CobotLiveView() {
                 borderBottom: `1px solid ${T.border}`,
               }}
             >
-              <span style={{ fontSize: 10, color: '#6FA8FF', letterSpacing: 2, fontWeight: 700 }}>HMI OPERADOR</span>
+              <span style={{ fontSize: 10, color: '#6FA8FF', letterSpacing: 2, fontWeight: 700 }}>{t('cobot.hmiTitle')}</span>
               <button onClick={() => setShowHmi(false)} style={{
                 background: 'none', border: 'none', color: T.dim, cursor: 'pointer',
                 fontSize: 18, lineHeight: 1, padding: '0 3px', fontFamily: 'inherit',

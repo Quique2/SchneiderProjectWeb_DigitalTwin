@@ -6,6 +6,7 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../context/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -3362,6 +3363,7 @@ export function TeachPendant({
   // Muestra el aviso "Preview solamente — envío real desarmado".
   previewOnly?: boolean;
 }) {
+  const { t } = useLanguage();
   const [, force] = useState(0);
   const [mode, setMode] = useState<'joint' | 'linear'>('joint');
   const [velocity, setVelocity] = useState(() => jogVelocityRef.current);
@@ -3611,7 +3613,7 @@ export function TeachPendant({
             <button onClick={() => { holdEnd(); setMode('linear'); }} style={solid(mode === 'linear', '#b87333')}>LIN</button>
           </div>
           <div style={{ ...sTitle, marginBottom: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>VEL {Math.round(velocity * 100)}%</span>
+            <span>{t('cobot.lbl.velLabel')} {Math.round(velocity * 100)}%</span>
             {realMode && <span style={{ fontSize: 7.5, color: '#fff', background: '#bd1020', borderRadius: 3, padding: '1px 5px', letterSpacing: 0.3, fontWeight: 800 }}>REAL · CAP</span>}
           </div>
           <input type="range" min={0} max={1} step={0.01} value={velocity}
@@ -3665,9 +3667,9 @@ export function TeachPendant({
               title="Pone RX (roll) = 0 manteniendo X/Y/Z y RY/RZ"
               style={{ ...solid(true, '#b87333'), padding: '6px 4px', marginTop: 4, opacity: moving ? 0.5 : 1, cursor: moving ? 'not-allowed' : 'pointer' }}>RX = 0</button>
           )}
-          {ghostMoving && <div style={{ ...mono, fontSize: 9, color: '#2f5fbf', marginTop: 5, fontWeight: 700 }}>🟦 PREVIEW MOVIENDO…</div>}
-          {robotMoving && <div style={{ ...mono, fontSize: 9, color: '#bd1020', marginTop: 3, fontWeight: 800 }}>🟥 ROBOT REAL MOVIENDO…</div>}
-          {previewOnly && <div style={{ ...mono, fontSize: 8.5, color: '#8a7a4a', marginTop: 4, lineHeight: 1.3 }}>Preview solamente — envío real desarmado.</div>}
+          {ghostMoving && <div style={{ ...mono, fontSize: 9, color: '#2f5fbf', marginTop: 5, fontWeight: 700 }}>{t('cobot.lbl.previewMoving')}</div>}
+          {robotMoving && <div style={{ ...mono, fontSize: 9, color: '#bd1020', marginTop: 3, fontWeight: 800 }}>{t('cobot.lbl.robotMoving')}</div>}
+          {previewOnly && <div style={{ ...mono, fontSize: 8.5, color: '#8a7a4a', marginTop: 4, lineHeight: 1.3 }}>{t('cobot.lbl.previewOnly')}</div>}
         </div>
 
         {/* COLUMNA 4 — Poses / GO TO POSE */}
@@ -3687,10 +3689,10 @@ export function TeachPendant({
             <button onClick={goToPose} disabled={moving} style={{ ...solid(!moving), background: moving ? '#aab0bb' : '#2f5fbf', cursor: moving ? 'wait' : 'pointer', padding: '6px 4px' }}>GO TO POSE</button>
             <button onClick={savePose} style={{ ...solid(true, '#1aa044'), padding: '6px 4px' }}>SAVE</button>
           </div>
-          <input type="text" value={newName} placeholder="nombre (opcional)"
+          <input type="text" value={newName} placeholder={t('cobot.lbl.poseName')}
             onChange={(e) => setNewName((e.target as HTMLInputElement).value)}
             style={{ ...numIn, textAlign: 'left', marginTop: 4, fontSize: 10 }} />
-          <div style={{ ...sTitle, marginTop: 5 }}>Guardadas ({poses.length})</div>
+          <div style={{ ...sTitle, marginTop: 5 }}>{t('cobot.lbl.savedPoses')} ({poses.length})</div>
           {/* Scroll vertical SOLO de esta lista (no del canvas) */}
           <div style={{ overflowY: 'auto', overflowX: 'hidden', maxHeight: 116, minHeight: 0 }}>
             {poses.map((p, i) => (

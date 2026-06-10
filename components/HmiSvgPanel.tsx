@@ -5,6 +5,7 @@
 // Pipeline actions: POST to /api/pipeline/* endpoints.
 
 import React, { useEffect, useState } from 'react';
+import { useLanguage } from '../context/LanguageContext';
 
 // ── Block types (mirrors the gateway WS payload) ────────────────────────────
 
@@ -54,6 +55,7 @@ const STALE_MS = 3000;        // > 3 s without frame → stale
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, controlEnabled }: Props) {
+  const { t } = useLanguage();
   // Tick every second to keep stale detection live even with no new frames
   const [, tick] = useState(0);
   useEffect(() => {
@@ -162,8 +164,8 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
     pst === 'paused'  ? '#FBBF24' : '#8AA7C7';
 
   const statusText =
-    stale      ? '⚠ STALE — sin frame > 3 s' :
-    !connected ? '— sin conexión al gateway'  :
+    stale      ? t('hmi.stale') :
+    !connected ? t('hmi.noConn')  :
     pipeline?.label ? pipeline.label          :
     `● ${pst.toUpperCase()}`;
 
@@ -209,7 +211,7 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
           <rect x="0" y="0" width="480" height="272" fill="#071321"/>
           <rect x="1" y="1" width="478" height="270" rx="5" fill="none" stroke="#1E3A5F" strokeWidth="2"/>
           <text x="10" y="15" fill="#DDEEFF" fontSize="12" fontWeight="700" letterSpacing="0.3">
-            Operator HMI — Celda de Remachado
+            {t('hmi.svgTitle')}
           </text>
           <line x1="10" y1="20" x2="470" y2="20" stroke="#1E3A5F" strokeWidth="1"/>
 
@@ -237,12 +239,12 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
           <g style={{ cursor: btnCur('CONFIRM_CLEAN') }} onClick={() => onBtn('CONFIRM_CLEAN')}>
             <rect x="10" y="76" width="226" height="22" rx="5" fill={btnFill('CONFIRM_CLEAN')}/>
             <text x="123" y="87" fill={btnTxt('CONFIRM_CLEAN')} fontSize="9.5" fontWeight="600"
-              textAnchor="middle" dominantBaseline="central">CONFIRMAR LIMPIEZA</text>
+              textAnchor="middle" dominantBaseline="central">{t('hmi.btn.clean').toUpperCase()}</text>
           </g>
           <g style={{ cursor: btnCur('FINALIZE') }} onClick={() => onBtn('FINALIZE')}>
             <rect x="244" y="76" width="226" height="22" rx="5" fill={btnFill('FINALIZE')}/>
             <text x="357" y="87" fill={btnTxt('FINALIZE')} fontSize="10.5" fontWeight="600" letterSpacing="1"
-              textAnchor="middle" dominantBaseline="central">FINALIZAR</text>
+              textAnchor="middle" dominantBaseline="central">{t('hmi.btn.finalize').toUpperCase()}</text>
           </g>
 
           {/* ── DIGITAL INPUTS ── */}
@@ -281,7 +283,7 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
             strokeWidth="1.5" filter="url(#hmiShadow)"/>
           <text x="18" y="175" fill="#6FA8FF" fontSize="8" fontWeight="700" letterSpacing="2">CAMERA</text>
           <rect x="64" y="180" width="232" height="18" rx="3" fill="#06101C" stroke="#1E3A5F" strokeWidth="1"/>
-          <text x="18" y="190" fill="#8AA7C7" fontSize="7" dominantBaseline="central">estado:</text>
+          <text x="18" y="190" fill="#8AA7C7" fontSize="7" dominantBaseline="central">{t('hmi.camLabel')}</text>
           <text x="72" y="190" fill={camFill()} fontSize="11" fontWeight="700" dominantBaseline="central">
             {camText()}
           </text>
@@ -306,16 +308,16 @@ export default function HmiSvgPanel({ hmi, pipeline, lastFrameTs, apiBase, contr
           {/* ── PRODUCTION COUNTERS ── */}
           <rect x="312" y="162" width="98" height="102" rx="6" fill="#0B1726" stroke="#1E3A5F"
             strokeWidth="1.5" filter="url(#hmiShadow)"/>
-          <text x="320" y="175" fill="#6FA8FF" fontSize="8" fontWeight="700" letterSpacing="1.5">PRODUCCIÓN</text>
-          <text x="320" y="197" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">Total</text>
+          <text x="320" y="175" fill="#6FA8FF" fontSize="8" fontWeight="700" letterSpacing="1.5">{t('hmi.production')}</text>
+          <text x="320" y="197" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">{t('hmi.total')}</text>
           <text x="402" y="197" fill="#DDEEFF" fontSize="15" fontWeight="700" textAnchor="end" dominantBaseline="central">
             {cnt('COUNT.total')}
           </text>
-          <text x="320" y="223" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">Aceptados</text>
+          <text x="320" y="223" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">{t('hmi.accepted')}</text>
           <text x="402" y="223" fill="#22FF66" fontSize="15" fontWeight="700" textAnchor="end" dominantBaseline="central">
             {cnt('COUNT.accepted')}
           </text>
-          <text x="320" y="249" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">Rechazados</text>
+          <text x="320" y="249" fill="#8AA7C7" fontSize="7.5" dominantBaseline="central">{t('hmi.rejected')}</text>
           <text x="402" y="249" fill="#FF5566" fontSize="15" fontWeight="700" textAnchor="end" dominantBaseline="central">
             {cnt('COUNT.rejected')}
           </text>

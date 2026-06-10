@@ -2,21 +2,27 @@ import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 
-const COMPONENTS = {
-  hmi:        { id: 'hmi',        label: '7" HMI Panel',            sublabel: 'Operator Interface',          color: '#0ea5e9', desc: 'Botón START · Indicadores PASS/FAIL · Estado del sistema · Historial de turno' },
-  plc:        { id: 'plc',        label: 'Modicon M262 PLC',         sublabel: 'Central Controller',          color: '#22c55e', desc: 'Orquesta la secuencia completa · Gestiona señales de seguridad · Envía resultados al HMI vía EtherNet/IP' },
-  cobot:      { id: 'cobot',      label: 'Lexium Cobot',             sublabel: 'Robotic Manipulation',        color: '#3b82f6', desc: '3 ops pick-and-place: ① Canaleta→Fixture Remache  ② Fixture Remache→Fixture Inspección  ③ Fixture Inspección→Stock Final (PASS)' },
-  eoat:       { id: 'eoat',       label: 'EoAT – Gripper 3 Dedos',  sublabel: 'Cilindro MAL16x25',           color: '#64748b', desc: 'Mecanismo pantógrafo · Cilindro doble efecto 16 mm bore · 25 mm stroke · 6 bar max · Agarra CAFI (277 g)' },
-  canaleta:   { id: 'canaleta',   label: 'Canaleta de Alimentación', sublabel: 'Entrada de piezas',           color: '#f59e0b', desc: 'Suministro continuo de CAFIs sin remachar a la zona de pick del cobot' },
-  fixRem:     { id: 'fixRem',     label: 'Fixture de Remachado',     sublabel: '2 pistones de sujeción',      color: '#e11d48', desc: 'Perfil negativo del CAFI · 2 pistones neumáticos sujetan la pieza · Alinea 5 puntos de remache · PLA/PETG + insertos metálicos' },
-  fixInsp:    { id: 'fixInsp',    label: 'Fixture de Inspección',    sublabel: 'Posicionamiento estable',     color: '#a855f7', desc: 'Expone la cara superior con 5 marcadores de remache · Garantiza repetibilidad posicional para el sistema de visión · PLA/PETG' },
-  inspection: { id: 'inspection', label: 'Sistema de Inspección',    sublabel: 'Visión / Cognex 2800',        color: '#c026d3', desc: 'Detecta presencia de 5 marcadores de remache · Envía resultado PASS/FAIL al PLC en tiempo real' },
-  pistonRej:  { id: 'pistonRej',  label: 'Pistón de Rechazo',        sublabel: 'Eyección automática',         color: '#f97316', desc: 'Pistón neumático activado por el PLC en resultado FAIL · Empuja el CAFI defectuoso al bin de rechazo' },
-  canasta:    { id: 'canasta',    label: 'Bin de Rechazo',           sublabel: 'Destino FAIL',                color: '#dc2626', desc: 'Recibe CAFIs defectuosos eyectados por el pistón · Permite revisión posterior de piezas no conformes' },
-  stock:      { id: 'stock',      label: 'Stock Final',              sublabel: 'Destino PASS',                color: '#16a34a', desc: 'Destino final para CAFIs conformes · El cobot deposita aquí las piezas que pasan la inspección' },
+const COMPONENT_DEFS = {
+  hmi:        { id: 'hmi',        label: '7" HMI Panel',            sublabel: 'Operator Interface',          color: '#0ea5e9' },
+  plc:        { id: 'plc',        label: 'Modicon M262 PLC',         sublabel: 'Central Controller',          color: '#22c55e' },
+  cobot:      { id: 'cobot',      label: 'Lexium Cobot',             sublabel: 'Robotic Manipulation',        color: '#3b82f6' },
+  eoat:       { id: 'eoat',       label: 'EoAT – Gripper 3 Dedos',  sublabel: 'Cilindro MAL16x25',           color: '#64748b' },
+  canaleta:   { id: 'canaleta',   label: 'Canaleta de Alimentación', sublabel: 'Entrada de piezas',           color: '#f59e0b' },
+  fixRem:     { id: 'fixRem',     label: 'Fixture de Remachado',     sublabel: '2 pistones de sujeción',      color: '#e11d48' },
+  fixInsp:    { id: 'fixInsp',    label: 'Fixture de Inspección',    sublabel: 'Posicionamiento estable',     color: '#a855f7' },
+  inspection: { id: 'inspection', label: 'Sistema de Inspección',    sublabel: 'Visión / Cognex 2800',        color: '#c026d3' },
+  pistonRej:  { id: 'pistonRej',  label: 'Pistón de Rechazo',        sublabel: 'Eyección automática',         color: '#f97316' },
+  canasta:    { id: 'canasta',    label: 'Bin de Rechazo',           sublabel: 'Destino FAIL',                color: '#dc2626' },
+  stock:      { id: 'stock',      label: 'Stock Final',              sublabel: 'Destino PASS',                color: '#16a34a' },
 } as const;
 
-type CompId = keyof typeof COMPONENTS;
+type CompId = keyof typeof COMPONENT_DEFS;
+
+function getComponents(t: (k: string) => string) {
+  return Object.fromEntries(
+    Object.entries(COMPONENT_DEFS).map(([k, v]) => [k, { ...v, desc: t(`arch.comp.${k}`) }])
+  ) as Record<CompId, typeof COMPONENT_DEFS[CompId] & { desc: string }>;
+}
 
 const POS: Record<CompId, { x: number; y: number }> = {
   hmi:        { x: 110, y: 12  },
@@ -50,22 +56,31 @@ const CONNECTIONS: { from: CompId; to: CompId; label: string; bi: boolean }[] = 
   { from: 'fixInsp',    to: 'pistonRej',  label: '',              bi: false },
 ];
 
-const STEPS = [
-  { label: 'Inicio de Ciclo',                       color: '#0ea5e9', nodes: ['hmi','plc'] as CompId[],                                 desc: 'El operador presiona START en el HMI. El PLC habilita la secuencia y verifica que la zona de trabajo esté libre.' },
-  { label: '① Pick desde Canaleta',                 color: '#f59e0b', nodes: ['plc','cobot','eoat','canaleta'] as CompId[],             desc: 'El cobot (con gripper EoAT) realiza el primer pick: agarra el CAFI sin remachar de la canaleta de alimentación.' },
-  { label: '① Place en Fixture de Remachado',       color: '#e11d48', nodes: ['plc','cobot','fixRem'] as CompId[],                      desc: 'El cobot coloca el CAFI en el fixture de remachado. Los dos pistones neumáticos de sujeción se activan. El PLC dispara el ciclo de remachado simulado.' },
-  { label: '② Pick desde Fixture de Remachado',    color: '#3b82f6', nodes: ['plc','cobot','eoat','fixRem'] as CompId[],               desc: 'Una vez completo el remachado, los pistones liberan. El cobot realiza el segundo pick, levantando la pieza del fixture.' },
-  { label: '② Place en Fixture de Inspección',     color: '#a855f7', nodes: ['plc','cobot','fixInsp'] as CompId[],                     desc: 'El cobot deposita el CAFI remachado en el fixture de inspección, exponiendo la cara superior con 5 marcadores al sistema de visión.' },
-  { label: 'Inspección de Remaches',                color: '#c026d3', nodes: ['inspection','fixInsp','plc','hmi'] as CompId[],          desc: 'El sistema de visión Cognex escanea los 5 marcadores. El resultado PASS/FAIL se envía al PLC y se muestra en el HMI en tiempo real.' },
-  { label: 'Rechazo → Bin (FAIL)',                  color: '#dc2626', nodes: ['plc','fixInsp','pistonRej','canasta','hmi'] as CompId[], desc: 'Si la pieza es defectuosa (< 5 remaches detectados), el PLC activa el pistón de rechazo, que empuja el CAFI al bin.' },
-  { label: '③ Place en Stock Final (PASS)',         color: '#16a34a', nodes: ['plc','cobot','eoat','fixInsp','stock','hmi'] as CompId[],desc: 'Si la pieza es conforme (5 remaches detectados), el cobot realiza el tercer pick-and-place: deposita el CAFI en el stock final.' },
+const STEP_DEFS = [
+  { color: '#0ea5e9', nodes: ['hmi','plc'] as CompId[] },
+  { color: '#f59e0b', nodes: ['plc','cobot','eoat','canaleta'] as CompId[] },
+  { color: '#e11d48', nodes: ['plc','cobot','fixRem'] as CompId[] },
+  { color: '#3b82f6', nodes: ['plc','cobot','eoat','fixRem'] as CompId[] },
+  { color: '#a855f7', nodes: ['plc','cobot','fixInsp'] as CompId[] },
+  { color: '#c026d3', nodes: ['inspection','fixInsp','plc','hmi'] as CompId[] },
+  { color: '#dc2626', nodes: ['plc','fixInsp','pistonRej','canasta','hmi'] as CompId[] },
+  { color: '#16a34a', nodes: ['plc','cobot','eoat','fixInsp','stock','hmi'] as CompId[] },
 ];
+
+function getSteps(ta: (k: string) => string[]) {
+  const lbls = ta('arch.flowLbls');
+  const descs = ta('arch.flowDescs');
+  return STEP_DEFS.map((s, i) => ({ ...s, label: lbls[i] ?? '', desc: descs[i] ?? '' }));
+}
 
 export default function ArchitectureDiagram() {
   const T = useTheme();
-  const { t } = useLanguage();
+  const { t, ta } = useLanguage();
   const [activeNode, setActiveNode] = useState<CompId | null>(null);
   const [activeStep, setActiveStep] = useState<number | null>(null);
+
+  const COMPONENTS = getComponents(t);
+  const STEPS = getSteps(ta);
 
   const highlighted: CompId[] = activeStep !== null
     ? STEPS[activeStep].nodes
@@ -190,14 +205,10 @@ export default function ArchitectureDiagram() {
 
           {/* Legend */}
           <div style={{ display: 'flex', gap: 20, marginTop: 8, paddingLeft: 4, flexWrap: 'wrap' }}>
-            {[
-              { c: '#0ea5e9', l: 'EtherNet/IP bidireccional' },
-              { c: '#22c55e', l: 'Digital I/O / Control PLC'  },
-              { c: '#64748b', l: 'Acción física / Neumático'  },
-            ].map(({ c, l }) => (
-              <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
+            {(['#0ea5e9', '#22c55e', '#64748b'] as const).map((c, i) => (
+              <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
                 <div style={{ width: 20, height: 2, background: c, borderRadius: 1 }} />
-                <span style={{ color: T.muted }}>{l}</span>
+                <span style={{ color: T.muted }}>{ta('arch.leg')[i]}</span>
               </div>
             ))}
           </div>
@@ -221,7 +232,7 @@ export default function ArchitectureDiagram() {
               </>
             ) : (
               <div style={{ fontSize: 11, color: T.dim }}>
-                Selecciona un componente para ver sus detalles, o elige un paso del flujo de operación para resaltar los nodos involucrados.
+                {t('arch.clickHint')}
               </div>
             )}
           </div>

@@ -16,6 +16,7 @@ import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -527,6 +528,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function CobotLiveView() {
   const T = useTheme();
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const showUrl = user?.role === 'ADMIN';
   const cBtn = (e: boolean, c1: string, c2: string) => ctrlBtn(e, c1, c2, T);
   const [mode, setMode] = useState<ConnMode>('demo');
   // Permanent ngrok static domain fronting the RPi gateway (https/wss so it
@@ -1286,16 +1289,18 @@ export default function CobotLiveView() {
             <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{modeLabel}</span>
           </div>
         </div>
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="ws://192.168.1.167:8000/ws/cobot  ó  http://…/api/cobot/state"
-          spellCheck={false}
-          style={{
-            flex: 1, fontFamily: 'monospace', fontSize: 12, color: T.text,
-            background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
-            padding: '8px 10px', outline: 'none',
-          }} />
+        {showUrl && (
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="ws://192.168.1.167:8000/ws/cobot  ó  http://…/api/cobot/state"
+            spellCheck={false}
+            style={{
+              flex: 1, fontFamily: 'monospace', fontSize: 12, color: T.text,
+              background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
+              padding: '8px 10px', outline: 'none',
+            }} />
+        )}
         {mode === 'live' || mode === 'connecting' ? (
           <button onClick={disconnect} style={{
             fontFamily: SANS_FONT, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',

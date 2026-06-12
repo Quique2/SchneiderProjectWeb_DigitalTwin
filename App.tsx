@@ -9,8 +9,10 @@ import ScadaSimView from './components/scadaSimLocal/ScadaSimView';
 import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
+import LoginScreen from './components/LoginScreen';
 import { ThemeProvider, useThemeCtx } from './context/ThemeContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { AuthProvider, useAuth, ROLE_TABS } from './context/AuthContext';
 import { LANG_LABELS, Lang } from './translations';
 
 type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic' | 'scada' | 'scadasim';
@@ -57,7 +59,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AppShell />
+        <AuthProvider>
+          <AppShell />
+        </AuthProvider>
       </LanguageProvider>
     </ThemeProvider>
   );
@@ -66,6 +70,7 @@ export default function App() {
 function AppShell() {
   const { T, isDark, toggle } = useThemeCtx();
   const { t, lang, setLang } = useLanguage();
+  const { user, logout } = useAuth();
   const [tab, setTab] = useState<TabId>('inicio');
 
   useEffect(() => {
@@ -87,6 +92,9 @@ function AppShell() {
     document.head.appendChild(style);
     return () => { document.head.removeChild(style); };
   }, [T.bg]);
+
+  if (!user) return <LoginScreen />;
+  const allowedTabs = TABS.filter((td) => ROLE_TABS[user.role].includes(td.id));
 
   return (
     <div style={{
@@ -136,7 +144,7 @@ function AppShell() {
 
         {/* Tabs */}
         <nav style={{ display: 'flex', gap: 4, flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          {TABS.map((tabDef) => {
+          {allowedTabs.map((tabDef) => {
             const active = tabDef.id === tab;
             return (
               <button key={tabDef.id}
@@ -216,6 +224,28 @@ function AppShell() {
                 transition: 'all 0.15s',
               }}
             >☽ {t('app.themeDark')}</button>
+          </div>
+
+          {/* User badge + logout */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right', gap: 1 }}>
+              <span style={{ fontSize: 11, color: T.text, fontWeight: 600 }}>{user.email.split('@')[0]}</span>
+              <span style={{
+                fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 700,
+                color: user.role === 'ADMIN' ? '#d97740' : user.role === 'DEMO' ? '#22c55e' : '#7ab4f0',
+              }}>{user.role}</span>
+            </div>
+            <button
+              onClick={logout}
+              title="Cerrar sesión"
+              style={{
+                background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 6,
+                color: T.muted, fontSize: 11, fontWeight: 600, padding: '5px 10px',
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f87171'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}
+            >↩ Salir</button>
           </div>
 
           {/* Credit */}

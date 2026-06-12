@@ -19,7 +19,7 @@ export default function LoginScreen() {
     e.preventDefault();
     setError('');
     const ok = login(email.trim(), password);
-    if (!ok) setError(t('login.error'));
+    if (!ok) setError(t('cobot.login.error'));
   };
 
   const inputStyle: React.CSSProperties = {
@@ -118,7 +118,7 @@ export default function LoginScreen() {
             </div>
           </div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>
-            {t('login.subtitle')}
+            {t('cobot.login.subtitle')}
           </div>
         </div>
 
@@ -126,7 +126,7 @@ export default function LoginScreen() {
         <form onSubmit={handleSubmit} style={{ padding: '24px 36px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={{ display: 'block', fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700, color: T.muted, marginBottom: 7 }}>
-              {t('login.email')}
+              {t('cobot.login.email')}
             </label>
             <input
               type="email"
@@ -143,7 +143,7 @@ export default function LoginScreen() {
 
           <div>
             <label style={{ display: 'block', fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700, color: T.muted, marginBottom: 7 }}>
-              {t('login.password')}
+              {t('cobot.login.password')}
             </label>
             <input
               type="password"
@@ -178,7 +178,7 @@ export default function LoginScreen() {
             onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.88')}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
-            {t('login.submit')}
+            {t('cobot.login.submit')}
           </button>
         </form>
       </div>

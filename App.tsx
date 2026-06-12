@@ -48,10 +48,12 @@ const SANS_FONT =
 const MONO_FONT =
   '"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Courier New", monospace';
 
+const FULLSCREEN: React.CSSProperties = { position: 'fixed', inset: 0, overflow: 'hidden' };
+
 export default function App() {
   const [standalone] = useState(readStandalone);
-  if (standalone === 'scada')     return <ScadaView />;
-  if (standalone === 'scada-sim') return <ScadaSimView />;
+  if (standalone === 'scada')     return <div style={FULLSCREEN}><ScadaView /></div>;
+  if (standalone === 'scada-sim') return <div style={FULLSCREEN}><ScadaSimView /></div>;
   return (
     <ThemeProvider>
       <LanguageProvider>

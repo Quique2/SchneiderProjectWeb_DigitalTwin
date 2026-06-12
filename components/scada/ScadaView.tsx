@@ -121,7 +121,7 @@ export default function ScadaView() {
   };
 
   const activeAlarms = snapshot.alarms.filter((a) => a.active);
-  const pillars = derivePillars(snapshot);
+  const pillars = derivePillars(snapshot, lang);
   const sections = buildSections(lang);
 
   return (
@@ -233,7 +233,7 @@ function Overview({ s, ai, aiHealth }: { s: ScadaSnapshot; ai: AiDiagnosis | nul
     { label: t('metric8'), value: cb.maxJointTempC !== null ? `${cb.maxJointTempC}°C` : 'N/D', color: tempCol(cb.maxJointTempC),
       sub: cb.maxJointTempJoint !== null ? `J${cb.maxJointTempJoint}` : undefined },
     { label: t('metric9'), value: cb.controllerTempC !== null ? `${cb.controllerTempC}°C` : 'N/D', color: tempCol(cb.controllerTempC) },
-    { label: t('metric10'), value: SRC_LABEL[s.plcLink.state], color: SRC[s.plcLink.state], text: true,
+    { label: t('metric10'), value: s.plcLink.state === 'NOT_CONNECTED' ? t('noConnected') : SRC_LABEL[s.plcLink.state], color: SRC[s.plcLink.state], text: true,
       sub: s.plcLink.ageS !== null ? `${s.plcLink.ageS}s` : t('noFrame') },
   ];
 
@@ -917,7 +917,11 @@ function Dot({ on, color = '#3DCD58', invert }: { on: boolean; color?: string; i
 function Chip({ color, text }: { color: string; text: string }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', background: `${color}1c`, color, border: `1px solid ${color}59`, borderRadius: 2, padding: '2px 7px', fontSize: 9.5, fontWeight: 600, letterSpacing: 0.4, fontFamily: MONO }}>{text}</span>;
 }
-function SourceBadge({ src }: { src: DataSource }) { return <Chip color={SRC[src]} text={SRC_LABEL[src]} />; }
+function SourceBadge({ src }: { src: DataSource }) {
+  const t = useScadaT();
+  const label = src === 'NOT_CONNECTED' ? t('noConnected') : SRC_LABEL[src];
+  return <Chip color={SRC[src]} text={label} />;
+}
 function SeverityBadge({ sev }: { sev: Severity }) { return <Chip color={SEV[sev]} text={sev} />; }
 function AiHealthBadge({ h }: { h: AiBackendHealth }) {
   const t = useScadaT();
@@ -931,7 +935,9 @@ function AiHealthBadge({ h }: { h: AiBackendHealth }) {
   return <Chip color={x.c} text={`IA ${x.label}`} />;
 }
 function LinkChip({ label, link }: { label: string; link: { state: DataSource; ageS: number | null } }) {
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: C.muted }}><Dot on={link.state === 'REAL' || link.state === 'DEMO'} color={SRC[link.state]} />{label} <span style={{ color: SRC[link.state], fontWeight: 600 }}>{SRC_LABEL[link.state]}</span></span>;
+  const t = useScadaT();
+  const srcLabel = link.state === 'NOT_CONNECTED' ? t('noConnected') : SRC_LABEL[link.state];
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: C.muted }}><Dot on={link.state === 'REAL' || link.state === 'DEMO'} color={SRC[link.state]} />{label} <span style={{ color: SRC[link.state], fontWeight: 600 }}>{srcLabel}</span></span>;
 }
 function PlantPill({ state }: { state: string }) {
   const c = state === 'NOMINAL' ? SRC.REAL : state === 'OFFLINE' ? C.dim : state === 'WARNING' ? SEV.WARNING : state === 'CRITICAL' ? SEV.CRITICAL : SEV.ALARM;

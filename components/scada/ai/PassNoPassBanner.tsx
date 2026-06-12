@@ -1,12 +1,16 @@
 // PassNoPassBanner.tsx — Banner grande AI STATUS: PASS / NO_PASS / WARNING (compartido).
-import React from 'react';
+import React, { useContext } from 'react';
 import { useScadaTheme } from '../shared/useScadaTheme';
 import type { PassNoPass } from './passNoPass';
+import { ScadaLangCtx } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 const MONO = '"Space Mono","JetBrains Mono","IBM Plex Mono","Courier New",monospace';
 
 export default function PassNoPassBanner({ status }: { status: PassNoPass }) {
   const { tokens: t } = useScadaTheme();
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const v = status.verdict;
   const color = v === 'PASS' ? t.success : v === 'NO_PASS' ? t.danger : v === 'WARNING' ? t.warning : t.dim;
   const label = v === 'NO_PASS' ? 'NO PASS' : v;
@@ -22,7 +26,7 @@ export default function PassNoPassBanner({ status }: { status: PassNoPass }) {
         <span style={{ fontSize: 30, fontWeight: 900, fontFamily: MONO, color, letterSpacing: 1 }}>{label}</span>
         {status.estimated && (
           <span style={{ fontSize: 9.5, fontWeight: 700, color: t.muted, border: `1px solid ${t.border}`, borderRadius: 7, padding: '3px 8px', fontFamily: MONO }}>
-            ESTIMADO POR SEÑALES
+            {tr('estimatedBySignals')}
           </span>
         )}
       </div>

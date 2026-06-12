@@ -8,6 +8,8 @@
 import type { ScadaSnapshot } from '../scadaTypes';
 import { SCADA_AI_CONFIG as K } from '../scadaConfig';
 import { mean, std, clamp, round1 } from './signals';
+import type { ScadaLang } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 export interface OptimizationSnap {
   available: boolean;
@@ -20,7 +22,7 @@ export interface OptimizationSnap {
   rationale: string[];
 }
 
-export function deriveOptimization(s: ScadaSnapshot): OptimizationSnap {
+export function deriveOptimization(s: ScadaSnapshot, lang: ScadaLang = 'es'): OptimizationSnap {
   const ct = s.history.cycleTimes;
   const cycleTimeS = s.overview.avgCycleTimeS ?? s.overview.cycleTimeS ?? (ct.length ? round1(mean(ct)) : null);
   const throughputPerHr = cycleTimeS && cycleTimeS > 0 ? round1(3600 / cycleTimeS) : null;
@@ -39,11 +41,21 @@ export function deriveOptimization(s: ScadaSnapshot): OptimizationSnap {
   let recoSpeed: number = K.targetCobotSpeedPct;
   const rationale: string[] = [];
   const cv = ct.length >= 3 && mean(ct) > 0 ? std(ct) / mean(ct) : null;
-  if (cv !== null && cv > K.cycleCvWarn) { recoSpeed = clamp(recoSpeed - 10, 50, 100); rationale.push('Ciclo inestable → bajar velocidad para repetibilidad.'); }
-  if (s.cobot.available && s.cobot.maxJointTempC !== null && s.cobot.maxJointTempC > 55) { recoSpeed = clamp(recoSpeed - 10, 50, 100); rationale.push(`Joint caliente (${s.cobot.maxJointTempC}°C) → reducir carga/velocidad.`); }
-  if (currentSpeedPct !== null && currentSpeedPct < recoSpeed && cv !== null && cv <= K.cycleCvWarn) { rationale.push(`Velocidad actual ${currentSpeedPct}% < objetivo → margen para subir throughput.`); }
-  if (idleTimePct !== null && idleTimePct > 35) rationale.push(`Idle ${idleTimePct}% del ciclo → reducir esperas entre tareas.`);
-  if (!rationale.length) rationale.push('Parámetros dentro de rango; mantener setpoints nominales.');
+  if (cv !== null && cv > K.cycleCvWarn) {
+    recoSpeed = clamp(recoSpeed - 10, 50, 100);
+    rationale.push(tscAi(lang, 'opRatUnstable'));
+  }
+  if (s.cobot.available && s.cobot.maxJointTempC !== null && s.cobot.maxJointTempC > 55) {
+    recoSpeed = clamp(recoSpeed - 10, 50, 100);
+    rationale.push(tscAi(lang, 'opRatHotJoint').replace('{temp}', String(s.cobot.maxJointTempC)));
+  }
+  if (currentSpeedPct !== null && currentSpeedPct < recoSpeed && cv !== null && cv <= K.cycleCvWarn) {
+    rationale.push(tscAi(lang, 'opRatMargin').replace('{x}', String(currentSpeedPct)));
+  }
+  if (idleTimePct !== null && idleTimePct > 35) {
+    rationale.push(tscAi(lang, 'opRatIdle').replace('{x}', String(idleTimePct)));
+  }
+  if (!rationale.length) rationale.push(tscAi(lang, 'opRatOK'));
 
   const available = cycleTimeS !== null || currentSpeedPct !== null;
 

@@ -8,6 +8,8 @@
 import type { ScadaSnapshot } from '../scadaTypes';
 import { SCADA_AI_CONFIG as K } from '../scadaConfig';
 import { mean, std, slope, clamp, round1 } from './signals';
+import type { ScadaLang } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 export type PillarStatus = 'OK' | 'WARNING' | 'NO_PASS' | 'UNKNOWN';
 
@@ -24,7 +26,7 @@ export interface PredictiveSnap {
   forecastMsg: string;
 }
 
-export function derivePredictive(s: ScadaSnapshot): PredictiveSnap {
+export function derivePredictive(s: ScadaSnapshot, lang: ScadaLang = 'es'): PredictiveSnap {
   // Contador de ciclos de remachado (de producción real, o accepted+rejected).
   const count = s.production.available && s.production.total !== null
     ? s.production.total
@@ -60,18 +62,21 @@ export function derivePredictive(s: ScadaSnapshot): PredictiveSnap {
   let status: PillarStatus = 'OK';
   const reasons: string[] = [];
   if (rulPct === null && vibrationProxy === null && cycleCv === null) status = 'UNKNOWN';
-  if (rulPct !== null && rulPct < K.rulCriticalPct) { status = 'NO_PASS'; reasons.push(`RUL ${rulPct}% (crítico)`); }
+  if (rulPct !== null && rulPct < K.rulCriticalPct) { status = 'NO_PASS'; reasons.push(`RUL ${rulPct}% (${tscAi(lang, 'wordCritical')})`); }
   else if (rulPct !== null && rulPct < K.rulWarnPct) { status = worse(status, 'WARNING'); reasons.push(`RUL ${rulPct}%`); }
-  if (vibrationProxy !== null && vibrationProxy > K.vibrationCritical) { status = 'NO_PASS'; reasons.push(`vibración ${vibrationProxy}A`); }
-  else if (vibrationProxy !== null && vibrationProxy > K.vibrationWarn) { status = worse(status, 'WARNING'); reasons.push(`vibración ${vibrationProxy}A`); }
-  if (cycleStability === 'DEGRADING') { status = worse(status, 'WARNING'); reasons.push('ciclo inestable'); }
+  if (vibrationProxy !== null && vibrationProxy > K.vibrationCritical) { status = 'NO_PASS'; reasons.push(`${tscAi(lang, 'wordVibration')} ${vibrationProxy}A`); }
+  else if (vibrationProxy !== null && vibrationProxy > K.vibrationWarn) { status = worse(status, 'WARNING'); reasons.push(`${tscAi(lang, 'wordVibration')} ${vibrationProxy}A`); }
+  if (cycleStability === 'DEGRADING') { status = worse(status, 'WARNING'); reasons.push(tscAi(lang, 'forecastCycleUnstable')); }
 
   const available = status !== 'UNKNOWN';
   const forecastMsg = !available
-    ? 'Sin datos suficientes para predicción (faltan ciclos/telemetría del cobot).'
+    ? tscAi(lang, 'forecastUnknown')
     : status === 'OK'
-      ? `Operación nominal. RUL ${rulPct ?? '—'}%, vibración ${vibrationProxy ?? '—'}A, ciclo ${cycleStability ?? '—'}.`
-      : `${status === 'NO_PASS' ? 'Falla prevista' : 'Atención'}: ${reasons.join(' · ')}.`;
+      ? tscAi(lang, 'forecastNominal')
+          .replace('{rul}', String(rulPct ?? '—'))
+          .replace('{vib}', String(vibrationProxy ?? '—'))
+          .replace('{cs}', String(cycleStability ?? '—'))
+      : `${status === 'NO_PASS' ? tscAi(lang, 'forecastFault') : tscAi(lang, 'forecastAttention')}: ${reasons.join(' · ')}.`;
 
   return { available, rivetCycleCount: count, rulPct, rulCyclesLeft, motorLoadTrend, vibrationProxy, cycleStability, cycleCv, status, forecastMsg };
 }

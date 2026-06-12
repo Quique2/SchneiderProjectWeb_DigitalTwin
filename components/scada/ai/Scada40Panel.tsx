@@ -4,13 +4,15 @@
 // el botón "Confirmar acción" registra en un log (NO manda comandos al hardware).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import { useScadaTheme } from '../shared/useScadaTheme';
 import ScadaSectionCard from '../shared/ScadaSectionCard';
 import { ScadaBadge, type BadgeTone } from '../shared/ScadaStatusBadge';
 import type { ScadaTokens } from '../shared/scadaTheme';
 import type { Pillars } from './pillars';
 import type { PillarStatus } from './predictive';
+import { ScadaLangCtx } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 const MONO = '"Space Mono","JetBrains Mono","IBM Plex Mono","Courier New",monospace';
 
@@ -21,8 +23,10 @@ function statusText(s: PillarStatus): string { return s === 'NO_PASS' ? 'NO PASS
 
 export default function Scada40Panel({ pillars }: { pillars: Pillars }) {
   const { tokens: t } = useScadaTheme();
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const [log, setLog] = useState<string[]>([]);
-  const confirm = (decision: string) => setLog((l) => [`${new Date().toLocaleTimeString()} · Operador confirmó: ${decision}`, ...l].slice(0, 8));
+  const confirm = (decision: string) => setLog((l) => [`${new Date().toLocaleTimeString()} · ${tr('logConfirmed')} ${decision}`, ...l].slice(0, 8));
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, width: '100%' }}>
@@ -45,18 +49,20 @@ function KV({ t, k, v, color }: { t: ScadaTokens; k: string; v: React.ReactNode;
 
 // ── Pilar 4: SOP / Operador ──
 function SopCard({ t, pillars, onConfirm, log }: { t: ScadaTokens; pillars: Pillars; onConfirm: (d: string) => void; log: string[] }) {
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const sop = pillars.sop;
   const tone = sop.decision === 'CONTINUE' ? t.success : sop.decision === 'STOP' ? t.danger : t.warning;
   return (
-    <ScadaSectionCard title="SOP / Operador (Pilar 4)" accent={tone}
+    <ScadaSectionCard title={tr('sopTitle')} accent={tone}
       right={<ScadaBadge text={sop.decision} tone={sop.decision === 'CONTINUE' ? 'success' : sop.decision === 'STOP' ? 'danger' : 'warning'} />}>
-      <div style={{ fontSize: 11, color: t.muted }}>Etapa: <b style={{ color: t.text }}>{sop.stage}</b></div>
+      <div style={{ fontSize: 11, color: t.muted }}>{tr('labelStage')} <b style={{ color: t.text }}>{sop.stage}</b></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
         {sop.sopSteps.map((s, i) => <div key={i} style={{ fontSize: 12.5, color: t.text }}>• {s}</div>)}
       </div>
       {sop.recovery.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.warning, fontWeight: 700 }}>Recuperación</div>
+          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.warning, fontWeight: 700 }}>{tr('labelRecovery')}</div>
           {sop.recovery.map((r, i) => <div key={i} style={{ fontSize: 12, color: t.muted, marginTop: 2 }}>{i + 1}. {r}</div>)}
         </div>
       )}
@@ -65,7 +71,7 @@ function SopCard({ t, pillars, onConfirm, log }: { t: ScadaTokens; pillars: Pill
         <button onClick={() => onConfirm(sop.decision)} style={{
           background: tone, color: t.mode === 'light' ? '#fff' : '#06121f', border: 'none', borderRadius: 10,
           padding: '8px 16px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-        }}>Confirmar acción</button>
+        }}>{tr('btnConfirm')}</button>
       </div>
       {log.length > 0 && (
         <div style={{ marginTop: 8, borderTop: `1px solid ${t.borderSoft}`, paddingTop: 6 }}>
@@ -78,25 +84,27 @@ function SopCard({ t, pillars, onConfirm, log }: { t: ScadaTokens; pillars: Pill
 
 // ── Pilar 2: Predictivo ──
 function PredictiveCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const p = pillars.predictive;
   const rulColor = p.rulPct === null ? t.dim : p.rulPct < 8 ? t.danger : p.rulPct < 25 ? t.warning : t.success;
   return (
-    <ScadaSectionCard title="Predictivo (Pilar 2)" accent={t.accent} right={<ScadaBadge text={statusText(p.status)} tone={statusTone(p.status)} />}>
-      {!p.available ? <div style={{ fontSize: 12.5, color: t.dim }}>N/D — sin ciclos/telemetría suficientes.</div> : (
+    <ScadaSectionCard title={tr('predictiveTitle')} accent={t.accent} right={<ScadaBadge text={statusText(p.status)} tone={statusTone(p.status)} />}>
+      {!p.available ? <div style={{ fontSize: 12.5, color: t.dim }}>{tr('predictiveNA')}</div> : (
         <>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: t.muted }}>
-              <span>RUL (vida útil restante)</span><span style={{ color: rulColor, fontFamily: MONO, fontWeight: 700 }}>{p.rulPct === null ? 'N/D' : `${p.rulPct}%`}</span>
+              <span>{tr('kvRul')}</span><span style={{ color: rulColor, fontFamily: MONO, fontWeight: 700 }}>{p.rulPct === null ? 'N/D' : `${p.rulPct}%`}</span>
             </div>
             <div style={{ height: 8, background: t.surfaceSoft, borderRadius: 5, marginTop: 5, overflow: 'hidden', border: `1px solid ${t.border}` }}>
               <div style={{ height: '100%', width: `${p.rulPct ?? 0}%`, background: rulColor }} />
             </div>
           </div>
-          <KV t={t} k="Ciclos remachado" v={p.rivetCycleCount ?? 'N/D'} />
-          <KV t={t} k="Ciclos restantes" v={p.rulCyclesLeft ?? 'N/D'} />
-          <KV t={t} k="Tendencia de carga" v={p.motorLoadTrend ?? 'N/D'} color={p.motorLoadTrend === 'RISING' ? t.warning : t.text} />
-          <KV t={t} k="Vibración (proxy)" v={p.vibrationProxy === null ? 'N/D' : `${p.vibrationProxy} A`} color={p.vibrationProxy !== null && p.vibrationProxy > 0.6 ? t.warning : t.text} />
-          <KV t={t} k="Estabilidad ciclo" v={p.cycleStability ?? 'N/D'} color={p.cycleStability === 'DEGRADING' ? t.warning : t.text} />
+          <KV t={t} k={tr('kvRivetCycles')} v={p.rivetCycleCount ?? 'N/D'} />
+          <KV t={t} k={tr('kvRemainingCycles')} v={p.rulCyclesLeft ?? 'N/D'} />
+          <KV t={t} k={tr('kvLoadTrend')} v={p.motorLoadTrend ?? 'N/D'} color={p.motorLoadTrend === 'RISING' ? t.warning : t.text} />
+          <KV t={t} k={tr('kvVibration')} v={p.vibrationProxy === null ? 'N/D' : `${p.vibrationProxy} A`} color={p.vibrationProxy !== null && p.vibrationProxy > 0.6 ? t.warning : t.text} />
+          <KV t={t} k={tr('kvCycleStability')} v={p.cycleStability ?? 'N/D'} color={p.cycleStability === 'DEGRADING' ? t.warning : t.text} />
           <div style={{ fontSize: 11.5, color: t.muted, marginTop: 4 }}>{p.forecastMsg}</div>
         </>
       )}
@@ -106,20 +114,22 @@ function PredictiveCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
 
 // ── Pilar 3: Optimización ──
 function OptimizationCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const o = pillars.optimization;
   return (
-    <ScadaSectionCard title="Optimización (Pilar 3)" accent={t.success} right={<ScadaBadge text="RECOMENDADO" tone="success" />}>
-      {!o.available ? <div style={{ fontSize: 12.5, color: t.dim }}>N/D — sin datos de ciclo/cobot.</div> : (
+    <ScadaSectionCard title={tr('optimizationTitle')} accent={t.success} right={<ScadaBadge text={tr('badgeRecommended')} tone="success" />}>
+      {!o.available ? <div style={{ fontSize: 12.5, color: t.dim }}>{tr('optimizationNA')}</div> : (
         <>
-          <KV t={t} k="Tiempo de ciclo" v={o.cycleTimeS === null ? 'N/D' : `${o.cycleTimeS}s`} />
-          <KV t={t} k="Throughput" v={o.throughputPerHr === null ? 'N/D' : `${o.throughputPerHr}/h`} />
-          <KV t={t} k="Idle (aprox.)" v={o.idleTimePct === null ? 'N/D' : `${o.idleTimePct}%`} color={o.idleTimePct !== null && o.idleTimePct > 35 ? t.warning : t.text} />
-          <KV t={t} k="Energía / ciclo" v={o.energyPerCycleWh === null ? 'N/D' : `${o.energyPerCycleWh} Wh`} />
+          <KV t={t} k={tr('kvCycleTime')} v={o.cycleTimeS === null ? 'N/D' : `${o.cycleTimeS}s`} />
+          <KV t={t} k={tr('kvThroughput')} v={o.throughputPerHr === null ? 'N/D' : `${o.throughputPerHr}/h`} />
+          <KV t={t} k={tr('kvIdle')} v={o.idleTimePct === null ? 'N/D' : `${o.idleTimePct}%`} color={o.idleTimePct !== null && o.idleTimePct > 35 ? t.warning : t.text} />
+          <KV t={t} k={tr('kvEnergy')} v={o.energyPerCycleWh === null ? 'N/D' : `${o.energyPerCycleWh} Wh`} />
           <div style={{ marginTop: 8, borderTop: `1px solid ${t.borderSoft}`, paddingTop: 6 }}>
-            <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.accent, fontWeight: 700, marginBottom: 4 }}>Setpoints recomendados</div>
-            <KV t={t} k="Velocidad cobot" v={<span>{o.currentSpeedPct !== null ? `${o.currentSpeedPct}% → ` : ''}<b style={{ color: t.success }}>{o.setpoints.cobotSpeedPct}%</b></span>} />
-            <KV t={t} k="Delay remachado" v={`${o.setpoints.rivetingDelayS}s`} />
-            <KV t={t} k="Timing inspección" v={`${o.setpoints.inspectionTimingS}s`} />
+            <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.accent, fontWeight: 700, marginBottom: 4 }}>{tr('kvSetpoints')}</div>
+            <KV t={t} k={tr('kvCobotSpeed')} v={<span>{o.currentSpeedPct !== null ? `${o.currentSpeedPct}% → ` : ''}<b style={{ color: t.success }}>{o.setpoints.cobotSpeedPct}%</b></span>} />
+            <KV t={t} k={tr('kvRivetDelay')} v={`${o.setpoints.rivetingDelayS}s`} />
+            <KV t={t} k={tr('kvInspTiming')} v={`${o.setpoints.inspectionTimingS}s`} />
           </div>
           {o.rationale.map((r, i) => <div key={i} style={{ fontSize: 11.5, color: t.muted, marginTop: 3 }}>• {r}</div>)}
         </>
@@ -130,6 +140,8 @@ function OptimizationCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) 
 
 // ── Pilar 1+5: Anomalía + Seguridad + alarmas agrupadas ──
 function AnomalyCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
+  const lang = useContext(ScadaLangCtx);
+  const tr = (key: string) => tscAi(lang, key);
   const a = pillars.anomaly;
   const sec = a.security;
   const flag = (label: string, on: boolean | null) => (
@@ -138,15 +150,15 @@ function AnomalyCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
     </span>
   );
   return (
-    <ScadaSectionCard title="Anomalías & Seguridad (Pilar 1+5)" accent={t.danger} right={<ScadaBadge text={statusText(a.status)} tone={statusTone(a.status)} />}>
+    <ScadaSectionCard title={tr('anomalyTitle')} accent={t.danger} right={<ScadaBadge text={statusText(a.status)} tone={statusTone(a.status)} />}>
       <div style={{ fontSize: 12.5, color: t.text }}>{a.summary}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 4 }}>
-        {flag('E-stop', sec.estop)}{flag('P-stop', sec.protectiveStop)}{flag('Colisión', sec.collision)}{flag('Motion err', sec.motionError)}
+        {flag('E-stop', sec.estop)}{flag('P-stop', sec.protectiveStop)}{flag(tr('flagCollision'), sec.collision)}{flag(tr('flagMotionErr'), sec.motionError)}
       </div>
-      <KV t={t} k="Trayectoria cobot" v={sec.trajectory} color={sec.trajectory === 'NOMINAL' ? t.success : sec.trajectory === 'UNKNOWN' ? t.dim : t.danger} />
+      <KV t={t} k={tr('kvTrajectory')} v={sec.trajectory} color={sec.trajectory === 'NOMINAL' ? t.success : sec.trajectory === 'UNKNOWN' ? t.dim : t.danger} />
       {a.anomalies.length > 0 && (
         <div style={{ marginTop: 6 }}>
-          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.warning, fontWeight: 700 }}>Anomalías (baseline)</div>
+          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.warning, fontWeight: 700 }}>{tr('labelAnomalies')}</div>
           {a.anomalies.map((an) => (
             <div key={an.metric} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: t.text, marginTop: 2 }}>
               <span>{an.metric}</span>
@@ -157,7 +169,7 @@ function AnomalyCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
       )}
       {pillars.alarmGroups.length > 0 && (
         <div style={{ marginTop: 6, borderTop: `1px solid ${t.borderSoft}`, paddingTop: 6 }}>
-          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.muted, fontWeight: 700, marginBottom: 3 }}>Alarmas agrupadas</div>
+          <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: t.muted, fontWeight: 700, marginBottom: 3 }}>{tr('labelAlarmsGrouped')}</div>
           {pillars.alarmGroups.map((g) => (
             <div key={g.station} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginTop: 2 }}>
               <span style={{ color: t.text }}>{g.station} <span style={{ color: t.dim }}>({g.count})</span></span>
@@ -167,7 +179,7 @@ function AnomalyCard({ t, pillars }: { t: ScadaTokens; pillars: Pillars }) {
         </div>
       )}
       {a.status === 'OK' && a.anomalies.length === 0 && pillars.alarmGroups.length === 0 && (
-        <div style={{ fontSize: 11.5, color: t.dim, marginTop: 4 }}>Sin anomalías ni alarmas activas.</div>
+        <div style={{ fontSize: 11.5, color: t.dim, marginTop: 4 }}>{tr('noAnomalies')}</div>
       )}
     </ScadaSectionCard>
   );

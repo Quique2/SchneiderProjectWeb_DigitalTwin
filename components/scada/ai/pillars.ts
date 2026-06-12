@@ -5,6 +5,7 @@ import { deriveOptimization, type OptimizationSnap } from './optimization';
 import { deriveAnomaly, groupAlarms, type AnomalySnap, type AlarmGroup } from './anomaly';
 import { deriveAiStatus, type PassNoPass } from './passNoPass';
 import { sopFor, type SopGuidance } from './sop';
+import type { ScadaLang } from '../scadaI18n';
 
 export interface Pillars {
   status: PassNoPass;
@@ -15,12 +16,12 @@ export interface Pillars {
   alarmGroups: AlarmGroup[];
 }
 
-export function derivePillars(s: ScadaSnapshot): Pillars {
-  const predictive = derivePredictive(s);
-  const anomaly = deriveAnomaly(s);
-  const optimization = deriveOptimization(s);
-  const status = deriveAiStatus(s, anomaly, predictive);
-  const sop = sopFor(s, status);
+export function derivePillars(s: ScadaSnapshot, lang: ScadaLang = 'es'): Pillars {
+  const predictive = derivePredictive(s, lang);
+  const anomaly = deriveAnomaly(s, lang);
+  const optimization = deriveOptimization(s, lang);
+  const status = deriveAiStatus(s, anomaly, predictive, lang);
+  const sop = sopFor(s, status, lang);
   const alarmGroups = groupAlarms(s.alarms);
   return { status, sop, predictive, optimization, anomaly, alarmGroups };
 }

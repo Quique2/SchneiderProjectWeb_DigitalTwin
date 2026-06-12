@@ -1,22 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // passNoPass.ts — Decisión transversal AI STATUS: PASS / NO_PASS / WARNING.
-// Núcleo genérico `evaluatePass(input)` reusable por SCADA real (desde el snapshot)
-// y SCADA SIM (desde el frame de Node-RED). Combina colocación + inspección +
-// anomalía/seguridad + trayectoria + predictivo. REAL-ONLY; estimated=true.
+// Núcleo genérico `evaluatePass(input, lang)` reusable por SCADA real y SCADA SIM.
+// Combina colocación + inspección + anomalía/seguridad + trayectoria + predictivo.
+// REAL-ONLY; estimated=true.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ScadaSnapshot } from '../scadaTypes';
 import { ioBool, on } from './signals';
 import type { AnomalySnap } from './anomaly';
 import type { PredictiveSnap, PillarStatus } from './predictive';
+import type { ScadaLang } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 export type PassVerdict = 'PASS' | 'NO_PASS' | 'WARNING' | 'UNKNOWN';
+export type FailCategory = 'inspection' | 'placement' | 'trajectory' | 'estop' | 'predictive' | 'alarm' | 'anomaly';
 export interface PassCheck { label: string; ok: boolean | null; detail?: string }
 export interface PassNoPass {
   verdict: PassVerdict;
   reasons: string[];
   checks: PassCheck[];
   estimated: boolean;
+  failCategories: FailCategory[];
 }
 
 // Entrada normalizada (cualquier fuente la puede producir).
@@ -29,57 +33,73 @@ export interface PassInput {
   predictive?: { status: PillarStatus; msg: string; rulPct: number | null };
 }
 
-export function evaluatePass(i: PassInput): PassNoPass {
+export function evaluatePass(i: PassInput, lang: ScadaLang = 'es'): PassNoPass {
   const checks: PassCheck[] = [];
   const reasons: string[] = [];
+  const failCategories: FailCategory[] = [];
   let hardFail = false, warn = false, anyData = false;
 
   // 1) Inspección
   let inspOk: boolean | null = null;
   if (i.camPass === true) inspOk = true;
   else if (i.camFail === true || i.camErr === true || i.camNoRead === true) inspOk = false;
-  if (inspOk !== null) { anyData = true; if (!inspOk) { hardFail = true; reasons.push(i.camFail ? 'Inspección: FAIL' : i.camErr ? 'Cámara: ERROR' : 'Cámara: NO READ'); } }
-  checks.push({ label: 'Inspección', ok: inspOk, detail: i.camPass ? 'PASS' : i.camFail ? 'FAIL' : i.camErr ? 'ERROR' : i.camNoRead ? 'NO_READ' : 'sin lectura' });
+  if (inspOk !== null) {
+    anyData = true;
+    if (!inspOk) {
+      hardFail = true;
+      failCategories.push('inspection');
+      reasons.push(i.camFail ? tscAi(lang, 'reasonInspFail') : i.camErr ? tscAi(lang, 'reasonCamErr') : tscAi(lang, 'reasonCamNoRead'));
+    }
+  }
+  checks.push({
+    label: tscAi(lang, 'checkInspection'),
+    ok: inspOk,
+    detail: i.camPass ? 'PASS' : i.camFail ? 'FAIL' : i.camErr ? 'ERROR' : i.camNoRead ? 'NO_READ' : tscAi(lang, 'detailNoReading'),
+  });
 
   // 2) Colocación CAFI
   let placeOk: boolean | null = null;
   if (i.fx1 !== null || i.fx2 !== null) {
     anyData = true;
     placeOk = !(i.collision || i.motionErr);
-    if (!placeOk) { hardFail = true; reasons.push('Colocación: trayectoria/colisión anómala'); }
+    if (!placeOk) { hardFail = true; failCategories.push('placement'); reasons.push(tscAi(lang, 'reasonPlacement')); }
   }
-  checks.push({ label: 'Colocación CAFI', ok: placeOk, detail: `fx1:${fmt(i.fx1)} fx2:${fmt(i.fx2)}` });
+  checks.push({ label: tscAi(lang, 'checkPlacement'), ok: placeOk, detail: `fx1:${fmt(i.fx1)} fx2:${fmt(i.fx2)}` });
 
   // 3) Anomalía / seguridad
   let secOk: boolean | null = null;
   if (i.anomaly && i.anomaly.status !== 'UNKNOWN') {
     anyData = true;
-    if (i.anomaly.status === 'NO_PASS') { secOk = false; hardFail = true; reasons.push(i.anomaly.summary); }
+    if (i.anomaly.status === 'NO_PASS') { secOk = false; hardFail = true; failCategories.push('anomaly'); reasons.push(i.anomaly.summary); }
     else if (i.anomaly.status === 'WARNING') { secOk = true; warn = true; reasons.push(i.anomaly.summary); }
     else secOk = true;
   }
-  checks.push({ label: 'Anomalía / Seguridad', ok: secOk, detail: i.anomaly?.summary });
+  checks.push({ label: tscAi(lang, 'checkAnomaly'), ok: secOk, detail: i.anomaly?.summary });
 
   // 4) Trayectoria cobot
   let trajOk: boolean | null = null;
   if (i.cobotAvailable) {
     anyData = true;
     trajOk = !(i.collision || i.motionErr || i.estop || i.protectiveStop);
-    if (!trajOk) { hardFail = true; reasons.push('Trayectoria cobot anómala / paro'); }
+    if (!trajOk) {
+      hardFail = true;
+      failCategories.push(i.estop ? 'estop' : 'trajectory');
+      reasons.push(tscAi(lang, 'reasonTrajectory'));
+    }
   }
-  checks.push({ label: 'Trayectoria cobot', ok: trajOk });
+  checks.push({ label: tscAi(lang, 'checkTrajectory'), ok: trajOk });
 
   // 5) Predictivo
   let predOk: boolean | null = null;
   if (i.predictive && i.predictive.status !== 'UNKNOWN') {
     anyData = true;
-    if (i.predictive.status === 'NO_PASS') { predOk = false; hardFail = true; reasons.push(i.predictive.msg); }
+    if (i.predictive.status === 'NO_PASS') { predOk = false; hardFail = true; failCategories.push('predictive'); reasons.push(i.predictive.msg); }
     else if (i.predictive.status === 'WARNING') { predOk = true; warn = true; reasons.push(i.predictive.msg); }
     else predOk = true;
   }
-  checks.push({ label: 'Predictivo', ok: predOk, detail: i.predictive && i.predictive.rulPct !== null ? `RUL ${i.predictive.rulPct}%` : undefined });
+  checks.push({ label: tscAi(lang, 'checkPredictive'), ok: predOk, detail: i.predictive && i.predictive.rulPct !== null ? `RUL ${i.predictive.rulPct}%` : undefined });
 
-  if (i.criticalAlarm) { anyData = true; hardFail = true; reasons.push('Alarma CRÍTICA activa'); }
+  if (i.criticalAlarm) { anyData = true; hardFail = true; failCategories.push('alarm'); reasons.push(tscAi(lang, 'reasonCriticalAlarm')); }
 
   let verdict: PassVerdict;
   if (!anyData) verdict = 'UNKNOWN';
@@ -88,16 +108,16 @@ export function evaluatePass(i: PassInput): PassNoPass {
   else verdict = 'PASS';
 
   const finalReasons = verdict === 'PASS'
-    ? ['CAFI correctamente posicionado e inspeccionado. Proceso nominal.']
+    ? [tscAi(lang, 'reasonPassNominal')]
     : verdict === 'UNKNOWN'
-      ? ['Sin señales suficientes para evaluar (esperando telemetría).']
+      ? [tscAi(lang, 'reasonUnknown')]
       : dedupe(reasons);
 
-  return { verdict, reasons: finalReasons, checks, estimated: true };
+  return { verdict, reasons: finalReasons, checks, estimated: true, failCategories };
 }
 
 // Adaptador: ScadaSnapshot → PassNoPass (SCADA real).
-export function deriveAiStatus(s: ScadaSnapshot, anomaly?: AnomalySnap, predictive?: PredictiveSnap): PassNoPass {
+export function deriveAiStatus(s: ScadaSnapshot, anomaly?: AnomalySnap, predictive?: PredictiveSnap, lang: ScadaLang = 'es'): PassNoPass {
   const f = s.cobot.flags;
   return evaluatePass({
     camPass: ioBool(s, 'I_CAMERA_PASS'), camFail: ioBool(s, 'I_CAMERA_FAIL'),
@@ -108,10 +128,10 @@ export function deriveAiStatus(s: ScadaSnapshot, anomaly?: AnomalySnap, predicti
     criticalAlarm: s.alarms.some((a) => a.active && a.severity === 'CRITICAL'),
     anomaly: anomaly && anomaly.status !== 'UNKNOWN' ? { status: anomaly.status, summary: anomaly.summary } : undefined,
     predictive: predictive && predictive.status !== 'UNKNOWN' ? { status: predictive.status, msg: predictive.forecastMsg, rulPct: predictive.rulPct } : undefined,
-  });
+  }, lang);
 }
 
-function fmt(v: boolean | null): string { return v === null ? 'NA' : v ? 'sí' : 'no'; }
+function fmt(v: boolean | null): string { return v === null ? 'NA' : v ? 'Y' : 'N'; }
 function dedupe(xs: string[]): string[] { return [...new Set(xs)]; }
 
 // Color semántico (la UI lo resuelve con tokens).

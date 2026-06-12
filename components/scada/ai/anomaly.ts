@@ -8,6 +8,8 @@ import type { ScadaSnapshot, Alarm } from '../scadaTypes';
 import { SCADA_AI_CONFIG as K } from '../scadaConfig';
 import { zScore, round1 } from './signals';
 import type { PillarStatus } from './predictive';
+import type { ScadaLang } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 export interface AnomalyItem {
   metric: string;
@@ -29,7 +31,7 @@ export interface AnomalySnap {
   summary: string;
 }
 
-export function deriveAnomaly(s: ScadaSnapshot): AnomalySnap {
+export function deriveAnomaly(s: ScadaSnapshot, lang: ScadaLang = 'es'): AnomalySnap {
   const anomalies: AnomalyItem[] = [];
 
   const check = (metric: string, series: number[]) => {
@@ -46,12 +48,11 @@ export function deriveAnomaly(s: ScadaSnapshot): AnomalySnap {
   };
 
   // Baselines sobre el historial existente.
-  check('Tiempo de ciclo', s.history.cycleTimes);
-  check('Temp. controlador', s.history.controllerTemps.map((p) => p.v));
-  check('Duración conveyor', s.history.conveyorOnDurations);
-  // Temperatura máx de joints a lo largo del tiempo (proxy de movimiento anómalo).
+  check(tscAi(lang, 'metricCycleTime'), s.history.cycleTimes);
+  check(tscAi(lang, 'metricControllerTemp'), s.history.controllerTemps.map((p) => p.v));
+  check(tscAi(lang, 'metricConveyorDuration'), s.history.conveyorOnDurations);
   const maxJointSeries = s.history.jointTemps.map((p) => Math.max(...p.temps));
-  check('Temp. máx joint', maxJointSeries);
+  check(tscAi(lang, 'metricMaxJointTemp'), maxJointSeries);
 
   // Seguridad / trayectoria del cobot.
   const f = s.cobot.flags;
@@ -71,12 +72,15 @@ export function deriveAnomaly(s: ScadaSnapshot): AnomalySnap {
   else if (!baselineReady && !s.cobot.available) status = 'UNKNOWN';
 
   const summary = status === 'NO_PASS'
-    ? (security.collision ? 'Colisión/obstáculo detectado.' : security.estop ? 'E-stop activo.' : security.protectiveStop ? 'Paro protectivo activo.' : 'Anomalía severa detectada.')
+    ? (security.collision ? tscAi(lang, 'anomalyCollision')
+       : security.estop ? tscAi(lang, 'anomalyEstop')
+       : security.protectiveStop ? tscAi(lang, 'anomalyProtStop')
+       : tscAi(lang, 'anomalySevere'))
     : status === 'WARNING'
-      ? `Comportamiento anómalo: ${anomalies.map((a) => a.metric).join(', ')}.`
+      ? `${tscAi(lang, 'anomalyBehaviorPrefix')} ${anomalies.map((a) => a.metric).join(', ')}.`
       : status === 'UNKNOWN'
-        ? 'Estableciendo baseline (faltan muestras / cobot no conectado).'
-        : 'Comportamiento dentro del baseline.';
+        ? tscAi(lang, 'anomalyBaseline')
+        : tscAi(lang, 'anomalyOK');
 
   return { baselineReady, anomalies, security, status, summary };
 }

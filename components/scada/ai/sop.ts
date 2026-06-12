@@ -5,7 +5,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ScadaSnapshot } from '../scadaTypes';
-import type { PassNoPass } from './passNoPass';
+import type { PassNoPass, FailCategory } from './passNoPass';
+import type { ScadaLang } from '../scadaI18n';
+import { tscAi } from '../scadaAiI18n';
 
 export interface SopGuidance {
   stage: string;
@@ -15,24 +17,25 @@ export interface SopGuidance {
   operatorPrompt: string;
 }
 
-export function sopFor(s: ScadaSnapshot, status: PassNoPass): SopGuidance {
-  const stage = s.overview.stage ?? 'Sin etapa';
+export function sopFor(s: ScadaSnapshot, status: PassNoPass, lang: ScadaLang = 'es'): SopGuidance {
+  const stage = s.overview.stage ?? tscAi(lang, 'noStage');
 
   // NO_PASS → detener/retener + recuperación según la causa.
   if (status.verdict === 'NO_PASS') {
-    const recovery = recoveryFor(status);
-    const stop = status.reasons.some((r) => /CRÍTICA|E-stop|Colisión|protectivo|Falla prevista/i.test(r));
+    const recovery = recoveryFor(status.failCategories, lang);
+    // STOP if the failure involves safety/hardware (not just inspection or placement).
+    const stop = status.failCategories.some((c) => ['estop', 'alarm', 'anomaly', 'trajectory', 'predictive'].includes(c));
     return {
       stage,
       decision: stop ? 'STOP' : 'HOLD',
       sopSteps: [
-        'NO PASS — no autorizar despacho de la pieza.',
-        ...status.reasons.map((r) => `Causa: ${r}`),
+        tscAi(lang, 'sopNoPassStep'),
+        ...status.reasons.map((r) => `${tscAi(lang, 'sopCause')} ${r}`),
       ],
       recovery,
       operatorPrompt: stop
-        ? '¿Confirmas DETENER la celda y ejecutar la recuperación?'
-        : '¿Confirmas RETENER el ciclo y aplicar la corrección indicada?',
+        ? tscAi(lang, 'promptStop')
+        : tscAi(lang, 'promptHold'),
     };
   }
 
@@ -42,11 +45,11 @@ export function sopFor(s: ScadaSnapshot, status: PassNoPass): SopGuidance {
       stage,
       decision: 'CONTINUE',
       sopSteps: [
-        'Operación con ADVERTENCIA — continuar bajo vigilancia.',
-        ...status.reasons.map((r) => `Vigilar: ${r}`),
+        tscAi(lang, 'sopWatchContinue'),
+        ...status.reasons.map((r) => `${tscAi(lang, 'sopWatch')} ${r}`),
       ],
-      recovery: ['Programar revisión preventiva del componente en advertencia.'],
-      operatorPrompt: '¿Confirmas continuar bajo vigilancia?',
+      recovery: [tscAi(lang, 'sopScheduleReview')],
+      operatorPrompt: tscAi(lang, 'promptWarning'),
     };
   }
 
@@ -54,9 +57,9 @@ export function sopFor(s: ScadaSnapshot, status: PassNoPass): SopGuidance {
   if (status.verdict === 'UNKNOWN') {
     return {
       stage, decision: 'HOLD',
-      sopSteps: ['Sin telemetría suficiente. Verificar enlace del gateway/cobot antes de operar.'],
-      recovery: ['Confirmar WebSocket del gateway', 'Confirmar que llega telemetry.io'],
-      operatorPrompt: '¿Confirmas revisión de conexión?',
+      sopSteps: [tscAi(lang, 'sopUnknownStep')],
+      recovery: [tscAi(lang, 'sopRecovery1'), tscAi(lang, 'sopRecovery2')],
+      operatorPrompt: tscAi(lang, 'promptUnknown'),
     };
   }
 
@@ -65,26 +68,25 @@ export function sopFor(s: ScadaSnapshot, status: PassNoPass): SopGuidance {
     stage,
     decision: 'CONTINUE',
     sopSteps: [
-      'PASS — CAFI correctamente posicionado.',
-      `Etapa actual: ${stage}. Continuar la secuencia de remachado/inspección.`,
-      'Despacho autorizado al completar el ciclo.',
+      tscAi(lang, 'sopPassStep1'),
+      `${tscAi(lang, 'sopPassStep2prefix')} ${stage}. ${tscAi(lang, 'sopPassStep2suffix')}`,
+      tscAi(lang, 'sopPassStep3'),
     ],
     recovery: [],
-    operatorPrompt: '¿Confirmas continuar la secuencia?',
+    operatorPrompt: tscAi(lang, 'promptPass'),
   };
 }
 
-function recoveryFor(status: PassNoPass): string[] {
-  const r = status.reasons.join(' ').toLowerCase();
-  if (r.includes('inspección') || r.includes('fail') || r.includes('no read') || r.includes('cámara'))
-    return ['Retirar la pieza al bin de rechazo.', 'Revisar enfoque/iluminación de la cámara.', 'Reintentar inspección con la siguiente pieza.'];
-  if (r.includes('colocación') || r.includes('misalign'))
-    return ['Reposicionar el fixture antes de reiniciar el ciclo.', 'Verificar presencia/asentamiento del CAFI.', 'Reiniciar la secuencia.'];
-  if (r.includes('colisión') || r.includes('trayectoria') || r.includes('protectivo'))
-    return ['Inspeccionar la zona del cobot por obstrucción.', 'Liberar paro protectivo y rearmar.', 'Verificar payload y trayectoria.'];
-  if (r.includes('e-stop'))
-    return ['Liberar el paro de emergencia.', 'Rearmar la cadena de seguridad.', 'Habilitar el robot según procedimiento.'];
-  if (r.includes('falla prevista') || r.includes('rul') || r.includes('vibración'))
-    return ['Programar mantenimiento del actuador de remachado.', 'Revisar vibración/holguras.', 'Operar a velocidad reducida hasta el servicio.'];
-  return ['Inspección visual del componente.', 'Reconocer la alarma tras corregir.', 'Reiniciar la secuencia.'];
+function recoveryFor(categories: FailCategory[], lang: ScadaLang): string[] {
+  if (categories.includes('inspection'))
+    return [tscAi(lang, 'recovCamR1'), tscAi(lang, 'recovCamR2'), tscAi(lang, 'recovCamR3')];
+  if (categories.includes('placement'))
+    return [tscAi(lang, 'recovPlaceR1'), tscAi(lang, 'recovPlaceR2'), tscAi(lang, 'recovPlaceR3')];
+  if (categories.includes('estop'))
+    return [tscAi(lang, 'recovEstopR1'), tscAi(lang, 'recovEstopR2'), tscAi(lang, 'recovEstopR3')];
+  if (categories.includes('trajectory') || categories.includes('anomaly'))
+    return [tscAi(lang, 'recovCollR1'), tscAi(lang, 'recovCollR2'), tscAi(lang, 'recovCollR3')];
+  if (categories.includes('predictive'))
+    return [tscAi(lang, 'recovPredR1'), tscAi(lang, 'recovPredR2'), tscAi(lang, 'recovPredR3')];
+  return [tscAi(lang, 'recovGenR1'), tscAi(lang, 'recovGenR2'), tscAi(lang, 'recovGenR3')];
 }

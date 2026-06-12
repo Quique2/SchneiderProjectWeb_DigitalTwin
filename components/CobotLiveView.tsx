@@ -1134,7 +1134,7 @@ export default function CobotLiveView() {
         ws.onclose = () => {
           window.clearTimeout(failTimer);
           if (manualCloseRef.current) return;
-          handleFail('WebSocket cerrado — ¿gateway activo?', auto);
+          handleFail(t('cobot.lbl.wsError'), auto);
         };
       } catch (err) {
         handleFail(String(err), auto);

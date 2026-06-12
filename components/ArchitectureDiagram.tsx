@@ -20,7 +20,18 @@ type CompId = keyof typeof COMPONENT_DEFS;
 
 function getComponents(t: (k: string) => string) {
   return Object.fromEntries(
-    Object.entries(COMPONENT_DEFS).map(([k, v]) => [k, { ...v, desc: t(`arch.comp.${k}`) }])
+    Object.entries(COMPONENT_DEFS).map(([k, v]) => {
+      const lblKey = `arch.nodeLbl.${k}`;
+      const subKey = `arch.nodeSub.${k}`;
+      const lbl = t(lblKey);
+      const sub = t(subKey);
+      return [k, {
+        ...v,
+        label: lbl === lblKey ? v.label : lbl,
+        sublabel: sub === subKey ? v.sublabel : sub,
+        desc: t(`arch.comp.${k}`),
+      }];
+    })
   ) as Record<CompId, typeof COMPONENT_DEFS[CompId] & { desc: string }>;
 }
 

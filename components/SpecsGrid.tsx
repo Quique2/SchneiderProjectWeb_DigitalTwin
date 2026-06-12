@@ -13,9 +13,12 @@ const SPEC_IDS = [
   { id: 'rejection', color: '#f97316', title: 'Sistema de Rechazo' },
 ];
 
+const TRANSLATED_TITLES = new Set(['fixture', 'disc', 'rejection']);
+
 function getSpecs(t: (k: string) => string) {
   return SPEC_IDS.map((s) => ({
     ...s,
+    title: TRANSLATED_TITLES.has(s.id) ? t(`specs.items.${s.id}.title`) : s.title,
     subtitle: t(`specs.items.${s.id}.subtitle`),
     specs: [0, 1, 2, 3, 4].map((i) => t(`specs.items.${s.id}.specs.${i}`)),
   }));

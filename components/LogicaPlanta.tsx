@@ -24,137 +24,88 @@ function makeC(T: Theme): C {
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 interface Transition { to: string; label: string; condition?: string }
-interface CellStateDef { label: string; color: string; glow: string; desc: string; conditions: string[]; transitions: Transition[] }
-interface CafiStateDef { label: string; color: string; group: string; desc: string; transitions: Transition[] }
+interface CellStateDef { label: string; color: string; glow: string; transitions: Transition[] }
+interface CafiStateDef { label: string; color: string; group: string; transitions: Transition[] }
 
-// ─── Data: estados de la CELDA ───────────────────────────────────────────────
+// ─── Data: estados de la CELDA (solo estructura estática) ────────────────────
 const CELL_STATES: Record<string, CellStateDef> = {
   IDLE: {
     label: 'IDLE', color: '#64748b', glow: '#94a3b8',
-    desc: 'Planta detenida, esperando que el operador presione START.',
-    conditions: ['Todos los sensores libres', 'Fixtures A y B vacíos', 'Sin FAULT activo'],
-    transitions: [{ to: 'RUNNING', label: 'Operador presiona START', condition: 'Todos los sensores libres + no FAULT' }],
+    transitions: [{ to: 'RUNNING', label: '', condition: '' }],
   },
   RUNNING: {
     label: 'RUNNING', color: '#059669', glow: '#10b981',
-    desc: 'Planta en operación automática. La lógica de CAFIs, cobot y mesa está activa.',
-    conditions: ['START presionado', 'Planta venía de IDLE', 'Sensores libres confirmados'],
     transitions: [
-      { to: 'PAUSED', label: 'STOP presionado', condition: 'Siempre permitido' },
-      { to: 'FAULT', label: 'Error crítico', condition: 'Colisión / sensor inesperado' },
+      { to: 'PAUSED', label: '', condition: '' },
+      { to: 'FAULT', label: '', condition: '' },
     ],
   },
   PAUSED: {
     label: 'PAUSED', color: '#d97706', glow: '#f59e0b',
-    desc: 'Todo detenido por STOP. El operador debe elegir: RESUME o RESTART.',
-    conditions: ['STOP fue presionado desde RUNNING'],
     transitions: [
-      { to: 'RUNNING', label: 'RESUME', condition: 'No hay FAULT, estado es recuperable' },
-      { to: 'RESTARTING', label: 'RESTART', condition: 'Siempre disponible después de STOP' },
+      { to: 'RUNNING', label: '', condition: '' },
+      { to: 'RESTARTING', label: '', condition: '' },
     ],
   },
   RESTARTING: {
     label: 'RESTARTING', color: '#7c3aed', glow: '#8b5cf6',
-    desc: 'Recuperación segura. Si cobot tiene pieza → bin de rechazo. Si no → HOME lento.',
-    conditions: ['RESTART fue elegido desde PAUSED'],
-    transitions: [{ to: 'CLEANING_REQUIRED', label: 'Cobot llegó a HOME', condition: 'Recuperación completada' }],
+    transitions: [{ to: 'CLEANING_REQUIRED', label: '', condition: '' }],
   },
   CLEANING_REQUIRED: {
     label: 'CLEANING\nREQUIRED', color: '#dc2626', glow: '#ef4444',
-    desc: 'El operador debe retirar TODOS los CAFIs manualmente y confirmar limpieza.',
-    conditions: ['Viene de RESTARTING', 'Hay CAFIs en fixtures o conveyor'],
-    transitions: [{ to: 'IDLE', label: 'Operador confirma limpieza', condition: 'fixtureA=libre, fixtureB=libre, sensor=libre, visión=libre' }],
+    transitions: [{ to: 'IDLE', label: '', condition: '' }],
   },
   FAULT: {
     label: 'FAULT', color: '#b91c1c', glow: '#ef4444',
-    desc: 'Falla crítica. Requiere intervención del operador y reset manual.',
-    conditions: ['Error crítico detectado', 'Colisión / sensor inconsistente'],
     transitions: [
-      { to: 'CLEANING_REQUIRED', label: 'Reset de falla con piezas', condition: 'Operador hace reset' },
-      { to: 'IDLE', label: 'Reset limpio', condition: 'No hay piezas + operador confirma' },
+      { to: 'CLEANING_REQUIRED', label: '', condition: '' },
+      { to: 'IDLE', label: '', condition: '' },
     ],
   },
 };
 
-// ─── Data: estados del CAFI ──────────────────────────────────────────────────
+// ─── Data: estados del CAFI (solo estructura estática) ───────────────────────
 const CAFI_STATES: Record<string, CafiStateDef> = {
-  DISPENSED: { label: 'DISPENSED', color: '#0ea5e9', group: 'conveyor', desc: 'El CAFI acaba de caer del dispensador al conveyor.', transitions: [{ to: 'ON_CONVEYOR_WAITING', label: 'Conveyor en RUNNING' }] },
-  ON_CONVEYOR_WAITING: { label: 'ON CONVEYOR\nWAITING', color: '#38bdf8', group: 'conveyor', desc: 'En el conveyor, moviéndose hacia el sensor. Máximo 2 CAFIs pueden estar esperando.', transitions: [{ to: 'AT_SENSOR', label: 'Sensor fotoeléctrico detecta CAFI' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  AT_SENSOR: { label: 'AT SENSOR', color: '#0284c7', group: 'conveyor', desc: 'Sensor fotoeléctrico ocupado. Conveyor detenido. Cobot puede tomar si fixture externo está libre.', transitions: [{ to: 'IN_GRIPPER', label: 'Cobot hace pick' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_GRIPPER: { label: 'IN GRIPPER', color: '#f59e0b', group: 'cobot', desc: 'Cobot sostiene el CAFI. Gripper cerrado.', transitions: [{ to: 'IN_OUTSIDE_FIXTURE', label: 'Cobot place en fixture externo' }, { to: 'IN_INSPECTION', label: 'Viene de RIVETED → lleva a cámara' }, { to: 'ACCEPTED_BIN', label: 'CAFI inspeccionado PASS' }, { to: 'REJECTED_BIN', label: 'CAFI inspeccionado FAIL o RESTART' }] },
-  IN_OUTSIDE_FIXTURE: { label: 'IN OUTSIDE\nFIXTURE', color: '#8b5cf6', group: 'mesa', desc: 'CAFI colocado en fixture externo. Limit switch confirmó presencia.', transitions: [{ to: 'IN_RIVET_FIXTURE', label: 'Mesa gira 180°' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_RIVET_FIXTURE: { label: 'IN RIVET\nFIXTURE', color: '#7c3aed', group: 'mesa', desc: 'Mesa giró. Este fixture ahora está en zona de remachado.', transitions: [{ to: 'RIVETING', label: 'rivetFixturePresent=true + mesa detenida' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  RIVETING: { label: 'RIVETING\n(30 seg)', color: '#dc2626', group: 'remachado', desc: 'Remachado activo durante 30 segundos exactos. Mesa bloqueada.', transitions: [{ to: 'RIVETED', label: '30 segundos completados' }] },
-  RIVETED: { label: 'RIVETED', color: '#b45309', group: 'remachado', desc: 'Remachado terminado. Cobot debe retirarlo. Prioridad absoluta.', transitions: [{ to: 'IN_GRIPPER', label: 'Cobot hace pick del CAFI remachado' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  IN_INSPECTION: { label: 'IN\nINSPECTION', color: '#0891b2', group: 'vision', desc: 'Cobot colocó el CAFI en la cámara. Inspección en curso.', transitions: [{ to: 'INSPECTED_PASS', label: 'vision_result = PASS' }, { to: 'INSPECTED_FAIL', label: 'vision_result = FAIL' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: 'RESTART activado' }] },
-  INSPECTED_PASS: { label: 'INSPECTED\nPASS', color: '#059669', group: 'vision', desc: 'Cámara dijo PASS. Cobot lo coloca en bin de aceptados.', transitions: [{ to: 'ACCEPTED_BIN', label: 'Cobot place en bin aceptado' }] },
-  INSPECTED_FAIL: { label: 'INSPECTED\nFAIL', color: '#dc2626', group: 'vision', desc: 'Cámara dijo FAIL. Cobot lo coloca en bin de rechazados.', transitions: [{ to: 'REJECTED_BIN', label: 'Cobot place en bin rechazado' }] },
-  ACCEPTED_BIN: { label: 'ACCEPTED\nBIN', color: '#065f46', group: 'fin', desc: 'CAFI colocado en bin de aceptados. Ciclo terminado.', transitions: [{ to: 'DONE', label: '' }] },
-  REJECTED_BIN: { label: 'REJECTED\nBIN', color: '#7f1d1d', group: 'fin', desc: 'CAFI colocado en bin de rechazados. Ciclo terminado.', transitions: [{ to: 'DONE', label: '' }] },
-  MANUAL_REMOVAL_REQUIRED: { label: 'MANUAL\nREMOVAL', color: '#92400e', group: 'fin', desc: 'CAFI quedó atrapado en RESTART. El operador debe retirarlo físicamente.', transitions: [{ to: 'DONE', label: 'Operador retira + confirma limpieza' }] },
-  DONE: { label: 'DONE', color: '#374151', group: 'fin', desc: 'Ciclo terminado. El CAFI salió del sistema.', transitions: [] },
+  DISPENSED: { label: 'DISPENSED', color: '#0ea5e9', group: 'conveyor', transitions: [{ to: 'ON_CONVEYOR_WAITING', label: '' }] },
+  ON_CONVEYOR_WAITING: { label: 'ON CONVEYOR\nWAITING', color: '#38bdf8', group: 'conveyor', transitions: [{ to: 'AT_SENSOR', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  AT_SENSOR: { label: 'AT SENSOR', color: '#0284c7', group: 'conveyor', transitions: [{ to: 'IN_GRIPPER', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  IN_GRIPPER: { label: 'IN GRIPPER', color: '#f59e0b', group: 'cobot', transitions: [{ to: 'IN_OUTSIDE_FIXTURE', label: '' }, { to: 'IN_INSPECTION', label: '' }, { to: 'ACCEPTED_BIN', label: '' }, { to: 'REJECTED_BIN', label: '' }] },
+  IN_OUTSIDE_FIXTURE: { label: 'IN OUTSIDE\nFIXTURE', color: '#8b5cf6', group: 'mesa', transitions: [{ to: 'IN_RIVET_FIXTURE', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  IN_RIVET_FIXTURE: { label: 'IN RIVET\nFIXTURE', color: '#7c3aed', group: 'mesa', transitions: [{ to: 'RIVETING', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  RIVETING: { label: 'RIVETING\n(30 seg)', color: '#dc2626', group: 'remachado', transitions: [{ to: 'RIVETED', label: '' }] },
+  RIVETED: { label: 'RIVETED', color: '#b45309', group: 'remachado', transitions: [{ to: 'IN_GRIPPER', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  IN_INSPECTION: { label: 'IN\nINSPECTION', color: '#0891b2', group: 'vision', transitions: [{ to: 'INSPECTED_PASS', label: '' }, { to: 'INSPECTED_FAIL', label: '' }, { to: 'MANUAL_REMOVAL_REQUIRED', label: '' }] },
+  INSPECTED_PASS: { label: 'INSPECTED\nPASS', color: '#059669', group: 'vision', transitions: [{ to: 'ACCEPTED_BIN', label: '' }] },
+  INSPECTED_FAIL: { label: 'INSPECTED\nFAIL', color: '#dc2626', group: 'vision', transitions: [{ to: 'REJECTED_BIN', label: '' }] },
+  ACCEPTED_BIN: { label: 'ACCEPTED\nBIN', color: '#065f46', group: 'fin', transitions: [{ to: 'DONE', label: '' }] },
+  REJECTED_BIN: { label: 'REJECTED\nBIN', color: '#7f1d1d', group: 'fin', transitions: [{ to: 'DONE', label: '' }] },
+  MANUAL_REMOVAL_REQUIRED: { label: 'MANUAL\nREMOVAL', color: '#92400e', group: 'fin', transitions: [{ to: 'DONE', label: '' }] },
+  DONE: { label: 'DONE', color: '#374151', group: 'fin', transitions: [] },
 };
 
 const GROUP_COLORS: Record<string, string> = { conveyor: '#0ea5e9', cobot: '#f59e0b', mesa: '#8b5cf6', remachado: '#ef4444', vision: '#06b6d4', fin: '#374151' };
-const GROUP_LABELS: Record<string, string> = { conveyor: 'Conveyor', cobot: 'Cobot', mesa: 'Mesa Giratoria', remachado: 'Remachado', vision: 'Inspección', fin: 'Final' };
 
-interface RuleBlock { color: string; title: string; rules: string[] }
-const RULE_BLOCKS: RuleBlock[] = [
-  { color: '#ef4444', title: 'STOP detiene TODO, sin excepciones', rules: ['Conveyor se detiene', 'Cobot pausa rutina', 'Mesa inhibida', 'Remachado bloqueado', 'No se aceptan nuevos CAFIs', 'Planta: PAUSED'] },
-  { color: '#f97316', title: 'No puede existir ni una sola colisión — mínimo 5 cm de separación', rules: ['Mesa solo gira cuando cobot_in_table_zone = false', 'Cobot solo entra a zona de fixture cuando mesa está completamente detenida Y confirmada por limit switch', 'Si distancia cobot-obstáculo < 5 cm → FAULT inmediato', 'Nunca mover mesa Y cobot simultáneamente si alguno está en zona de riesgo'] },
-  { color: '#dc2626', title: 'Remachado: exactamente 30 segundos', rules: ['RIVET_ACTIVE dura 30,000 ms exactos', 'Mostrar barra de progreso en HMI', 'Mesa bloqueada durante todo el remachado', 'Solo inicia si rivetFixturePresent = true'] },
-  { color: '#8b5cf6', title: 'CAFI remachado tiene prioridad absoluta', rules: ['Desde IN_GRIPPER (viene de RIVETED) → el cobot no atiende conveyor', 'Debe completar: llevar a inspección → esperar resultado → colocar en bin', 'Nada interrumpe este flujo excepto STOP'] },
-  { color: '#0ea5e9', title: 'Fixture externo: el cobot solo va al conveyor si está libre', rules: ['outsideFixtureAvailable = !outsideFixturePresent', 'outsideFixturePresent = limit switch del fixture que actualmente está afuera', 'Si fixture A está afuera → outsideFixturePresent = fixtureA_limit', 'Si fixture B está afuera → outsideFixturePresent = fixtureB_limit'] },
-  { color: '#10b981', title: 'Máximo 2 CAFIs esperando en conveyor', rules: ['DISPENSED + ON_CONVEYOR_WAITING + AT_SENSOR = máx 2', 'No se permite alimentar si ya hay 2 esperando', 'El dispensador respeta el límite aunque la planta esté en RUNNING'] },
-  { color: '#f59e0b', title: 'Dos CAFIs en el disco simultáneamente', rules: ['Fixture A puede tener CAFI en RIVETING mientras Fixture B recibe un nuevo CAFI', 'Al girar la mesa, los roles se intercambian automáticamente', 'outsideFixtureId y rivetFixtureId se actualizan después de cada giro de 180°', 'El cobot puede trabajar con ambos fixtures en paralelo respetando el orden de prioridad'] },
-  { color: '#64748b', title: 'Después de RESTART: limpieza obligatoria antes de START', rules: ['fixtureA_limit debe estar libre (false)', 'fixtureB_limit debe estar libre (false)', 'sensor_conveyor_present debe estar libre (false)', 'vision_present debe estar libre (false)', 'Operador confirma limpieza → Sistema verifica → IDLE → START'] },
+const RULE_BLOCK_COLORS = ['#ef4444', '#f97316', '#dc2626', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#64748b'];
+
+const COMP_COLORS = [A.amber, '#0ea5e9', A.orange, A.purple, A.red, '#06b6d4', A.green];
+
+const SIGNALS_META: { name: string; io: 'IN' | 'OUT'; color: string }[] = [
+  { name: 'sensor_conveyor_present', io: 'IN',  color: '#0ea5e9' },
+  { name: 'fixtureA_limit',          io: 'IN',  color: A.purple  },
+  { name: 'fixtureB_limit',          io: 'IN',  color: A.purple  },
+  { name: 'table_home_limit',        io: 'IN',  color: A.amber   },
+  { name: 'table_work_limit',        io: 'IN',  color: A.amber   },
+  { name: 'vision_present',          io: 'IN',  color: '#06b6d4' },
+  { name: 'vision_result',           io: 'IN',  color: '#06b6d4' },
+  { name: 'gripper_open / closed',   io: 'OUT', color: A.orange  },
+  { name: 'rivet_active',            io: 'OUT', color: A.red     },
+  { name: 'table_rotate',            io: 'OUT', color: A.purple  },
+  { name: 'conveyor_run',            io: 'OUT', color: '#0ea5e9' },
 ];
 
-const COMPONENTS_DATA = [
-  { name: 'Dispensador CAFI', color: A.amber, role: 'Suelta piezas CAFI crudas al conveyor (máx 2 en cola).' },
-  { name: 'Conveyor', color: '#0ea5e9', role: 'Transporta el CAFI hasta el sensor fotoeléctrico de pick.' },
-  { name: 'Cobot Lexium', color: A.orange, role: '6 ejes. Pick/place: conveyor → fixture → cámara → bins.' },
-  { name: 'Mesa rotatoria', color: A.purple, role: '2 fixtures A/B; gira 180° e intercambia roles (carga ↔ remachado).' },
-  { name: 'Remachadora', color: A.red, role: 'Remacha el CAFI en el fixture interno durante 30 s exactos.' },
-  { name: 'Cámara de visión', color: '#06b6d4', role: 'Inspecciona el CAFI remachado → veredicto PASS / FAIL.' },
-  { name: 'Bins', color: A.green, role: 'Destino final: bin de aceptados (PASS) o rechazados (FAIL).' },
-];
+const FLOW_COLORS = ['#0ea5e9', A.orange, A.purple, A.red, '#06b6d4', A.green];
 
-const SIGNALS_DATA: { name: string; io: 'IN' | 'OUT'; desc: string; color: string }[] = [
-  { name: 'sensor_conveyor_present', io: 'IN', desc: 'Sensor fotoeléctrico: CAFI en posición de pick.', color: '#0ea5e9' },
-  { name: 'fixtureA_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture A.', color: A.purple },
-  { name: 'fixtureB_limit', io: 'IN', desc: 'Limit switch presencia de CAFI en fixture B.', color: A.purple },
-  { name: 'table_home_limit', io: 'IN', desc: 'Limit switch: mesa en posición HOME (0°).', color: A.amber },
-  { name: 'table_work_limit', io: 'IN', desc: 'Limit switch: mesa en posición WORK (180°).', color: A.amber },
-  { name: 'vision_present', io: 'IN', desc: 'CAFI presente en el plato de la cámara.', color: '#06b6d4' },
-  { name: 'vision_result', io: 'IN', desc: 'Veredicto de la cámara: PASS / FAIL.', color: '#06b6d4' },
-  { name: 'gripper_open / closed', io: 'OUT', desc: 'Estado del gripper neumático del cobot (DO).', color: A.orange },
-  { name: 'rivet_active', io: 'OUT', desc: 'Comando de remachado (30 s); mesa bloqueada.', color: A.red },
-  { name: 'table_rotate', io: 'OUT', desc: 'Comando de giro 180° de la mesa.', color: A.purple },
-  { name: 'conveyor_run', io: 'OUT', desc: 'Avance del conveyor (se detiene en AT_SENSOR / STOP).', color: '#0ea5e9' },
-];
-
-const FLOW_DATA = [
-  { label: 'Conveyor', color: '#0ea5e9' },
-  { label: 'Cobot', color: A.orange },
-  { label: 'Fixture', color: A.purple },
-  { label: 'Remachado', color: A.red },
-  { label: 'Visión', color: '#06b6d4' },
-  { label: 'Bin', color: A.green },
-];
-
-const TIMELINE = [
-  { t: 'DISPENSED', d: 'CAFI cae del dispensador' },
-  { t: 'AT_SENSOR', d: 'Llega al sensor; conveyor para' },
-  { t: 'IN_GRIPPER', d: 'Cobot hace pick' },
-  { t: 'IN_OUTSIDE_FIXTURE', d: 'Place en fixture externo' },
-  { t: 'IN_RIVET_FIXTURE', d: 'Mesa gira 180°' },
-  { t: 'RIVETING (30s)', d: 'Remachado, mesa bloqueada' },
-  { t: 'RIVETED', d: 'Cobot retira (prioridad)' },
-  { t: 'IN_INSPECTION', d: 'Cobot lleva a cámara' },
-  { t: 'INSPECTED_PASS', d: 'Veredicto PASS' },
-  { t: 'ACCEPTED_BIN', d: 'Cobot coloca en bin' },
-];
+const TIMELINE_STATES = ['DISPENSED', 'AT_SENSOR', 'IN_GRIPPER', 'IN_OUTSIDE_FIXTURE', 'IN_RIVET_FIXTURE', 'RIVETING (30s)', 'RIVETED', 'IN_INSPECTION', 'INSPECTED_PASS', 'ACCEPTED_BIN'];
 
 const SECTION_DEFS = [
   { id: 'resumen',     color: A.blue    },
@@ -248,7 +199,7 @@ function Accordion({ title, color, open, onToggle, children }: {
 export default function LogicaPlanta() {
   const T = useTheme();
   const C = makeC(T);
-  const { t } = useLanguage();
+  const { t, ta } = useLanguage();
   const SECTIONS = getSections(t);
   const refMap = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -295,6 +246,12 @@ export default function LogicaPlanta() {
     (acc[v.group] = acc[v.group] || []).push([k, v]); return acc;
   }, {});
 
+  const kpiLabels = ta('logic.kpi');
+  const flowLabels = ta('logic.flow');
+  const signalDescs = ta('logic.signals');
+  const timelineDescs = ta('logic.timeline');
+  const secPriorities = ta('logic.secPriorities');
+
   return (
     <div style={{ height: '100%', display: 'flex', background: C.bg, fontFamily: SANS, color: C.text }}>
       {/* ── Sidebar índice ── */}
@@ -314,7 +271,7 @@ export default function LogicaPlanta() {
             fontFamily: MONO, fontSize: 11.5, fontWeight: active === s.id ? 700 : 500,
             color: active === s.id ? C.text : C.muted,
             background: active === s.id ? s.color + '1f' : 'transparent',
-            boxShadow: active === s.id ? `inset 2px 0 0 ${s.color}` : 'none',
+            boxShadow: active === s.id ? `inset 2px 0 ${s.color}` : 'none',
             transition: 'background 0.15s,color 0.15s',
           }}
             onMouseEnter={(e) => { if (active !== s.id) e.currentTarget.style.background = C.dark ? '#16243a' : C.borderSoft; }}
@@ -334,26 +291,21 @@ export default function LogicaPlanta() {
           <Section id="resumen" title={t('logic.tabs.resumen')} color={C.blue} refMap={refMap}>
             <Card accent={C.blue} style={{ marginBottom: 12 }}>
               <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7, color: C.muted }}>
-                Celda automática de remachado. Una pieza <b style={{ color: C.text }}>CAFI</b> recorre:
-                dispensador → conveyor → <b style={{ color: C.orange }}>cobot</b> →
-                <b style={{ color: C.purple }}> mesa rotatoria (fixture A/B)</b> →
-                <b style={{ color: C.red }}> remachado (30 s)</b> → <b style={{ color: C.cyan }}>visión</b> →
-                <b style={{ color: C.green }}> bin</b> (aceptado / rechazado). La planta opera como una
-                máquina de estados; <b style={{ color: C.text }}>STOP</b> detiene todo y exige RESUME o RESTART.
+                {t('logic.sum.para')}
               </p>
             </Card>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
               {[
-                { k: '30 s', v: 'Remachado exacto', c: C.red },
-                { k: '2', v: 'CAFIs máx en disco', c: C.purple },
-                { k: '2', v: 'CAFIs máx en conveyor', c: '#0ea5e9' },
-                { k: '≥ 5 cm', v: 'Separación anti-colisión', c: C.orange },
-                { k: '6', v: 'Estados de celda', c: C.green },
-                { k: '15', v: 'Estados del CAFI', c: '#38bdf8' },
+                { k: '30 s', c: C.red },
+                { k: '2', c: C.purple },
+                { k: '2', c: '#0ea5e9' },
+                { k: '≥ 5 cm', c: C.orange },
+                { k: '6', c: C.green },
+                { k: '15', c: '#38bdf8' },
               ].map((s, i) => (
                 <Card key={i} accent={s.c} style={{ padding: '12px 14px' }}>
                   <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 800, color: s.c }}>{s.k}</div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{s.v}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{kpiLabels[i] ?? ''}</div>
                 </Card>
               ))}
             </div>
@@ -363,22 +315,21 @@ export default function LogicaPlanta() {
           <Section id="flujo" title={t('logic.sec.flujo')} color="#0ea5e9" refMap={refMap}>
             <Card>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                {FLOW_DATA.map((n, i) => (
-                  <React.Fragment key={n.label}>
+                {FLOW_COLORS.map((color, i) => (
+                  <React.Fragment key={i}>
                     <div style={{
                       flex: '1 1 110px', minWidth: 96, textAlign: 'center', padding: '14px 8px',
-                      background: n.color + '14', border: `1px solid ${n.color}55`, borderRadius: 9,
+                      background: color + '14', border: `1px solid ${color}55`, borderRadius: 9,
                     }}>
-                      <div style={{ fontFamily: MONO, fontSize: 9, color: n.color, fontWeight: 700 }}>{String(i + 1).padStart(2, '0')}</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginTop: 3 }}>{n.label}</div>
+                      <div style={{ fontFamily: MONO, fontSize: 9, color, fontWeight: 700 }}>{String(i + 1).padStart(2, '0')}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginTop: 3 }}>{flowLabels[i] ?? ''}</div>
                     </div>
-                    {i < FLOW_DATA.length - 1 && <span style={{ color: C.dim, fontSize: 18, padding: '0 2px' }}>→</span>}
+                    {i < FLOW_COLORS.length - 1 && <span style={{ color: C.dim, fontSize: 18, padding: '0 2px' }}>→</span>}
                   </React.Fragment>
                 ))}
               </div>
               <div style={{ fontFamily: MONO, fontSize: 11, color: C.dim, marginTop: 12, lineHeight: 1.6 }}>
-                El cobot también <b style={{ color: C.muted }}>retira</b> el CAFI remachado del fixture y lo lleva a
-                visión; el CAFI remachado tiene <b style={{ color: C.purple }}>prioridad absoluta</b> sobre el conveyor.
+                {t('logic.sum.flowNote')}
               </div>
             </Card>
           </Section>
@@ -386,13 +337,13 @@ export default function LogicaPlanta() {
           {/* 3 · COMPONENTES */}
           <Section id="componentes" title={t('logic.sec.componentes')} color={C.orange} refMap={refMap}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
-              {COMPONENTS_DATA.map((c) => (
-                <Card key={c.name} accent={c.color}>
+              {COMP_COLORS.map((color, i) => (
+                <Card key={i} accent={color}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: 2, background: c.color, boxShadow: `0 0 7px ${c.color}` }} />
-                    <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 800, color: c.color }}>{c.name}</span>
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: color, boxShadow: `0 0 7px ${color}` }} />
+                    <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 800, color }}>{t(`logic.comps.${i}.name`)}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55 }}>{c.role}</div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55 }}>{t(`logic.comps.${i}.role`)}</div>
                 </Card>
               ))}
             </div>
@@ -402,10 +353,10 @@ export default function LogicaPlanta() {
           <Section id="senales" title={t('logic.sec.senales')} color={C.cyan} refMap={refMap}>
             <Card style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', background: C.panel2, borderBottom: `1px solid ${C.border}`, padding: '8px 14px', fontWeight: 700 }}>
-                <span>I/O</span><span>Señal · descripción</span>
+                <span>{t('logic.ui.io')}</span><span>{t('logic.ui.senalDesc')}</span>
               </div>
-              {SIGNALS_DATA.map((s, i) => (
-                <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center', padding: '9px 14px', borderBottom: i < SIGNALS_DATA.length - 1 ? `1px solid ${C.borderSoft}` : 'none' }}>
+              {SIGNALS_META.map((s, i) => (
+                <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center', padding: '9px 14px', borderBottom: i < SIGNALS_META.length - 1 ? `1px solid ${C.borderSoft}` : 'none' }}>
                   <span style={{
                     fontFamily: MONO, fontSize: 9, fontWeight: 800, textAlign: 'center', borderRadius: 4, padding: '2px 0',
                     color: s.io === 'IN' ? C.green : C.orange, background: (s.io === 'IN' ? C.green : C.orange) + '1c',
@@ -413,7 +364,7 @@ export default function LogicaPlanta() {
                   }}>{s.io}</span>
                   <span>
                     <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 700, color: s.color }}>{s.name}</span>
-                    <span style={{ fontSize: 11.5, color: C.muted }}> — {s.desc}</span>
+                    <span style={{ fontSize: 11.5, color: C.muted }}> — {signalDescs[i] ?? ''}</span>
                   </span>
                 </div>
               ))}
@@ -426,23 +377,19 @@ export default function LogicaPlanta() {
               <Card accent={C.purple}>
                 <Badge label="FIXTURE A" color={C.purple} />
                 <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>
-                  Confirmado por <b style={{ color: C.text }}>fixtureA_limit</b>. Puede estar en zona de carga
-                  (externa) o de remachado según el giro de la mesa.
+                  {t('logic.fixtureA')}
                 </p>
               </Card>
               <Card accent={C.purple}>
                 <Badge label="FIXTURE B" color={C.purple} />
                 <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>
-                  Confirmado por <b style={{ color: C.text }}>fixtureB_limit</b>. Mientras A remacha, B puede recibir
-                  un nuevo CAFI (2 piezas en el disco a la vez).
+                  {t('logic.fixtureB')}
                 </p>
               </Card>
               <Card accent={C.amber}>
                 <Badge label="GIRO 180°" color={C.amber} />
                 <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>
-                  Al girar, los roles se intercambian: <b style={{ color: C.text }}>outsideFixtureId</b> ↔
-                  <b style={{ color: C.text }}> rivetFixtureId</b>. Limit switches <b style={{ color: C.text }}>table_home</b> /
-                  <b style={{ color: C.text }}> table_work</b> confirman la posición.
+                  {t('logic.giro180')}
                 </p>
               </Card>
             </div>
@@ -465,7 +412,7 @@ export default function LogicaPlanta() {
                     transform: isSelected ? 'translateY(-1px)' : 'none',
                   }}>
                     {s.label}
-                    {isActive && <div style={{ fontSize: 8.5, color: s.color, marginTop: 3, fontWeight: 400 }}>● activo</div>}
+                    {isActive && <div style={{ fontSize: 8.5, color: s.color, marginTop: 3, fontWeight: 400 }}>{t('logic.ui.activoBadge')}</div>}
                   </button>
                 );
               })}
@@ -474,23 +421,27 @@ export default function LogicaPlanta() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 <Badge label={displayCellKey} color={cellState?.color || C.dim} glow />
               </div>
-              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>{cellState?.desc}</div>
-              {cellState?.conditions?.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Condiciones</div>
-                  {cellState.conditions.map((c, i) => (
-                    <div key={i} style={{ fontSize: 12, color: C.muted, lineHeight: 1.7 }}><span style={{ color: cellState.color }}>•</span> {c}</div>
-                  ))}
-                </div>
-              )}
+              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>{t(`logic.cell.${displayCellKey}.desc`)}</div>
+              {(() => {
+                const conds = ta(`logic.cell.${displayCellKey}.cond`);
+                return conds.length > 0 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>{t('logic.ui.condiciones')}</div>
+                    {conds.map((c, i) => (
+                      <div key={i} style={{ fontSize: 12, color: C.muted, lineHeight: 1.7 }}><span style={{ color: cellState?.color }}>•</span> {c}</div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
               {cellState?.transitions?.length > 0 && (
                 <>
-                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Transiciones · click para simular</div>
+                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{t('logic.ui.transClickSim')}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {cellState.transitions.map((t, i) => {
-                      const target = CELL_STATES[t.to];
+                    {cellState.transitions.map((tr, i) => {
+                      const target = CELL_STATES[tr.to];
+                      const transLabel = ta(`logic.cell.${displayCellKey}.trans`)[i] ?? '';
                       return (
-                        <button key={i} onClick={() => simulateCellStep(t.to)} style={{
+                        <button key={i} onClick={() => simulateCellStep(tr.to)} style={{
                           display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderRadius: 7,
                           border: `1px solid ${(target?.color || C.dim)}44`, background: C.panel2, cursor: 'pointer',
                           fontFamily: MONO, fontSize: 12, textAlign: 'left', transition: 'background 0.15s',
@@ -499,8 +450,8 @@ export default function LogicaPlanta() {
                           onMouseLeave={(e) => { e.currentTarget.style.background = C.panel2; }}
                         >
                           <span style={{ color: C.dim }}>→</span>
-                          <span style={{ color: target?.color, fontWeight: 700, minWidth: 140 }}>{t.to}</span>
-                          <span style={{ color: C.muted, fontSize: 11 }}>{t.label}</span>
+                          <span style={{ color: target?.color, fontWeight: 700, minWidth: 140 }}>{tr.to}</span>
+                          <span style={{ color: C.muted, fontSize: 11 }}>{transLabel}</span>
                           <span style={{ marginLeft: 'auto', color: C.dim, fontSize: 10 }}>▶</span>
                         </button>
                       );
@@ -514,12 +465,12 @@ export default function LogicaPlanta() {
           {/* 7 · ESTADOS DEL CAFI (interactivo) */}
           <Section id="cafi" title={t('logic.tabs.cafi')} color="#38bdf8" refMap={refMap}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontFamily: MONO, fontSize: 11, color: C.dim }}>
-              Activo: <Badge label={activeCafiState} color={CAFI_STATES[activeCafiState]?.color || C.dim} />
-              <span>· click en estado para explorar, en transición para simular</span>
+              {t('logic.ui.activoLabel')} <Badge label={activeCafiState} color={CAFI_STATES[activeCafiState]?.color || C.dim} />
+              <span>{t('logic.ui.clickHint')}</span>
             </div>
             {activeCafiState === 'RIVETING' && (
               <Card accent={C.red} style={{ marginBottom: 12 }}>
-                <div style={{ fontFamily: MONO, fontSize: 11, color: C.red, marginBottom: 6, letterSpacing: '0.1em' }}>REMACHADO ACTIVO — {Math.round(rivetProgress * 30)}s / 30s</div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.red, marginBottom: 6, letterSpacing: '0.1em' }}>{t('logic.ui.remActivo')} — {Math.round(rivetProgress * 30)}s / 30s</div>
                 <div style={{ height: 7, background: C.panel2, borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${rivetProgress * 100}%`, background: `linear-gradient(90deg,${C.red},${C.orange})`, borderRadius: 4, transition: 'width 0.1s' }} />
                 </div>
@@ -527,7 +478,7 @@ export default function LogicaPlanta() {
             )}
             {Object.entries(groupedCafi).map(([group, items]) => (
               <div key={group} style={{ marginBottom: 14 }}>
-                <div style={{ fontFamily: MONO, fontSize: 9.5, color: GROUP_COLORS[group], letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>{GROUP_LABELS[group]}</div>
+                <div style={{ fontFamily: MONO, fontSize: 9.5, color: GROUP_COLORS[group], letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 7 }}>{t(`logic.groups.${group}`)}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                   {items.map(([key, s]) => {
                     const isActive = key === activeCafiState;
@@ -549,16 +500,17 @@ export default function LogicaPlanta() {
             ))}
             <Card accent={cafiState?.color}>
               <Badge label={displayCafiKey} color={cafiState?.color || C.dim} glow />
-              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: '8px 0 12px' }}>{cafiState?.desc}</div>
+              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: '8px 0 12px' }}>{t(`logic.cafi.${displayCafiKey}.desc`)}</div>
               {cafiState?.transitions?.length > 0 && (
                 <>
-                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Transiciones</div>
+                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{t('logic.ui.transiciones')}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-                    {cafiState.transitions.map((t, i) => {
-                      const target = CAFI_STATES[t.to];
-                      const canSim = t.to !== 'DONE';
+                    {cafiState.transitions.map((tr, i) => {
+                      const target = CAFI_STATES[tr.to];
+                      const canSim = tr.to !== 'DONE';
+                      const transLabel = ta(`logic.cafi.${displayCafiKey}.trans`)[i] ?? '';
                       return (
-                        <button key={i} onClick={() => canSim && simulateStep(t.to)} style={{
+                        <button key={i} onClick={() => canSim && simulateStep(tr.to)} style={{
                           display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px', borderRadius: 6,
                           border: `1px solid ${(target?.color || C.dim)}44`, background: C.panel2,
                           cursor: canSim ? 'pointer' : 'default', fontFamily: MONO, fontSize: 11, transition: 'background 0.15s',
@@ -567,8 +519,8 @@ export default function LogicaPlanta() {
                           onMouseLeave={(e) => { e.currentTarget.style.background = C.panel2; }}
                         >
                           <span style={{ color: C.dim }}>→</span>
-                          <span style={{ color: target?.color || C.muted, fontWeight: 700 }}>{t.to}</span>
-                          {t.label && <span style={{ color: C.dim, fontSize: 10 }}>· {t.label}</span>}
+                          <span style={{ color: target?.color || C.muted, fontWeight: 700 }}>{tr.to}</span>
+                          {transLabel && <span style={{ color: C.dim, fontSize: 10 }}>· {transLabel}</span>}
                           {canSim && <span style={{ color: C.dim, fontSize: 10 }}>▶</span>}
                         </button>
                       );
@@ -583,13 +535,13 @@ export default function LogicaPlanta() {
           <Section id="timeline" title={t('logic.tabs.timeline')} color={C.amber} refMap={refMap}>
             <Card>
               <div style={{ position: 'relative', paddingLeft: 8 }}>
-                {TIMELINE.map((step, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: i < TIMELINE.length - 1 ? 14 : 0, position: 'relative' }}>
-                    {i < TIMELINE.length - 1 && <span style={{ position: 'absolute', left: 7, top: 16, bottom: -2, width: 2, background: C.border }} />}
+                {TIMELINE_STATES.map((state, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: i < TIMELINE_STATES.length - 1 ? 14 : 0, position: 'relative' }}>
+                    {i < TIMELINE_STATES.length - 1 && <span style={{ position: 'absolute', left: 7, top: 16, bottom: -2, width: 2, background: C.border }} />}
                     <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: '50%', background: C.bg, border: `2px solid ${C.amber}`, boxShadow: `0 0 8px ${C.amber}66`, marginTop: 1, zIndex: 1 }} />
                     <div>
-                      <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: C.text }}>{step.t}</div>
-                      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{step.d}</div>
+                      <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: C.text }}>{state}</div>
+                      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{timelineDescs[i] ?? ''}</div>
                     </div>
                   </div>
                 ))}
@@ -600,11 +552,11 @@ export default function LogicaPlanta() {
           {/* 9 · REGLAS (accordions) */}
           <Section id="reglas" title={t('logic.tabs.reglas')} color={C.red} refMap={refMap}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {RULE_BLOCKS.map((block, i) => (
-                <Accordion key={i} title={block.title} color={block.color} open={!!openRules[i]} onToggle={() => setOpenRules((o) => ({ ...o, [i]: !o[i] }))}>
-                  {block.rules.map((r, j) => (
+              {RULE_BLOCK_COLORS.map((color, i) => (
+                <Accordion key={i} title={t(`logic.ruleBlocks.${i}.title`)} color={color} open={!!openRules[i]} onToggle={() => setOpenRules((o) => ({ ...o, [i]: !o[i] }))}>
+                  {ta(`logic.ruleBlocks.${i}.rules`).map((r, j) => (
                     <div key={j} style={{ fontFamily: MONO, fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-                      <span style={{ color: block.color }}>→ </span>{r}
+                      <span style={{ color }}>→ </span>{r}
                     </div>
                   ))}
                 </Accordion>
@@ -617,26 +569,20 @@ export default function LogicaPlanta() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10, marginBottom: 12 }}>
               <Card accent={C.red}>
                 <Badge label="STOP" color={C.red} />
-                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>Detiene TODO al instante: conveyor, cobot, mesa, remachado. Planta → PAUSED.</p>
+                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>{t('logic.secCards.stop')}</p>
               </Card>
               <Card accent={C.green}>
                 <Badge label="RESUME" color={C.green} />
-                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>Reanuda desde PAUSED si el estado es recuperable y no hay FAULT.</p>
+                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>{t('logic.secCards.resume')}</p>
               </Card>
               <Card accent={C.purple}>
                 <Badge label="RESTART" color={C.purple} />
-                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>Recuperación segura → CLEANING_REQUIRED. El operador retira CAFIs y confirma limpieza.</p>
+                <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginTop: 8, marginBottom: 0 }}>{t('logic.secCards.restart')}</p>
               </Card>
             </div>
             <Card accent="#f97316">
-              <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Prioridades de seguridad</div>
-              {[
-                'Seguridad sobre productividad: ante duda → FAULT.',
-                'Anti-colisión: mesa y cobot nunca se mueven juntos en zona de riesgo (≥ 5 cm).',
-                'CAFI remachado: prioridad absoluta hasta llegar a un bin.',
-                'Remachado: 30 s exactos, mesa bloqueada.',
-                'Tras RESTART: limpieza obligatoria antes de un nuevo START.',
-              ].map((r, i) => (
+              <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{t('logic.ui.segPriorities')}</div>
+              {secPriorities.map((r, i) => (
                 <div key={i} style={{ fontSize: 12, color: C.muted, lineHeight: 1.8 }}><span style={{ color: '#f97316' }}>▸ </span>{r}</div>
               ))}
             </Card>

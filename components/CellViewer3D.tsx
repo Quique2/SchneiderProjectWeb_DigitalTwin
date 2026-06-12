@@ -4525,6 +4525,7 @@ function numInputStyle(T: Theme): React.CSSProperties {
 // ── Root component ───────────────────────────────────────────────────────────
 export default function CellViewer3D() {
   const T = useTheme();
+  const { t } = useLanguage();
   const jointsRef = useRef<[number, number, number, number, number, number]>([...POSE_LIB.HOME]);
   // Pose activa que el cobot "está ejecutando" en modo DEBUG: la última pose
   // seleccionada con setPose (botones Set Pose / load de Saved). Sirve de punto
@@ -5042,15 +5043,15 @@ export default function CellViewer3D() {
           {/* Labels (la mesa no sube → z originales). */}
           <Label x={1.152} y={0.940} z={1.10}  text="Lexium Cobot"    color="#60a5fa" />
           <Label x={1.534845 + layout.conveyorOffset[0]} y={1.420 + layout.conveyorOffset[1]} z={1.18} text="Conveyor 1"     color="#fbbf24" />
-          <Label x={1.942345 + layout.conveyorOffset[0]} y={1.365 + layout.conveyorOffset[1]} z={1.34} text="Suministro CAFI" color="#fbbf24" />
+          <Label x={1.942345 + layout.conveyorOffset[0]} y={1.365 + layout.conveyorOffset[1]} z={1.34} text={t('cobot.cell3d.cafiSupply')} color="#fbbf24" />
           <Label x={0.754205 + layout.turntableOffset[0]} y={1.259061 + layout.turntableOffset[1]} z={1.25} text="Turntable"   color="#a78bfa" />
           <Label x={0.549205 + layout.turntableOffset[0]} y={1.259061 + layout.turntableOffset[1]} z={1.47} text="Riveting"    color="#fb923c" />
           <Label x={0.750 + layout.visionOffset[0]} y={0.804 + layout.visionOffset[1]} z={1.10}  text="Vision"          color="#a78bfa" />
-          <Label x={0.750 + layout.visionOffset[0]} y={0.804 + layout.visionOffset[1]} z={1.62}  text="Cámara"          color="#e879f9" />
-          <Label x={1.650 + layout.binAcceptOffset[0]} y={0.720 + layout.binAcceptOffset[1]} z={1.18}  text="Aceptado"        color="#22dd55" />
-          <Label x={1.330 + layout.binRejectOffset[0]} y={0.700 + layout.binRejectOffset[1]} z={1.18}  text="Rechazado"       color="#ff5566" />
+          <Label x={0.750 + layout.visionOffset[0]} y={0.804 + layout.visionOffset[1]} z={1.62}  text={t('cobot.cell3d.camera')} color="#e879f9" />
+          <Label x={1.650 + layout.binAcceptOffset[0]} y={0.720 + layout.binAcceptOffset[1]} z={1.18}  text={t('cobot.cell3d.accepted')} color="#22dd55" />
+          <Label x={1.330 + layout.binRejectOffset[0]} y={0.700 + layout.binRejectOffset[1]} z={1.18}  text={t('cobot.cell3d.rejected')} color="#ff5566" />
           <Label x={0.442 + layout.turntableOffset[0]} y={0.430 + layout.turntableOffset[1]} z={1.60}  text="HMI"             color="#38bdf8" />
-          <Label x={1.150 + layout.turntableOffset[0]} y={0.980 + layout.turntableOffset[1]} z={0.80}  text="Controlador · PLC" color="#9fb3c8" />
+          <Label x={1.150 + layout.turntableOffset[0]} y={0.980 + layout.turntableOffset[1]} z={0.80}  text={t('cobot.cell3d.controller')} color="#9fb3c8" />
         </Canvas>
 
         {/* Calibración en vivo del pick del conveyor (offset +X) — overlay. */}
@@ -5061,7 +5062,7 @@ export default function CellViewer3D() {
           fontFamily: 'monospace', color: T.text,
         }}>
           <div style={{ fontSize: 11, color: '#7fd1ff', marginBottom: 6, letterSpacing: '0.04em' }}>
-            CALIBRACIÓN · Pick conveyor (offset X)
+            {t('cobot.cell3d.calibration')}
           </div>
           <input
             type="range" min={-0.2} max={0.2} step={0.01} value={pickOffsetX}
@@ -5105,7 +5106,7 @@ export default function CellViewer3D() {
           {showCafiDebug && (
             <div style={{ marginTop: 6, fontSize: 10, lineHeight: 1.5 }}>
               <div style={{ color: '#7fd1ff' }}>activeCafiId: {String(cellSim.snapshot.activeCafiId)}</div>
-              {cellSim.snapshot.cafis.length === 0 && <div style={{ color: '#678' }}>— sin CAFIs —</div>}
+              {cellSim.snapshot.cafis.length === 0 && <div style={{ color: '#678' }}>{t('cobot.cell3d.noCafis')}</div>}
               {cellSim.snapshot.cafis.map((c) => {
                 const carried = carriedCafiIdRef.current === c.id;
                 const active = cellSim.snapshot.activeCafiId === c.id;

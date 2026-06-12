@@ -182,7 +182,7 @@ export function createCellStateMachine(opts: CreateCellOptions = {}) {
     if (mode !== 'HMI') return 'MODO DEBUG';
     if (finalizing) return 'FINALIZANDO';
     if (cell === 'FAULT' || faultReason) return 'FAULT';
-    if (cell !== 'RUNNING') return 'CELDA NO RUNNING';
+    if (cell !== 'RUNNING') return 'CELL NOT RUNNING';
     if (sensorCafi()) return 'SENSOR OCUPADO';
     if (waitingCafis().length >= MAX_WAITING_CAFIS) return 'COLA LLENA (2)';
     return '';

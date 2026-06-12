@@ -13,6 +13,7 @@
 
 import { SCADA_AI_ENDPOINT } from './scadaConfig';
 import type { AiDiagnosis, ScadaSnapshot, Severity } from './scadaTypes';
+import { derivePillars } from './ai/pillars';
 
 export function buildAiContext(s: ScadaSnapshot): Record<string, unknown> {
   const available: Record<string, unknown> = {};
@@ -43,6 +44,17 @@ export function buildAiContext(s: ScadaSnapshot): Record<string, unknown> {
     : 'signal_not_connected';
   if (!s.conveyor.signalAvailable) unavailable.push('conveyor.conveyor_motor_on');
 
+  // SCADA 4.0 — pilares derivados (PASS/NO PASS + predictivo + optimización + anomalía + SOP).
+  // Le dan a la IA contexto "por pilar" SIN inventar: todo sale de las señales reales.
+  const p = derivePillars(s);
+  const scada40 = {
+    passNoPass: { verdict: p.status.verdict, reasons: p.status.reasons, checks: p.status.checks },
+    predictive: { status: p.predictive.status, rulPct: p.predictive.rulPct, rivetCycleCount: p.predictive.rivetCycleCount, vibrationProxy: p.predictive.vibrationProxy, cycleStability: p.predictive.cycleStability, forecast: p.predictive.forecastMsg },
+    optimization: { throughputPerHr: p.optimization.throughputPerHr, idleTimePct: p.optimization.idleTimePct, energyPerCycleWh: p.optimization.energyPerCycleWh, setpoints: p.optimization.setpoints, rationale: p.optimization.rationale },
+    anomaly: { status: p.anomaly.status, summary: p.anomaly.summary, anomalies: p.anomaly.anomalies, security: p.anomaly.security },
+    sop: { stage: p.sop.stage, decision: p.sop.decision },
+  };
+
   return {
     meta: {
       mode: s.mode,
@@ -59,6 +71,7 @@ export function buildAiContext(s: ScadaSnapshot): Record<string, unknown> {
     unavailable,
     cobot,
     conveyor,
+    scada40,
   };
 }
 

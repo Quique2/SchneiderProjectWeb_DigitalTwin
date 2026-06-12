@@ -34,6 +34,30 @@ export const SCADA_THRESHOLDS = {
 
 export type ScadaThresholds = typeof SCADA_THRESHOLDS;
 
+// ── SCADA 4.0 / AI (5 pilares) — config ADITIVA (no toca SCADA_THRESHOLDS) ──
+// Todo se deriva de señales reales que el SCADA ya recibe/guarda. Tuning aquí.
+export const SCADA_AI_CONFIG = {
+  // Predictivo (Pilar 2) — vida nominal del actuador de remachado (ciclos).
+  rivetActuatorLifeCycles: 50000,
+  rulWarnPct: 25,           // RUL < 25% → WARNING
+  rulCriticalPct: 8,        // RUL < 8%  → NO_PASS
+  vibrationWarn: 0.6,       // proxy (σ de corrientes de joints, A) > umbral → WARNING
+  vibrationCritical: 1.2,
+  cycleCvWarn: 0.18,        // coef. de variación de cycleTimes > umbral → DEGRADING
+
+  // Optimización (Pilar 3) — setpoints nominales del proceso.
+  targetCobotSpeedPct: 85,
+  rivetingDelayS: 30,       // remachado fijo del proceso (NO cambiar la FSM)
+  inspectionTimingS: 5,
+
+  // Anomalía (Pilar 1) — detección por baseline (z-score).
+  anomalyZWarn: 2.0,        // |z| > 2 → anomalía WARNING
+  anomalyZCritical: 3.0,    // |z| > 3 → anomalía fuerte
+  baselineMinSamples: 5,    // mínimo de muestras para fijar baseline
+} as const;
+
+export type ScadaAiConfig = typeof SCADA_AI_CONFIG;
+
 // Endpoint del asistente de IA (backend con la OpenAI key). El frontend NUNCA ve
 // la key: sólo hace POST aquí. Sin backend → aiClient cae a un mock local seguro.
 export const SCADA_AI_ENDPOINT =

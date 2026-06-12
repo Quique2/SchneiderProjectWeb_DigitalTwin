@@ -12,17 +12,30 @@ import React, { useEffect, useState } from 'react';
 import { useScada } from './useScada';
 import { useCobotTelemetry, useAiBackendHealth } from './cobotTelemetrySource';
 import { requestAiDiagnosis, localMockDiagnosis } from './aiClient';
+import { recoverCollisionsAndErrors } from './cobotRecoveryClient';
 import type {
   Alarm, AiDiagnosis, ScadaSnapshot, Severity, Tag, DataSource, IoSignal,
-  CobotHealthSnap, MaintItem, AiBackendHealth, MaintLogEntry,
+  CobotHealthSnap, MaintItem, AiBackendHealth, MaintLogEntry, ProductionSnap,
 } from './scadaTypes';
+import { useScadaTheme } from './shared/useScadaTheme';
+import { cssVars } from './shared/scadaTheme';
+import ScadaThemeToggle from './shared/ScadaThemeToggle';
+import ScadaIoPanel from './shared/ScadaIoPanel';
+import type { ScadaTileData, SignalQuality } from './shared/ScadaSignalTile';
+import { derivePillars } from './ai/pillars';
+import PassNoPassBanner from './ai/PassNoPassBanner';
+import Scada40Panel from './ai/Scada40Panel';
+import CafiWindows from './ai/CafiWindows';
 
-// ── Tokens (industrial brutalist · dark control-room) ────────────────────────
+// ── Tokens (industrial · control-room). La paleta estructural usa CSS variables
+// (--sc-*) que el root de ScadaView inyecta según el tema (light/dark). Los colores
+// semánticos (verde/rojo/ámbar) se mantienen: leen bien en ambos temas. ──
 const MONO = '"Space Mono","JetBrains Mono","IBM Plex Mono","Courier New",monospace';
 const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif';
 const C = {
-  bg: '#060d16', panel: '#0c1622', panel2: '#0a1320', border: '#1b2c40', borderSoft: '#132131',
-  text: '#e6eef7', muted: '#7d92a8', dim: '#54677c',
+  bg: 'var(--sc-bg)', panel: 'var(--sc-surface)', panel2: 'var(--sc-surface-soft)',
+  border: 'var(--sc-border)', borderSoft: 'var(--sc-border-soft)',
+  text: 'var(--sc-text)', muted: 'var(--sc-muted)', dim: 'var(--sc-dim)',
 };
 const SRC: Record<DataSource, string> = { REAL: '#3DCD58', STALE: '#E0A82E', NOT_CONNECTED: '#56697E', CONFIGURED: '#38BDF8', DEMO: '#2DD4BF' };
 const SEV: Record<Severity, string> = { INFO: '#38BDF8', WARNING: '#FBBF24', ALARM: '#FB7185', CRITICAL: '#EF4444' };
@@ -62,9 +75,11 @@ async function sendToAdminEmail(text: string, alarmCode: string | null): Promise
   return { via: 'gmail' };
 }
 
-type Section = 'overview' | 'io' | 'alarms' | 'cobot' | 'trends';
+type Section = 'overview' | 'scada40' | 'cafis' | 'io' | 'alarms' | 'cobot' | 'trends';
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'scada40', label: 'SCADA 4.0 (AI)' },
+  { id: 'cafis', label: 'CAFIs' },
   { id: 'io', label: 'I/O Real' },
   { id: 'alarms', label: 'Alarmas & Mant.' },
   { id: 'cobot', label: 'Cobot Health' },
@@ -72,12 +87,14 @@ const SECTIONS: { id: Section; label: string }[] = [
 ];
 
 export default function ScadaView() {
-  const { snapshot, engine, acknowledge, acknowledgeAll, resolve, addComment } = useScada();
+  const { tokens: theme } = useScadaTheme();
+  const { snapshot, engine, acknowledge, acknowledgeAll, resolve, addComment, confirmCafiCollection } = useScada();
   const cobot = useCobotTelemetry();
   const aiHealth = useAiBackendHealth();
   useEffect(() => { engine.setCobotTelemetry(cobot.telemetry); }, [cobot.telemetry, engine]);
   useEffect(() => { engine.setConnected(cobot.connected); }, [cobot.connected, engine]);
   useEffect(() => { engine.setPlcIo(cobot.io); }, [cobot.io, engine]);
+  useEffect(() => { engine.setProduction(cobot.production); }, [cobot.production, engine]);
 
   const [demo, setDemo] = useState(false);
   useEffect(() => { engine.setDemo(demo); }, [demo, engine]);
@@ -98,16 +115,22 @@ export default function ScadaView() {
   };
 
   const activeAlarms = snapshot.alarms.filter((a) => a.active);
+  // SCADA 4.0 / AI: deriva los 5 pilares + PASS/NO PASS desde el snapshot real.
+  const pillars = derivePillars(snapshot);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, fontFamily: SANS, overflow: 'hidden' }}>
+    <div style={{ ...cssVars(theme), height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, fontFamily: SANS, overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: `1px solid ${C.border}`, background: C.panel2 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase' }}>SCADA · Celda de Remachado</div>
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: `1px solid ${C.border}`, background: C.panel2, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.4 }}>SCADA · Celda de Remachado</div>
+          <div style={{ fontSize: 10.5, color: C.muted, letterSpacing: 0.4 }}>Real-time cell telemetry · <span style={{ color: SRC.REAL, fontWeight: 700 }}>REAL MODE</span></div>
+        </div>
         <PlantPill state={snapshot.overview.plantState} />
         <div style={{ flex: 1 }} />
         <LinkChip label="Cobot" link={snapshot.cobotLink} />
-        <LinkChip label="PLC I/O" link={snapshot.plcLink} />
+        <LinkChip label="Sistema I/O" link={snapshot.plcLink} />
+        <ScadaThemeToggle />
         <DemoToggle on={demo} onToggle={() => setDemo((v) => !v)} />
         <button onClick={runAi} style={primaryBtn} title="Analizar el estado actual con el Maintenance Copilot (OpenAI / mock local)">Analizar con IA</button>
       </div>
@@ -127,10 +150,22 @@ export default function ScadaView() {
         <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 20 }}>
           <div style={{ maxWidth: MAXW, margin: '0 auto', width: '100%' }}>
             {showTags ? <TagTable tags={snapshot.tags} />
-              : section === 'overview' ? <Overview s={snapshot} ai={ai} aiHealth={aiHealth} />
+              : section === 'overview' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <PassNoPassBanner status={pillars.status} />
+                  <Overview s={snapshot} ai={ai} aiHealth={aiHealth} />
+                </div>
+              )
+              : section === 'scada40' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <PassNoPassBanner status={pillars.status} />
+                  <Scada40Panel pillars={pillars} />
+                </div>
+              )
+              : section === 'cafis' ? <CafiWindows cafis={snapshot.cafis} total={snapshot.overview.cafiTotal} accepted={snapshot.overview.cafiAccepted} rejected={snapshot.overview.cafiRejected} inProcess={snapshot.overview.cafiInProcess} mode="real" overCapacity={snapshot.overview.cafiOverCapacity} onConfirmCollection={confirmCafiCollection} />
               : section === 'io' ? <IoMatrix s={snapshot} />
               : section === 'alarms' ? <AlarmsMaint s={snapshot} acknowledge={acknowledge} acknowledgeAll={acknowledgeAll} resolve={resolve} addComment={addComment} adminDraft={adminDraft} setAdminDraft={setAdminDraft} />
-              : section === 'cobot' ? <CobotHealth c={snapshot.cobot} />
+              : section === 'cobot' ? <CobotHealth c={snapshot.cobot} gatewayUrl={cobot.url} online={cobot.connected} />
               : <Trends s={snapshot} />}
           </div>
         </div>
@@ -164,23 +199,23 @@ function Overview({ s, ai, aiHealth }: { s: ScadaSnapshot; ai: AiDiagnosis | nul
   const metrics: MetricDef[] = [
     { label: '1 · Estado de celda', value: o.plantState, color: plantCol(o.plantState) },
     { label: '2 · Etapa actual', value: o.stage ?? 'N/D', color: o.stage ? C.text : C.dim, text: true,
-      sub: o.stage ? undefined : 'sin enlace FSM' },
+      sub: o.stage ? (o.stageEstimated ? 'estimado por I/O real' : undefined) : 'sin señal real' },
     { label: '3 · Progreso del ciclo', value: o.cycleStep !== null && o.cycleTotal !== null ? `${o.cycleStep}/${o.cycleTotal}` : 'N/D',
       color: o.cycleStep !== null ? C.text : C.dim, progress: (o.cycleStep !== null && o.cycleTotal) ? o.cycleStep / o.cycleTotal : null,
-      sub: o.cycleStep === null ? 'sin enlace FSM' : undefined },
+      sub: o.cycleStep === null ? 'sin señal real' : (o.stageEstimated ? 'estimado por I/O real' : undefined) },
     { label: '4 · Alarmas activas', value: String(o.activeAlarms), color: o.activeAlarms ? (o.worstSeverity ? SEV[o.worstSeverity] : SEV.ALARM) : SRC.REAL,
       sub: o.activeAlarms ? `peor: ${o.worstSeverity}` : 'ninguna' },
     { label: '5 · Tiempo de ciclo', value: o.cycleTimeS !== null ? `${o.cycleTimeS}s` : 'N/D', color: o.cycleTimeS !== null ? C.text : C.dim,
-      sub: o.cycleTimeS === null ? 'sin enlace FSM' : undefined },
-    { label: '6 · Prom. 10 ciclos', value: o.avgCycleTimeS !== null ? `${o.avgCycleTimeS}s` : 'N/A', color: o.avgCycleTimeS !== null ? C.text : C.dim,
-      sub: o.avgCycleTimeS === null ? 'sin historial' : undefined },
+      sub: o.cycleTimeS === null ? 'sin señal real' : (o.cycleRunning ? 'en curso' : 'último ciclo') },
+    { label: '6 · Prom. 10 ciclos', value: o.avgCycleTimeS !== null ? `${o.avgCycleTimeS}s` : '—', color: o.avgCycleTimeS !== null ? C.text : C.dim,
+      sub: o.avgCycleTimeS === null ? 'sin historial' : `${s.history.cycleTimes.length} ciclo${s.history.cycleTimes.length === 1 ? '' : 's'}` },
     { label: '7 · Conveyor ON-time', value: conv.signalAvailable ? `${conv.onTimeS}s` : 'NO CONEC.', text: !conv.signalAvailable,
       color: !conv.signalAvailable ? C.dim : conv.warning === 'ALARM' ? SEV.ALARM : conv.warning === 'WARNING' ? SEV.WARNING : SRC.REAL,
       sub: conv.signalAvailable ? undefined : 'motor signal' },
     { label: '8 · Joint máx. temp', value: cb.maxJointTempC !== null ? `${cb.maxJointTempC}°C` : 'N/D', color: tempCol(cb.maxJointTempC),
       sub: cb.maxJointTempJoint !== null ? `J${cb.maxJointTempJoint}` : undefined },
     { label: '9 · Controlador', value: cb.controllerTempC !== null ? `${cb.controllerTempC}°C` : 'N/D', color: tempCol(cb.controllerTempC) },
-    { label: '10 · PLC I/O', value: SRC_LABEL[s.plcLink.state], color: SRC[s.plcLink.state], text: true,
+    { label: '10 · Sistema I/O', value: SRC_LABEL[s.plcLink.state], color: SRC[s.plcLink.state], text: true,
       sub: s.plcLink.ageS !== null ? `${s.plcLink.ageS}s` : 'sin frame' },
   ];
 
@@ -190,12 +225,18 @@ function Overview({ s, ai, aiHealth }: { s: ScadaSnapshot; ai: AiDiagnosis | nul
         {metrics.map((m) => <MetricTile key={m.label} m={m} />)}
       </div>
 
+      {o.stageEstimated && s.mode === 'REAL' && (
+        <Banner color={C.dim} text="Etapa, progreso y tiempo de ciclo estimados por las señales reales de I/O (el gateway aún no publica un bloque FSM)." />
+      )}
+
       {o.conveyorWarning && <Banner color={conv.warning === 'ALARM' ? SEV.ALARM : SEV.WARNING} text={o.conveyorWarning} />}
+
+      <ProductionPanel p={s.production} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
         <Panel title="Comunicaciones">
           <KV k="Cobot WS" v={<SourceBadge src={s.cobotLink.state} />} sub={s.cobotLink.ageS !== null ? `último frame: ${s.cobotLink.ageS}s` : 'sin frame'} />
-          <KV k="PLC I/O" v={<SourceBadge src={s.plcLink.state} />} sub={s.plcLink.ageS !== null ? `último frame: ${s.plcLink.ageS}s` : 'esperando telemetry.io'} />
+          <KV k="Sistema I/O" v={<SourceBadge src={s.plcLink.state} />} sub={s.plcLink.ageS !== null ? `último frame: ${s.plcLink.ageS}s` : 'esperando telemetry.io'} />
           <KV k="Backend IA" v={<AiHealthBadge h={aiHealth} />} />
           <KV k="Modo" v={<SourceBadge src={s.mode === 'DEMO' ? 'DEMO' : 'REAL'} />} />
         </Panel>
@@ -218,7 +259,7 @@ function Overview({ s, ai, aiHealth }: { s: ScadaSnapshot; ai: AiDiagnosis | nul
       </div>
 
       {!o.plcConnected && s.mode === 'REAL' && (
-        <Banner color={C.dim} text="PLC I/O no conectado — esperando telemetry.io del gateway. Conveyor, mesa, gripper, fixtures y cámara se mostrarán cuando el gateway publique el bloque io." />
+        <Banner color={C.dim} text="Sistema I/O no conectado — esperando telemetry.io del gateway. Conveyor, mesa, gripper, fixtures y cámara se mostrarán cuando el gateway publique el bloque io." />
       )}
     </div>
   );
@@ -241,50 +282,72 @@ function MetricTile({ m }: { m: MetricDef }) {
   );
 }
 
-// ── I/O Real (matriz) ─────────────────────────────────────────────────────────
-function IoMatrix({ s }: { s: ScadaSnapshot }) {
-  const cobotSig = s.io.filter((x) => x.group === 'COBOT' && x.source !== 'NOT_CONNECTED');
-  const plcSig = s.io.filter((x) => x.group === 'PLC' && x.source !== 'NOT_CONNECTED');
-  const off = s.io.filter((x) => x.source === 'NOT_CONNECTED');
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
-      <IoGroup title={`Cobot · señales reales (${cobotSig.length})`} rows={cobotSig} empty="Cobot no conectado — sin señales en vivo." />
-      <IoGroup title={`PLC I/O · señales reales (${plcSig.length})`} rows={plcSig}
-        empty="PLC I/O no conectado. Para activar señales reales, agregar telemetry.io al gateway de la RPi." />
-      {off.length > 0 && <IoGroup title={`No conectado (${off.length})`} rows={off} dim />}
+// Producción REAL del gateway (COUNT.* + CAMERA_STATUS del bloque hmi). Real-only:
+// si no llega, muestra N/A + NO CONECTADO; en DEMO sale marcado DEMO.
+function ProductionPanel({ p }: { p: ProductionSnap }) {
+  const stat = (label: string, value: string, color: string) => (
+    <div style={{ background: C.panel2, padding: '12px 14px', border: `1px solid ${C.borderSoft}`, borderRadius: 2, flex: 1, minWidth: 120 }}>
+      <div style={{ ...labelStyle, fontSize: 9 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: MONO, color, marginTop: 4, lineHeight: 1 }}>{value}</div>
     </div>
   );
-}
-
-function IoGroup({ title, rows, empty, dim }: { title: string; rows: IoSignal[]; empty?: string; dim?: boolean }) {
+  const na = (v: number | null) => (v === null ? 'N/A' : String(v));
+  const col = p.available ? C.text : C.dim;
   return (
-    <Panel title={title}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.9fr 0.8fr 0.7fr', gap: 6, ...labelStyle, padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
-        <div>Signal</div><div>Value</div><div>Source</div><div>Last update</div><div>Status</div>
-      </div>
-      {rows.length === 0 && empty && <Empty>{empty}</Empty>}
-      {rows.map((r) => (
-        <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.9fr 0.8fr 0.7fr', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: `1px solid ${C.borderSoft}`, opacity: dim ? 0.6 : 1 }}>
-          <div><span style={{ fontFamily: MONO, fontSize: 11, color: C.text }}>{r.label}</span><div style={{ fontFamily: MONO, fontSize: 9.5, color: C.dim }}>{r.key}</div></div>
-          <div>{ioValue(r)}</div>
-          <div><SourceBadge src={r.source} /></div>
-          <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>{r.ageS === null ? '—' : `${r.ageS}s`}</div>
-          <div>{ioStatus(r)}</div>
+    <Panel title="Producción (real · gateway)">
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        {stat('Total', na(p.total), col)}
+        {stat('Aceptados', na(p.accepted), p.accepted !== null ? SRC.REAL : C.dim)}
+        {stat('Rechazados', na(p.rejected), p.rejected ? SEV.ALARM : p.rejected === 0 ? SRC.REAL : C.dim)}
+        {stat('Yield', p.yieldPct !== null ? `${p.yieldPct}%` : 'N/A', p.yieldPct === null ? C.dim : p.yieldPct >= 95 ? SRC.REAL : p.yieldPct >= 85 ? SEV.WARNING : SEV.ALARM)}
+        <div style={{ background: C.panel2, padding: '12px 14px', border: `1px solid ${C.borderSoft}`, borderRadius: 2, flex: 1, minWidth: 120, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ ...labelStyle, fontSize: 9 }}>Cámara</div>
+          <div style={{ marginTop: 6 }}><CameraChip status={p.cameraStatus} /></div>
         </div>
-      ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+        <SourceBadge src={p.source} />
+        <span style={{ fontSize: 9.5, color: C.dim }}>
+          {p.available ? 'Contadores y estado de cámara del pipeline real del gateway (COUNT.* / CAMERA_STATUS).'
+            : 'Esperando bloque hmi del gateway (COUNT.* / CAMERA_STATUS).'}
+        </span>
+      </div>
     </Panel>
   );
 }
-
-function ioValue(r: IoSignal) {
-  if (r.value === null) return <span style={{ color: C.dim, fontFamily: MONO, fontSize: 11 }}>N/A</span>;
-  if (typeof r.value === 'boolean') return <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><Dot on={r.value} /><span style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>{r.value ? 'ON' : 'OFF'}</span></span>;
-  return <span style={{ fontFamily: MONO, fontSize: 11, color: C.text }}>{String(r.value)}</span>;
+function CameraChip({ status }: { status: 'READY' | 'PASS' | 'FAIL' | null }) {
+  if (status === null) return <Chip color={C.dim} text="N/A" />;
+  const col = status === 'PASS' ? SRC.REAL : status === 'FAIL' ? SEV.ALARM : SRC.CONFIGURED;
+  return <Chip color={col} text={status} />;
 }
-function ioStatus(r: IoSignal) {
-  if (r.source === 'NOT_CONNECTED' || r.value === null) return <Chip color={C.dim} text="N/A" />;
-  if (r.source === 'STALE') return <Chip color={SRC.STALE} text="STALE" />;
-  return <Chip color={SRC.REAL} text="OK" />;
+
+// ── I/O Real (matriz) ─────────────────────────────────────────────────────────
+function ioToTile(r: IoSignal): ScadaTileData {
+  const quality: SignalQuality = r.source === 'STALE' ? 'stale'
+    : r.source === 'NOT_CONNECTED' ? 'not_connected'
+    : r.value === null ? 'null' : 'real';
+  return {
+    label: r.label,
+    signalKey: r.key,                    // key canónica intacta (debug)
+    value: r.value,
+    kind: r.kind === 'OUTPUT' ? 'output' : 'input',
+    quality,
+  };
+}
+
+function IoMatrix({ s }: { s: ScadaSnapshot }) {
+  const connected = s.io.filter((x) => x.source !== 'NOT_CONNECTED').length;
+  const tiles = s.io.map(ioToTile);
+  return (
+    <ScadaIoPanel
+      tiles={tiles}
+      mode="real"
+      title="I/O Real — Sistema & Cobot"
+      subtitle={connected > 0
+        ? `${connected} señal(es) en vivo desde telemetry.io / cobot. Las no conectadas se muestran en gris.`
+        : 'Sistema I/O no conectado. Agregar telemetry.io al gateway de la RPi para activar señales reales.'}
+    />
+  );
 }
 
 // ── Alarmas & Mantenimiento ────────────────────────────────────────────────────
@@ -452,8 +515,58 @@ function MaintRow({ it }: { it: MaintItem }) {
   );
 }
 
+// Recuperación del cobot: reinicia colisiones y errores (POST collision_recover +
+// clear_error al gateway). Única acción del SCADA que envía comandos → exige confirmar.
+function CobotRecovery({ url, online, demo, faulted }: { url: string; online: boolean; demo: boolean; faulted: boolean }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const blocked = !online || demo;
+
+  const run = async () => {
+    setBusy(true); setArmed(false); setResult(null);
+    const r = await recoverCollisionsAndErrors(url);
+    setResult({ ok: r.ok, msg: r.message });
+    setBusy(false);
+    window.setTimeout(() => setResult(null), 9000);
+  };
+
+  return (
+    <Panel title="Recuperación del cobot">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 11.5, color: C.text }}>Reiniciar colisiones y errores</div>
+          <div style={{ fontSize: 9.5, color: C.dim, marginTop: 2 }}>
+            Envía <code>collision_recover</code> + <code>clear_error</code> al gateway. No mueve el robot; limpia el estado de falla.
+          </div>
+        </div>
+        {faulted && !demo && <Chip color={SEV.ALARM} text="FALLA ACTIVA" />}
+        {!armed ? (
+          <button onClick={() => { setResult(null); setArmed(true); }} disabled={blocked || busy}
+            title={demo ? 'No se envía en modo DEMO' : !online ? 'Cobot no conectado' : 'Reiniciar colisiones y errores'}
+            style={miniBtn(blocked || busy, SEV.WARNING)}>
+            {busy ? 'Enviando…' : 'Reiniciar colisiones/errores'}
+          </button>
+        ) : (
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 10.5, color: SEV.WARNING, fontFamily: MONO }}>¿Confirmar?</span>
+            <button onClick={run} style={miniBtn(false, SEV.ALARM)}>Sí, reiniciar</button>
+            <button onClick={() => setArmed(false)} style={miniBtn(false)}>Cancelar</button>
+          </span>
+        )}
+      </div>
+      {demo && <div style={{ fontSize: 9.5, color: SRC.DEMO, marginTop: 8, fontFamily: MONO }}>Modo DEMO: la acción está deshabilitada (no se envía nada real).</div>}
+      {result && (
+        <div style={{ fontSize: 10.5, marginTop: 8, fontFamily: MONO, color: result.ok ? SRC.REAL : SEV.ALARM }}>
+          {result.ok ? '✓ ' : '⛔ '}{result.msg}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 // ── Cobot Health ────────────────────────────────────────────────────────────────
-function CobotHealth({ c }: { c: CobotHealthSnap }) {
+function CobotHealth({ c, gatewayUrl, online }: { c: CobotHealthSnap; gatewayUrl: string; online: boolean }) {
   if (!c.available) return <Banner color={C.dim} text="Cobot no conectado — sin telemetría del gateway (/ws/cobot). Conecta el robot para ver Cobot Health en vivo." />;
   const out = (t: number) => t > 70 ? SEV.CRITICAL : t > 60 ? SEV.ALARM : t > 50 ? SEV.WARNING : null;
   return (
@@ -475,6 +588,13 @@ function CobotHealth({ c }: { c: CobotHealthSnap }) {
         <Chip color={c.flags.softLimit ? SEV.WARNING : C.dim} text={`soft limit: ${c.flags.softLimit ? 'sí' : 'no'}`} />
         <Chip color={c.flags.motionErr ? SEV.ALARM : C.dim} text={`motion err: ${c.flags.motionErr}`} />
       </div>
+
+      <CobotRecovery
+        url={gatewayUrl}
+        online={online}
+        demo={c.source === 'DEMO'}
+        faulted={c.flags.collision || c.flags.motionErr !== 0 || c.flags.protectiveStop}
+      />
 
       <Panel title="Articulaciones (J1–J6)">
         <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 6, ...labelStyle, padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
@@ -815,7 +935,7 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11.5, color: C.dim, padding: '8px 0' }}>{children}</div>;
 }
 
-const primaryBtn: React.CSSProperties = { background: '#10324a', color: '#dbeafe', border: `1px solid ${SRC.CONFIGURED}55`, borderRadius: 2, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'background 180ms' };
+const primaryBtn: React.CSSProperties = { background: 'var(--sc-btn-bg)', color: 'var(--sc-btn-text)', border: '1px solid var(--sc-btn-border)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'background 180ms' };
 function miniBtn(disabled: boolean, color = SRC.CONFIGURED): React.CSSProperties {
   return { background: 'transparent', color: disabled ? C.dim : color, border: `1px solid ${disabled ? C.border : color + '66'}`, borderRadius: 2, padding: '4px 7px', fontSize: 9.5, cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: MONO, opacity: disabled ? 0.6 : 1 };
 }
@@ -823,7 +943,7 @@ function tabBtn(active: boolean): React.CSSProperties {
   return { background: 'transparent', color: active ? C.text : C.muted, border: 'none', borderBottom: active ? `2px solid ${SRC.REAL}` : '2px solid transparent', padding: '10px 16px', fontSize: 11, fontWeight: active ? 700 : 500, letterSpacing: 0.8, textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' };
 }
 function ghostBtn(active: boolean): React.CSSProperties {
-  return { background: active ? '#13283c' : 'transparent', color: active ? C.text : C.muted, border: `1px solid ${C.border}`, borderRadius: 2, padding: '5px 10px', fontSize: 10.5, cursor: 'pointer', fontFamily: MONO, letterSpacing: 0.4 };
+  return { background: active ? 'var(--sc-ghost-active)' : 'transparent', color: active ? C.text : C.muted, border: `1px solid ${C.border}`, borderRadius: 8, padding: '5px 10px', fontSize: 10.5, cursor: 'pointer', fontFamily: MONO, letterSpacing: 0.4 };
 }
 function fmtVal(v: number | boolean | string | null): string {
   if (v === null) return 'N/A';

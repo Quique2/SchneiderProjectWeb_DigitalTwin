@@ -15,9 +15,14 @@
 import { SCADA_THRESHOLDS } from './scadaConfig';
 import type {
   Alarm, ScadaSnapshot, Severity, Tag, DataSource, IoSignal, CobotHealthSnap,
-  MaintItem, MaintChecklistItem, ScadaMode, LinkState, MaintLogEntry, ScadaHistory,
+  MaintItem, MaintChecklistItem, ScadaMode, LinkState, MaintLogEntry, ScadaHistory, ProductionSnap,
 } from './scadaTypes';
-import type { ScadaIoFrame } from './cobotTelemetrySource';
+import type { ScadaIoFrame, ProductionRaw } from './cobotTelemetrySource';
+import {
+  inferStage, inferCellState, hasCycleActivity, CYCLE_TOTAL,
+  type CobotLite, type DerivedCellState, type CycleSource,
+} from './cycleDerivation';
+import { createCafiTracker, CAFI_CAPACITY, type CafiIo, type CafiTrackerSnap } from './ai/cafiTracker';
 
 const T = SCADA_THRESHOLDS;
 const HIST_MAX = 120;   // puntos de temperatura (≈ últimos 120 s a 1 Hz)
@@ -25,6 +30,56 @@ const CONV_MAX = 10;    // últimos 10 ON-times del conveyor
 const CYCLE_MAX = 10;   // últimos 10 tiempos de ciclo
 const DEMO_CYCLE_DUR = 48;   // duración nominal de un ciclo en modo DEMO (s)
 const DEMO_CYCLE_STEPS = 12; // pasos totales del ciclo en modo DEMO
+
+// Derivación de ciclo en REAL (CAMBIO 6): un ciclo válido dura entre MIN y MAX.
+const MIN_CYCLE_S = 5;     // descarta picos de ruido (< 5 s no es un ciclo)
+const MAX_CYCLE_S = 600;   // guardia: si pasa de 10 min, se asume señal perdida → cierra sin registrar
+const END_HOLD_S = 1.0;    // la condición de fin debe sostenerse este tiempo
+
+// Persistencia ligera (CAMBIO 9): historial real de ciclos + contadores PASS/FAIL.
+const LS_KEY = 'scada_cycle_v1';
+interface PersistedCycle { realCycleTimes: number[]; acceptedCount: number; rejectedCount: number; lastCycleTime: number | null; }
+function loadPersisted(): PersistedCycle {
+  const def: PersistedCycle = { realCycleTimes: [], acceptedCount: 0, rejectedCount: 0, lastCycleTime: null };
+  try {
+    if (typeof localStorage === 'undefined') return def;
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return def;
+    const p = JSON.parse(raw) as Partial<PersistedCycle>;
+    return {
+      realCycleTimes: Array.isArray(p.realCycleTimes) ? p.realCycleTimes.filter((x) => typeof x === 'number').slice(-CYCLE_MAX) : [],
+      acceptedCount: typeof p.acceptedCount === 'number' ? p.acceptedCount : 0,
+      rejectedCount: typeof p.rejectedCount === 'number' ? p.rejectedCount : 0,
+      lastCycleTime: typeof p.lastCycleTime === 'number' ? p.lastCycleTime : null,
+    };
+  } catch { return def; }
+}
+function savePersisted(p: PersistedCycle): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch { /* storage no disponible */ }
+}
+
+// Persistencia del tracker de CAFI (contador + ciclos por pieza).
+const CAFI_LS_KEY = 'scada_cafi_v1';
+interface CafiPersist { total: number; accepted: number; rejected: number; cycleTimes: number[]; lastCycleTimeS: number | null; }
+function loadCafi(): CafiPersist {
+  const def: CafiPersist = { total: 0, accepted: 0, rejected: 0, cycleTimes: [], lastCycleTimeS: null };
+  try {
+    if (typeof localStorage === 'undefined') return def;
+    const raw = localStorage.getItem(CAFI_LS_KEY);
+    if (!raw) return def;
+    const p = JSON.parse(raw) as Partial<CafiPersist>;
+    return {
+      total: typeof p.total === 'number' ? p.total : 0,
+      accepted: typeof p.accepted === 'number' ? p.accepted : 0,
+      rejected: typeof p.rejected === 'number' ? p.rejected : 0,
+      cycleTimes: Array.isArray(p.cycleTimes) ? p.cycleTimes.filter((x) => typeof x === 'number').slice(-CYCLE_MAX) : [],
+      lastCycleTimeS: typeof p.lastCycleTimeS === 'number' ? p.lastCycleTimeS : null,
+    };
+  } catch { return def; }
+}
+function saveCafi(s: CafiTrackerSnap): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(CAFI_LS_KEY, JSON.stringify({ total: s.total, accepted: s.accepted, rejected: s.rejected, cycleTimes: s.cycleTimes, lastCycleTimeS: s.lastCycleTimeS })); } catch { /* noop */ }
+}
 
 // Telemetría real del cobot (subconjunto que consume el motor).
 export interface CobotTelemetryInput {
@@ -65,6 +120,11 @@ interface EngineState {
   plcAgeS: number;
   plcEverSeen: boolean;
 
+  // ── producción (telemetry.hmi: COUNT.* + CAMERA_STATUS) ──
+  prod: ProductionRaw | null;
+  prodAgeS: number;
+  prodEverSeen: boolean;
+
   // ── conveyor on-time ──
   convOnTimeS: number;
   prevConvOn: boolean | null;
@@ -74,9 +134,27 @@ interface EngineState {
   conveyorOnTimeHist: { t: number; v: number }[];
   controllerTemps: { t: number; v: number }[];
   jointTemps: { t: number; temps: number[] }[];
-  cycleTimes: number[];          // tiempos de ciclo (últimos 10) — sólo se llena en DEMO
+  cycleTimes: number[];          // tiempos de ciclo a MOSTRAR (DEMO: sintético / REAL: realCycleTimes)
   demoLastCycleNo: number;       // nº de ciclo DEMO ya contabilizado (para el flanco)
   lastHistSec: number;
+
+  // ── derivación de ciclo en REAL (CAMBIO 1/6/8) ──
+  realCycleTimes: number[];      // últimos 10 tiempos de ciclo REALES (persistido)
+  acceptedCount: number;         // rising-edge de I_CAMERA_PASS (persistido)
+  rejectedCount: number;         // rising-edge de I_CAMERA_FAIL (persistido)
+  lastCycleTime: number | null;  // duración del último ciclo REAL (persistido)
+  cycleRunning: boolean;         // hay un ciclo en curso
+  cycleStartedAt: number | null; // reloj interno al arrancar el ciclo (s)
+  currentCycleElapsed: number;   // tiempo transcurrido del ciclo en curso (s)
+  classifiedThisCycle: boolean;  // ya pasó por clasificación (PASS/FAIL) este ciclo
+  idleHoldS: number;             // tiempo sosteniendo la condición de fin
+  prevActivity: boolean;         // actividad de ciclo en el tick anterior (flanco de inicio)
+  prevCamPass: boolean | null;   // valor previo de camera_pass (rising-edge)
+  prevCamFail: boolean | null;   // valor previo de camera_fail (rising-edge)
+  derived: { cellState: DerivedCellState; stage: string; step: number; source: CycleSource } | null;
+
+  // ── seguimiento por CAFI (inferido) ──
+  cafiSnap: CafiTrackerSnap;
 
   // ── alarmas + log mantenimiento ──
   alarms: Map<string, Alarm>;
@@ -91,23 +169,56 @@ export interface ScadaEngine {
   acknowledgeAll: (by?: string) => void;
   resolve: (id: string, by?: string) => { ok: boolean; reason?: string };
   addComment: (text: string, alarmCode?: string | null, by?: string) => void;
+  confirmCafiCollection: (by?: string) => void;
   setCobotTelemetry: (t: CobotTelemetryInput | null) => void;
   setConnected: (connected: boolean) => void;
   setPlcIo: (io: ScadaIoFrame | null) => void;
+  setProduction: (p: ProductionRaw | null) => void;
   setDemo: (on: boolean) => void;
   thresholds: typeof SCADA_THRESHOLDS;
 }
 
 export function createScadaEngine(): ScadaEngine {
+  const persisted = loadPersisted();
+  let cafiTracker = createCafiTracker(loadCafi());
   const s: EngineState = {
     clock: 0, mode: 'REAL',
     cobotConnected: false, cobotData: null, cobotAgeS: Infinity, cobotEverSeen: false,
     io: null, plcAgeS: Infinity, plcEverSeen: false,
+    prod: null, prodAgeS: Infinity, prodEverSeen: false,
     convOnTimeS: 0, prevConvOn: null,
     conveyorOnDurations: [], conveyorOnTimeHist: [], controllerTemps: [], jointTemps: [],
-    cycleTimes: [], demoLastCycleNo: -1, lastHistSec: -1,
+    // En REAL el array a mostrar arranca con el historial persistido (CAMBIO 9).
+    cycleTimes: [...persisted.realCycleTimes], demoLastCycleNo: -1, lastHistSec: -1,
+    realCycleTimes: [...persisted.realCycleTimes],
+    acceptedCount: persisted.acceptedCount, rejectedCount: persisted.rejectedCount,
+    lastCycleTime: persisted.lastCycleTime,
+    cycleRunning: false, cycleStartedAt: null, currentCycleElapsed: 0,
+    classifiedThisCycle: false, idleHoldS: 0, prevActivity: false,
+    prevCamPass: null, prevCamFail: null, derived: null,
+    cafiSnap: cafiTracker.snapshot(),
     alarms: new Map(), maintenanceLog: [], logSeq: 0,
   };
+  let prevCafiTotal = s.cafiSnap.total, prevCafiAcc = s.cafiSnap.accepted, prevCafiRej = s.cafiSnap.rejected;
+  // Construye la entrada del tracker desde el io + cobot efectivos.
+  function toCafiIo(io: ScadaIoFrame | null, cb: CobotData | null): CafiIo {
+    return {
+      photoeye: io?.conveyor_photoeye ?? null,
+      conveyorMotor: io?.conveyor_motor_on ?? null,
+      cobotMoving: cb ? cb.moving : null,
+      tableMoving: io?.table_nema_moving ?? null,
+      rivetActive: io?.rivet_active ?? null,
+      cameraTrigger: io?.camera_trigger ?? null,
+      cameraPass: io?.camera_pass ?? null,
+      cameraFail: io?.camera_fail ?? null,
+      fixture1: io?.fixture_1_present ?? null,
+      fixture2: io?.fixture_2_present ?? null,
+    };
+  }
+  const persist = (): void => savePersisted({
+    realCycleTimes: s.realCycleTimes, acceptedCount: s.acceptedCount,
+    rejectedCount: s.rejectedCount, lastCycleTime: s.lastCycleTime,
+  });
 
   // ── Entradas reales ─────────────────────────────────────────────────────────
   function setConnected(connected: boolean): void { s.cobotConnected = connected; }
@@ -140,10 +251,20 @@ export function createScadaEngine(): ScadaEngine {
     s.io = io; s.plcAgeS = 0; s.plcEverSeen = true;
   }
 
+  function setProduction(p: ProductionRaw | null): void {
+    if (!p) return;
+    s.prod = p; s.prodAgeS = 0; s.prodEverSeen = true;
+  }
+
   function resetHistory(): void {
     s.convOnTimeS = 0; s.prevConvOn = null; s.lastHistSec = -1;
     s.conveyorOnDurations = []; s.conveyorOnTimeHist = []; s.controllerTemps = []; s.jointTemps = [];
     s.cycleTimes = []; s.demoLastCycleNo = -1;
+    s.prod = null; s.prodAgeS = Infinity; s.prodEverSeen = false;
+    // Resetea el timer de ciclo REAL en curso (el historial real persistido NO se borra).
+    s.cycleRunning = false; s.cycleStartedAt = null; s.currentCycleElapsed = 0;
+    s.classifiedThisCycle = false; s.idleHoldS = 0; s.prevActivity = false;
+    s.prevCamPass = null; s.prevCamFail = null; s.derived = null;
   }
 
   function setDemo(on: boolean): void {
@@ -152,7 +273,14 @@ export function createScadaEngine(): ScadaEngine {
     else { s.alarms.clear(); }
     resetHistory();   // los datos cambian de fuente → empezar series limpias
     // En DEMO sembramos algunos tiempos de ciclo para que el promedio/gráfica no salgan vacíos.
+    // En REAL restauramos el historial real persistido para que el promedio no salga vacío.
     if (on) { s.cycleTimes = [46, 49, 44, 47, 51]; s.demoLastCycleNo = -1; }
+    else { s.cycleTimes = [...s.realCycleTimes]; }
+    // CAFI tracker: en DEMO arranca limpio; en REAL recarga el histórico persistido
+    // (evita que las piezas sintéticas del DEMO contaminen el conteo real).
+    cafiTracker = on ? createCafiTracker() : createCafiTracker(loadCafi());
+    s.cafiSnap = cafiTracker.snapshot();
+    prevCafiTotal = s.cafiSnap.total; prevCafiAcc = s.cafiSnap.accepted; prevCafiRej = s.cafiSnap.rejected;
   }
 
   // ── Frescura de enlaces ───────────────────────────────────────────────────────
@@ -165,6 +293,11 @@ export function createScadaEngine(): ScadaEngine {
     if (s.mode === 'DEMO') return (s.plcEverSeen && s.plcAgeS <= T.staleAfterS) ? 'REAL' : 'DEMO';
     if (!s.plcEverSeen || !s.io) return 'NOT_CONNECTED';
     return s.plcAgeS > T.staleAfterS ? 'STALE' : 'REAL';
+  }
+  function prodSource(): DataSource {
+    if (s.mode === 'DEMO') return (s.prodEverSeen && s.prodAgeS <= T.staleAfterS) ? 'REAL' : 'DEMO';
+    if (!s.prodEverSeen || !s.prod) return 'NOT_CONNECTED';
+    return s.prodAgeS > T.staleAfterS ? 'STALE' : 'REAL';
   }
 
   // ── Demo sintético (determinista, marcado DEMO) ──────────────────────────────
@@ -186,6 +319,7 @@ export function createScadaEngine(): ScadaEngine {
       gripper_open: gripOpen,
       gripper_closed: !gripOpen,
       // outputs
+      gripper_off: gripOpen,
       conveyor_motor_on: sc < 70,
       camera_trigger: p > 7.9 && p < 8.15,
       table_nema_moving: (p > 5.8 && p < 6.6) || (p > 11.6),
@@ -219,6 +353,22 @@ export function createScadaEngine(): ScadaEngine {
     };
   }
 
+  function demoProduction(): ProductionRaw {
+    const total = Math.floor(s.clock / DEMO_CYCLE_DUR);   // un CAFI por ciclo demo
+    const rejected = Math.floor(total * 0.08);            // ~8% rechazo
+    const accepted = total - rejected;
+    const p = s.clock % 12;
+    const cameraStatus: ProductionRaw['cameraStatus'] = (p > 8.9 && p < 9.4) ? 'PASS' : (p > 9.4 && p < 9.6) ? 'FAIL' : 'READY';
+    return { total, accepted, rejected, cameraStatus };
+  }
+
+  function effProd(): { prod: ProductionRaw | null; src: DataSource } {
+    const src = prodSource();
+    if (src === 'DEMO') return { prod: demoProduction(), src };
+    if (src === 'NOT_CONNECTED') return { prod: null, src };
+    return { prod: s.prod, src };
+  }
+
   function effCobot(): { data: CobotData | null; src: DataSource } {
     const src = cobotSource();
     if (src === 'DEMO') return { data: demoCobot(), src };
@@ -234,10 +384,15 @@ export function createScadaEngine(): ScadaEngine {
 
   // ── Tick ──────────────────────────────────────────────────────────────────────
   function tick(dt: number): void {
-    const d = Math.min(0.1, dt);
+    // Cap a 2 s por tick: el driver corre con setInterval (~250 ms en foreground,
+    // ~1 s throttled en background), así el reloj avanza en TIEMPO REAL aunque la
+    // ventana esté en segundo plano. El cap evita un salto gigante tras un congelado
+    // largo (la telemetría tampoco actualizó), pero NUNCA reinicia el estado.
+    const d = Math.max(0, Math.min(2, dt));
     s.clock += d;
     s.cobotAgeS += d;
     s.plcAgeS += d;
+    s.prodAgeS += d;
 
     // conveyor on-time + captura del ON-time al apagarse (flanco ON→OFF)
     const { io } = effIo();
@@ -285,7 +440,89 @@ export function createScadaEngine(): ScadaEngine {
       s.demoLastCycleNo = cycleNo;
     }
 
+    // Derivación de ciclo en REAL: etapa/estado/progreso + timer + contadores PASS/FAIL.
+    if (s.mode === 'REAL') updateRealCycle(d);
+
+    // Seguimiento por CAFI (ambos modos: en DEMO usa el io sintético).
+    {
+      const { io: cio } = effIo();
+      const { data: ccb } = effCobot();
+      s.cafiSnap = cafiTracker.update(toCafiIo(cio, ccb), s.clock, d);
+      if (s.mode === 'REAL' && (s.cafiSnap.total !== prevCafiTotal || s.cafiSnap.accepted !== prevCafiAcc || s.cafiSnap.rejected !== prevCafiRej)) {
+        prevCafiTotal = s.cafiSnap.total; prevCafiAcc = s.cafiSnap.accepted; prevCafiRej = s.cafiSnap.rejected;
+        saveCafi(s.cafiSnap);
+      }
+    }
+
     evaluateAlarms();
+  }
+
+  // ── Derivación de ciclo desde señales REALES (CAMBIO 1/2/3/6/8) ──────────────
+  function registerCycle(durS: number): void {
+    const ct = round1(durS);
+    s.lastCycleTime = ct;
+    s.realCycleTimes.push(ct);
+    if (s.realCycleTimes.length > CYCLE_MAX) s.realCycleTimes.shift();
+    if (s.mode === 'REAL') s.cycleTimes = [...s.realCycleTimes];
+    persist();
+  }
+
+  function updateRealCycle(d: number): void {
+    const { io } = effIo();
+    const { data: cb } = effCobot();
+    const cobot: CobotLite = {
+      moving: !!cb?.moving,
+      ready: !!cb?.enabled,
+      fault: !!cb && (cb.estop || cb.protStop || cb.collision || cb.motionErr !== 0),
+      available: !!cb,
+    };
+
+    // Sin NINGUNA señal real → N/D (real-only, CAMBIO 11).
+    if (!io && !cobot.available) { s.derived = null; return; }
+
+    const hasCrit = [...s.alarms.values()].some((a) => a.active && a.severity === 'CRITICAL');
+    const cellState = inferCellState(io, cobot, hasCrit);
+    const st = inferStage(io, cobot);
+    s.derived = { cellState, stage: st.stage, step: st.step, source: st.source };
+
+    // Contadores reales por rising-edge de la cámara (CAMBIO 8). Sólo cuenta el
+    // flanco false→true; se rearma cuando la señal vuelve a false (anti doble-conteo).
+    let dirty = false;
+    const camPass = io ? io.camera_pass === true : false;
+    const camFail = io ? io.camera_fail === true : false;
+    if (camPass && s.prevCamPass === false) { s.acceptedCount++; s.classifiedThisCycle = true; dirty = true; }
+    if (camFail && s.prevCamFail === false) { s.rejectedCount++; s.classifiedThisCycle = true; dirty = true; }
+    if (io && io.camera_pass !== null && io.camera_pass !== undefined) s.prevCamPass = camPass;
+    if (io && io.camera_fail !== null && io.camera_fail !== undefined) s.prevCamFail = camFail;
+
+    // Timer de ciclo (CAMBIO 6).
+    const activity = hasCycleActivity(io, cobot);
+    if (!s.cycleRunning) {
+      // Arranca al detectar el INICIO de actividad (flanco) estando en reposo.
+      if (activity && !s.prevActivity) {
+        s.cycleRunning = true; s.cycleStartedAt = s.clock; s.currentCycleElapsed = 0;
+        s.classifiedThisCycle = false; s.idleHoldS = 0;
+      }
+    } else {
+      s.currentCycleElapsed += d;
+      // Condición de fin: ya clasificó (PASS/FAIL) y volvió a reposo, o la torreta verde
+      // se apagó sin movimiento. Debe sostenerse END_HOLD_S y durar al menos MIN_CYCLE_S.
+      const idleNow = !activity && (cobot.ready || !cobot.available);
+      const greenOff = io ? io.stacklight_green === false : false;
+      const endCond = (s.classifiedThisCycle && idleNow) || (greenOff && idleNow);
+      s.idleHoldS = endCond ? s.idleHoldS + d : 0;
+      if (s.idleHoldS >= END_HOLD_S && s.currentCycleElapsed >= MIN_CYCLE_S) {
+        registerCycle(s.currentCycleElapsed); dirty = false;   // registerCycle ya persiste
+        s.cycleRunning = false; s.cycleStartedAt = null; s.currentCycleElapsed = 0;
+        s.classifiedThisCycle = false; s.idleHoldS = 0;
+      } else if (s.currentCycleElapsed > MAX_CYCLE_S) {
+        // Guardia: ciclo demasiado largo → probable señal perdida; cierra SIN registrar.
+        s.cycleRunning = false; s.cycleStartedAt = null; s.currentCycleElapsed = 0;
+        s.classifiedThisCycle = false; s.idleHoldS = 0;
+      }
+    }
+    s.prevActivity = activity;
+    if (dirty) persist();
   }
 
   // ── Alarmas (ciclo de vida; NO se borran por click) ──────────────────────────
@@ -345,6 +582,15 @@ export function createScadaEngine(): ScadaEngine {
     pushLog('COMMENT', t, alarmCode, by);
   }
 
+  // El operador confirma que recogió los CAFIs de la mesa: vacía los activos del
+  // tracker (inProcess→0) y despeja la alarma de capacidad excedida.
+  function confirmCafiCollection(by = 'Operador'): void {
+    s.cafiSnap = cafiTracker.collectActive();
+    clear('CAFI_OVER_CAPACITY');
+    saveCafi(s.cafiSnap);
+    pushLog('COMMENT', 'Recolección de CAFIs de la mesa confirmada (capacidad liberada).', 'CAFI_OVER_CAPACITY', by);
+  }
+
   function evaluateAlarms(): void {
     const { data: cb, src: cbSrc } = effCobot();
     const { io, src: ioSrc } = effIo();
@@ -389,6 +635,10 @@ export function createScadaEngine(): ScadaEngine {
 
     rule('PLC_STALE', s.mode === 'REAL' && s.plcEverSeen && plcSource() === 'STALE', 'WARNING', 'PLC I/O',
       `Sin actualización de telemetry.io hace ${s.plcAgeS.toFixed(0)}s`, false);
+
+    // Capacidad de planta: máx CAFI_CAPACITY CAFIs. Pasando de eso → recoger de la mesa.
+    rule('CAFI_OVER_CAPACITY', s.cafiSnap.inProcess > CAFI_CAPACITY, 'ALARM', 'Mesa / CAFIs',
+      `Capacidad excedida: ${s.cafiSnap.inProcess} CAFIs en planta (máx ${CAFI_CAPACITY}). Recoger CAFIs de la mesa y confirmar.`, s.mode === 'DEMO');
 
     s.alarms.forEach((a) => { if (a.active) a.durationS = s.clock - a.raisedAt; });
   }
@@ -463,7 +713,8 @@ export function createScadaEngine(): ScadaEngine {
       { key: 'I_CAMERA_NO_READ', label: 'Camera NO-READ', kind: 'INPUT', val: iob('camera_no_read') },
       { key: 'I_GRIPPER_OPEN', label: 'Gripper open', kind: 'INPUT', val: iob('gripper_open') },
       { key: 'I_GRIPPER_CLOSED', label: 'Gripper closed', kind: 'INPUT', val: iob('gripper_closed') },
-      // Outputs (7)
+      // Outputs (8)
+      { key: 'O_GRIPPER_OFF', label: 'Gripper OFF', kind: 'OUTPUT', val: iob('gripper_off') },
       { key: 'O_CONVEYOR_MOTOR', label: 'Conveyor motor', kind: 'OUTPUT', val: iob('conveyor_motor_on') },
       { key: 'O_CAMERA_TRIGGER', label: 'Camera trigger', kind: 'OUTPUT', val: iob('camera_trigger') },
       { key: 'O_TABLE_NEMA_MOVING', label: 'Disco (NEMA) moving', kind: 'OUTPUT', val: iob('table_nema_moving') },
@@ -523,18 +774,34 @@ export function createScadaEngine(): ScadaEngine {
     const worstSeverity: Severity | null = activeAlarms.length ? activeAlarms[0].severity : null;
     const fault = !!cb && (cb.estop || cb.protStop || cb.collision || cb.motionErr !== 0);
 
-    // Etapa / progreso / tiempo de ciclo. En REAL son null: SCADA está aislado de la
-    // FSM y no recibe un bloque de ciclo, así que se muestra N/D (real-only, sin fake).
-    // En DEMO se sintetiza un ciclo determinista (claramente marcado DEMO).
+    // Etapa / progreso / tiempo de ciclo.
+    //  • DEMO: ciclo sintético determinista (claramente marcado DEMO).
+    //  • REAL: se DERIVA de las señales reales (telemetry.io + cobot) vía updateRealCycle.
+    //    Sólo queda null (N/D) si no hay NINGUNA señal real (NOT_CONNECTED).
+    // El tracker de CAFI es la fuente de la etapa POR PIEZA ("Remachando CAFI 1"),
+    // el contador de CAFIs y el tiempo de ciclo (conveyor→bin). Si no hay CAFI activo,
+    // cae a la etapa genérica derivada.
+    const cafi = s.cafiSnap;
+    const actCafi = cafi.cafis.find((c) => c.active && c.cycleTimeS === null);
     let stage: string | null = null, cycleStep: number | null = null, cycleTotal: number | null = null, cycleTimeS: number | null = null;
+    let stageEstimated = false;
+    let cycleRunning = cafi.running;
     if (s.mode === 'DEMO') {
       const elapsed = s.clock % DEMO_CYCLE_DUR;
       cycleTotal = DEMO_CYCLE_STEPS;
-      cycleStep = Math.min(DEMO_CYCLE_STEPS, Math.floor((elapsed / DEMO_CYCLE_DUR) * DEMO_CYCLE_STEPS) + 1);
-      cycleTimeS = round1(elapsed);
-      stage = demoStage(elapsed / DEMO_CYCLE_DUR);
+      cycleStep = cafi.activeStep ?? Math.min(DEMO_CYCLE_STEPS, Math.floor((elapsed / DEMO_CYCLE_DUR) * DEMO_CYCLE_STEPS) + 1);
+      cycleTimeS = cafi.running && actCafi ? actCafi.elapsedS : (cafi.lastCycleTimeS ?? round1(elapsed));
+      stage = cafi.activeLabel ?? demoStage(elapsed / DEMO_CYCLE_DUR);
+    } else if (s.derived || cafi.activeLabel) {
+      stage = cafi.activeLabel ?? s.derived?.stage ?? null;
+      cycleStep = cafi.activeStep ?? (s.derived && s.derived.step > 0 ? s.derived.step : null);
+      cycleTotal = CYCLE_TOTAL;
+      cycleTimeS = cafi.running && actCafi ? actCafi.elapsedS : (cafi.lastCycleTimeS ?? s.lastCycleTime);
+      stageEstimated = true;
     }
-    const avgCycleTimeS = s.cycleTimes.length ? round1(s.cycleTimes.reduce((a, b) => a + b, 0) / s.cycleTimes.length) : null;
+    // Serie de tiempos de ciclo: la del tracker (por CAFI) si existe; si no, el seed DEMO.
+    const cycleSeries = cafi.cycleTimes.length ? cafi.cycleTimes : s.cycleTimes;
+    const avgCycleTimeS = cycleSeries.length ? round1(cycleSeries.reduce((a, b) => a + b, 0) / cycleSeries.length) : null;
     const convWarnTxt = conveyor.warning === 'ALARM'
       ? `Conveyor encendido ${conveyor.onTimeS}s — detener y revisar`
       : conveyor.warning === 'WARNING'
@@ -553,13 +820,51 @@ export function createScadaEngine(): ScadaEngine {
       });
       if (cobot.tcp) { tags.push({ name: 'tcp_x_mm', value: cobot.tcp.xMm, unit: 'mm', source: cbSrc }); tags.push({ name: 'tcp_y_mm', value: cobot.tcp.yMm, unit: 'mm', source: cbSrc }); tags.push({ name: 'tcp_z_mm', value: cobot.tcp.zMm, unit: 'mm', source: cbSrc }); }
     }
+    // CAMBIO 12 — tags de DEPURACIÓN de la derivación (de dónde sale cada métrica).
+    if (s.mode === 'REAL' && s.derived) {
+      const dSrc: DataSource = plcAvail ? ioSrc : cbSrc;
+      tags.push({ name: 'derived_cell_state', value: s.derived.cellState, source: dSrc });
+      tags.push({ name: 'derived_current_stage', value: s.derived.stage, source: dSrc });
+      tags.push({ name: 'derived_progress_step', value: s.derived.step, source: dSrc });
+      tags.push({ name: 'derived_cycle_elapsed', value: round1(s.currentCycleElapsed), unit: 's', source: dSrc });
+      tags.push({ name: 'derived_cycle_source', value: s.derived.source, source: dSrc });
+      tags.push({ name: 'derived_accepted_count', value: s.acceptedCount, source: dSrc });
+      tags.push({ name: 'derived_rejected_count', value: s.rejectedCount, source: dSrc });
+    }
+
+    const { prod, src: prodSrc } = effProd();
+    const prodAvail = prodSrc !== 'NOT_CONNECTED' && !!prod;
+    const pTotal = prodAvail && prod && prod.total !== null ? prod.total : null;
+    const pAcc = prodAvail && prod && prod.accepted !== null ? prod.accepted : null;
+    let production: ProductionSnap = {
+      available: prodAvail,
+      source: prodSrc,
+      total: pTotal,
+      accepted: pAcc,
+      rejected: prodAvail && prod && prod.rejected !== null ? prod.rejected : null,
+      yieldPct: pTotal && pTotal > 0 && pAcc !== null ? round1((pAcc / pTotal) * 100) : null,
+      cameraStatus: prodAvail && prod ? prod.cameraStatus : null,
+    };
+    // CAMBIO 8 — Si el gateway NO manda COUNT.* pero hay I/O real, usamos los conteos
+    // POR CAFI del tracker (flancos reales de PASS/FAIL). NO se inventa nada.
+    if (!production.available && s.mode === 'REAL' && plcAvail && (cafi.accepted > 0 || cafi.rejected > 0)) {
+      const total = cafi.accepted + cafi.rejected;
+      const camStatus: ProductionSnap['cameraStatus'] = io && io.camera_pass === true ? 'PASS'
+        : io && io.camera_fail === true ? 'FAIL' : io && io.camera_ready === true ? 'READY' : null;
+      production = {
+        available: true, source: ioSrc,
+        total, accepted: cafi.accepted, rejected: cafi.rejected,
+        yieldPct: total > 0 ? round1((cafi.accepted / total) * 100) : null,
+        cameraStatus: camStatus,
+      };
+    }
 
     const history: ScadaHistory = {
       conveyorOnDurations: [...s.conveyorOnDurations],
       conveyorOnTime: s.conveyorOnTimeHist.map((p) => ({ ...p })),
       controllerTemps: s.controllerTemps.map((p) => ({ ...p })),
       jointTemps: s.jointTemps.map((p) => ({ t: p.t, temps: [...p.temps] })),
-      cycleTimes: [...s.cycleTimes],
+      cycleTimes: [...cycleSeries],
     };
 
     return {
@@ -569,18 +874,24 @@ export function createScadaEngine(): ScadaEngine {
       overview: {
         plantState,
         stage,
-        activeCafiId: null,
+        activeCafiId: actCafi ? actCafi.id : null,
         cobot: { connected: cbAvail, enabled: !!cb?.enabled, moving: !!cb?.moving, fault },
         plcConnected: plcAvail,
         activeAlarms: activeAlarms.length,
         worstSeverity,
         conveyorWarning: convWarnTxt,
         cycleStep, cycleTotal, cycleTimeS, avgCycleTimeS,
+        stageEstimated, cycleRunning,
+        cafiTotal: cafi.total, cafiInProcess: cafi.inProcess,
+        cafiAccepted: cafi.accepted, cafiRejected: cafi.rejected,
+        cafiOverCapacity: cafi.overCapacity,
       },
       io: io_,
       alarms: alarmsArr,
       cobot,
       conveyor,
+      production,
+      cafis: cafi.cafis,
       maintenance: { items, checklist },
       maintenanceLog: s.maintenanceLog.map((e) => ({ ...e })),
       history,
@@ -588,7 +899,7 @@ export function createScadaEngine(): ScadaEngine {
     };
   }
 
-  return { tick, snapshot, acknowledge, acknowledgeAll, resolve, addComment, setCobotTelemetry, setConnected, setPlcIo, setDemo, thresholds: SCADA_THRESHOLDS };
+  return { tick, snapshot, acknowledge, acknowledgeAll, resolve, addComment, confirmCafiCollection, setCobotTelemetry, setConnected, setPlcIo, setProduction, setDemo, thresholds: SCADA_THRESHOLDS };
 }
 
 // CAMBIO 10: snapshot SCADA completo para dashboard / IA / logs.

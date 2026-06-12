@@ -29,9 +29,11 @@ export interface CobotTelemetryLite {
   joint_states: { current_a: number; error?: boolean; collision?: boolean }[];
   tcp_position: { x_mm: number; y_mm: number; z_mm: number; rx_deg: number; ry_deg: number; rz_deg: number };
   end_effector: { fx_n: number; fy_n: number; fz_n: number; torque_rx_nm: number; torque_ry_nm: number; torque_rz_nm: number };
-  // OPCIONAL: I/O digital de la celda. HOY el gateway NO lo manda (verificado).
-  // Si el gateway lo agrega (ver server/RPI_GATEWAY_IO_SNIPPET.md), SCADA lo lee.
+  // Bloque PLC plano (14 claves) que el gateway YA emite (build_io).
   io?: ScadaIoFrame;
+  // Bloque HMI (build_hmi, 24 tags I_*/O_*): trae los 8 OUTPUTS canónicos + CAMERA_STATUS
+  // + contadores COUNT.* que NO están en `io`. SCADA lo fusiona para encender los outputs.
+  hmi?: Record<string, unknown>;
 }
 
 // Forma del bloque `io` que expone el gateway (DI del cobot + GPIO de la RPi).
@@ -52,6 +54,7 @@ export interface ScadaIoFrame {
   gripper_open?: boolean | null;           // I_GRIPPER_OPEN
   gripper_closed?: boolean | null;         // I_GRIPPER_CLOSED
   // ── Outputs (coils / DO del PLC) — lista canónica del HMI ──
+  gripper_off?: boolean | null;            // O_GRIPPER_OFF
   conveyor_motor_on?: boolean | null;      // O_CONVEYOR_MOTOR
   camera_trigger?: boolean | null;         // O_CAMERA_TRIGGER
   table_nema_moving?: boolean | null;      // O_TABLE_NEMA_MOVING
@@ -82,7 +85,7 @@ export function normalizeIo(raw: unknown): ScadaIoFrame | null {
     camera_ready: b('camera_ready'), camera_error: b('camera_error'), camera_no_read: b('camera_no_read'),
     gripper_open: b('gripper_open'), gripper_closed: b('gripper_closed'),
     // outputs
-    conveyor_motor_on: b('conveyor_motor_on'),
+    gripper_off: b('gripper_off'), conveyor_motor_on: b('conveyor_motor_on'),
     camera_trigger: b('camera_trigger'), table_nema_moving: b('table_nema_moving'),
     rivet_active: b('rivet_active'),
     stacklight_green: b('stacklight_green'), stacklight_yellow: b('stacklight_yellow'), stacklight_red: b('stacklight_red'),
@@ -90,6 +93,47 @@ export function normalizeIo(raw: unknown): ScadaIoFrame | null {
     camera_photoeye: b('camera_photoeye'), air_pressure_bar: n('air_pressure_bar'),
     estop: b('estop'), stop_button: b('stop_button'),
   };
+}
+
+// Fusiona los bloques `io` (snake_case) y `hmi` (I_*/O_*) que el gateway YA emite en
+// UN solo ScadaIoFrame canónico. El bloque `io` trae los 12 inputs PLC; el `hmi` trae
+// los 8 OUTPUTS (gripper_off, camera_trigger, table_nema_moving, rivet_active,
+// stacklight_*) y CAMERA_STATUS (de donde se deriva camera_ready/pass/fail). Así los
+// outputs dejan de salir NOT_CONNECTED SIN tocar el gateway. Lo que el gateway no
+// computa (camera_error / camera_no_read) sigue ausente → NOT_CONNECTED (real-only).
+export function buildScadaIo(telemetry: { io?: unknown; hmi?: Record<string, unknown> } | null): ScadaIoFrame | null {
+  if (!telemetry) return null;
+  const io = (telemetry.io && typeof telemetry.io === 'object') ? telemetry.io as Record<string, unknown> : undefined;
+  const hmi = (telemetry.hmi && typeof telemetry.hmi === 'object') ? telemetry.hmi : undefined;
+  if (!io && !hmi) return null;
+  const merged: Record<string, unknown> = { ...(io ?? {}) };
+  if (hmi) {
+    const set = (k: string, v: unknown) => { if (v !== undefined && v !== null) merged[k] = v; };
+    const fill = (k: string, v: unknown) => { if ((merged[k] === undefined || merged[k] === null) && v !== undefined && v !== null) merged[k] = v; };
+    // Outputs (sólo en `hmi`)
+    set('gripper_off', hmi.O_GRIPPER_OFF);
+    fill('conveyor_motor_on', hmi.O_CONVEYOR_MOTOR);
+    set('camera_trigger', hmi.O_CAMERA_TRIGGER);
+    set('table_nema_moving', hmi.O_TABLE_NEMA_MOVING);
+    set('rivet_active', hmi.O_RIVET_ACTIVE);
+    set('stacklight_green', hmi.O_STACKLIGHT_GREEN);
+    set('stacklight_yellow', hmi.O_STACKLIGHT_YELLOW);
+    set('stacklight_red', hmi.O_STACKLIGHT_RED);
+    // Cámara: CAMERA_STATUS (texto READY/PASS/FAIL) → flags discretos
+    const cam = hmi.CAMERA_STATUS;
+    if (typeof cam === 'string') {
+      set('camera_ready', cam === 'READY');
+      fill('camera_pass', cam === 'PASS');
+      fill('camera_fail', cam === 'FAIL');
+    }
+    // Inputs de respaldo si `io` no los trajo
+    fill('gripper_open', hmi.I_GRIPPER_OPEN);
+    fill('gripper_closed', hmi.I_GRIPPER_CLOSED);
+    fill('conveyor_photoeye', hmi.I_CONVEYOR_PHOTOEYE);
+    fill('fixture_1_present', hmi.I_FIXTURE_1_PRESENT);
+    fill('fixture_2_present', hmi.I_FIXTURE_2_PRESENT);
+  }
+  return normalizeIo(merged);
 }
 
 const DEFAULT_WS =
@@ -103,9 +147,30 @@ function isCobotTelemetry(x: unknown): x is CobotTelemetryLite {
   return Array.isArray(o.joint_positions_deg) && !!o.controller && !!o.tcp_position;
 }
 
+// Producción real extraída del bloque hmi (COUNT.* + CAMERA_STATUS).
+export interface ProductionRaw {
+  total: number | null;
+  accepted: number | null;
+  rejected: number | null;
+  cameraStatus: 'READY' | 'PASS' | 'FAIL' | null;
+}
+
+// Lee COUNT.total/accepted/rejected y CAMERA_STATUS del bloque hmi. null si no llega.
+export function extractProduction(telemetry: { hmi?: Record<string, unknown> } | null): ProductionRaw | null {
+  const hmi = telemetry && telemetry.hmi && typeof telemetry.hmi === 'object' ? telemetry.hmi : null;
+  if (!hmi) return null;
+  const num = (k: string): number | null => (typeof hmi[k] === 'number' ? (hmi[k] as number) : null);
+  const cam = hmi.CAMERA_STATUS;
+  const cameraStatus = cam === 'PASS' || cam === 'FAIL' || cam === 'READY' ? cam : null;
+  const total = num('COUNT.total'), accepted = num('COUNT.accepted'), rejected = num('COUNT.rejected');
+  if (total === null && accepted === null && rejected === null && cameraStatus === null) return null;
+  return { total, accepted, rejected, cameraStatus };
+}
+
 export interface CobotTelemetryState {
   telemetry: CobotTelemetryLite | null;
   io: ScadaIoFrame | null;   // bloque PLC normalizado (null si el gateway no lo manda)
+  production: ProductionRaw | null;   // COUNT.* + CAMERA_STATUS del bloque hmi
   connected: boolean;
   url: string;
 }
@@ -146,8 +211,9 @@ export function useCobotTelemetry(url: string = DEFAULT_WS): CobotTelemetryState
     };
   }, [url]);
 
-  const io = telemetry && telemetry.io ? normalizeIo(telemetry.io) : null;
-  return { telemetry, io, connected, url };
+  const io = buildScadaIo(telemetry);
+  const production = extractProduction(telemetry);
+  return { telemetry, io, production, connected, url };
 }
 
 // Estado del backend de IA (OpenAI) SIN exponer la key: sólo consulta el

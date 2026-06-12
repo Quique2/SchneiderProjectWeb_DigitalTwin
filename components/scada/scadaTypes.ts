@@ -8,6 +8,9 @@
 // presentar el SCADA sin hardware, y SIEMPRE los marca con source = DEMO.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { CafiTrack } from './ai/cafiTracker';
+export type { CafiTrack };
+
 export type Severity = 'INFO' | 'WARNING' | 'ALARM' | 'CRITICAL';
 
 // Estado/origen de un dato:
@@ -120,6 +123,18 @@ export interface CobotHealthSnap {
   };
 }
 
+// Producción REAL del gateway (bloque hmi: COUNT.* + CAMERA_STATUS). NO es fake:
+// proviene del pipeline real de la celda. Si no llega → available=false / null.
+export interface ProductionSnap {
+  available: boolean;
+  source: DataSource;
+  total: number | null;
+  accepted: number | null;
+  rejected: number | null;
+  yieldPct: number | null;                         // aceptados / total * 100
+  cameraStatus: 'READY' | 'PASS' | 'FAIL' | null;  // último estado de la cámara (texto)
+}
+
 // Conveyor: SOLO tiempo encendido (sin temperatura estimada) — CAMBIO 5.
 export interface ConveyorSnap {
   signalAvailable: boolean;        // existe conveyor_motor_on (real o demo)
@@ -148,11 +163,19 @@ export interface OverviewSnap {
   activeAlarms: number;
   worstSeverity: Severity | null;  // peor severidad ENTRE las alarmas activas (null = ninguna)
   conveyorWarning: string | null;  // texto si aplica
-  // Progreso / tiempo de ciclo (null en REAL: SCADA no tiene enlace a la FSM/ciclo).
+  // Progreso / tiempo de ciclo. En REAL se DERIVAN de las señales reales (telemetry.io
+  // + cobot) cuando hay enlace; null sólo si no hay ninguna señal (NOT_CONNECTED).
   cycleStep: number | null;
   cycleTotal: number | null;
   cycleTimeS: number | null;       // tiempo del ciclo en curso / último ciclo
   avgCycleTimeS: number | null;    // promedio de los últimos 10 ciclos (null = sin historial)
+  stageEstimated: boolean;         // true = etapa/progreso inferidos de señales reales de I/O (no FSM)
+  cycleRunning: boolean;           // true = hay un ciclo en curso (timer corriendo)
+  cafiTotal: number;               // CAFIs detectados (acumulado)
+  cafiInProcess: number;           // CAFIs activos en la celda ahora
+  cafiAccepted: number;            // CAFIs aceptados (tracker)
+  cafiRejected: number;            // CAFIs rechazados (tracker)
+  cafiOverCapacity: boolean;       // >8 CAFIs en planta → recoger de la mesa
 }
 
 export interface AiBackendHealth {
@@ -170,9 +193,11 @@ export interface ScadaSnapshot {
   alarms: Alarm[];
   cobot: CobotHealthSnap;
   conveyor: ConveyorSnap;
+  production: ProductionSnap;   // COUNT.* + CAMERA_STATUS del gateway (real)
   maintenance: { items: MaintItem[]; checklist: MaintChecklistItem[] };
   maintenanceLog: MaintLogEntry[];   // historial real de comentarios/acciones del operador
   history: ScadaHistory;             // series para gráficas (conveyor, joints, controlador)
+  cafis: CafiTrack[];                // seguimiento por CAFI (inferido de señales)
   tags: Tag[];   // tabla avanzada (todas las señales con dato) — solo modo debug
 }
 

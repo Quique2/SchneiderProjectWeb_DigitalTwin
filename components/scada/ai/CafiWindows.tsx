@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useScadaTheme } from '../shared/useScadaTheme';
+import { useScadaT } from '../scadaI18n';
 import type { ScadaTokens } from '../shared/scadaTheme';
 import { CAFI_CAPACITY, type CafiTrack, type CafiStage } from './cafiTracker';
 
@@ -32,45 +33,46 @@ export interface CafiWindowsProps {
 
 export default function CafiWindows({ cafis, total, accepted, rejected, inProcess, mode, overCapacity, onConfirmCollection }: CafiWindowsProps) {
   const { tokens: t } = useScadaTheme();
-  // Más recientes primero (las ventanas nuevas aparecen arriba).
+  const tr = useScadaT();
   const ordered = [...cafis].sort((a, b) => b.id - a.id);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
-      {/* Alerta de capacidad: >8 CAFIs → recoger de la mesa y confirmar */}
       {overCapacity && (
         <div style={{ background: `${t.danger}16`, border: `1px solid ${t.danger}66`, borderLeft: `6px solid ${t.danger}`, borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 24 }}>⚠️</span>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: t.danger }}>Capacidad de planta excedida</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: t.danger }}>{tr('cafiOvercapacityTitle')}</div>
             <div style={{ fontSize: 12.5, color: t.text, marginTop: 2 }}>
-              {inProcess} CAFIs en planta (máx {CAFI_CAPACITY}). <b>Recoge los CAFIs de la mesa</b> y confirma para liberar la capacidad.
+              {tr('cafiOvercapacityMsg').replace('{n}', String(inProcess)).replace('{max}', String(CAFI_CAPACITY)).split(tr('cafiOvercapacityBold')).map((part, i, arr) =>
+                i < arr.length - 1 ? <React.Fragment key={i}>{part}<b>{tr('cafiOvercapacityBold')}</b></React.Fragment> : <React.Fragment key={i}>{part}</React.Fragment>
+              )}
             </div>
           </div>
           {onConfirmCollection && (
             <button onClick={onConfirmCollection} style={{
               background: t.danger, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px',
               fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
-            }}>Confirmar recolección</button>
+            }}>{tr('cafiConfirmCollection')}</button>
           )}
         </div>
       )}
 
       {/* Contadores */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        <Counter t={t} label="CAFIs totales" value={String(total)} color={t.text} />
-        <Counter t={t} label={`En proceso (máx ${CAFI_CAPACITY})`} value={`${inProcess} / ${CAFI_CAPACITY}`} color={overCapacity ? t.danger : t.accent} />
-        <Counter t={t} label="Aceptados" value={String(accepted)} color={t.success} />
-        <Counter t={t} label="Rechazados" value={String(rejected)} color={t.danger} />
+        <Counter t={t} label={tr('cafiTotal')} value={String(total)} color={t.text} />
+        <Counter t={t} label={tr('cafiInProcess').replace('{max}', String(CAFI_CAPACITY))} value={`${inProcess} / ${CAFI_CAPACITY}`} color={overCapacity ? t.danger : t.accent} />
+        <Counter t={t} label={tr('cafiAccepted')} value={String(accepted)} color={t.success} />
+        <Counter t={t} label={tr('cafiRejected')} value={String(rejected)} color={t.danger} />
       </div>
 
       {ordered.length === 0 ? (
         <div style={{ background: t.surface, border: `1px dashed ${t.border}`, borderRadius: 16, padding: '34px 24px', textAlign: 'center', color: t.muted }}>
           <div style={{ fontSize: 30, marginBottom: 8 }}>📦</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>Sin CAFIs detectados todavía</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{tr('cafiEmptyTitle')}</div>
           <div style={{ fontSize: 12.5, marginTop: 4 }}>
-            Cada CAFI aparece como una ventana al cruzar el fotoeléctrico del conveyor
-            {mode === 'simulation' ? ' (inicia la simulación desde Celda 3D).' : '.'}
+            {tr('cafiEmptySubReal')}
+            {mode === 'simulation' ? ' ' + tr('cafiEmptySubSim') : ''}
           </div>
         </div>
       ) : (
@@ -92,10 +94,13 @@ function Counter({ t, label, value, color }: { t: ScadaTokens; label: string; va
 }
 
 function CafiWindow({ c, t }: { c: CafiTrack; t: ScadaTokens }) {
+  const tr = useScadaT();
   const color = stageColor(c.stage, t);
   const done = !c.active;
   const pct = Math.round((c.step / 10) * 100);
-  const timeTxt = c.cycleTimeS !== null ? `${c.cycleTimeS}s (ciclo)` : c.cycleStartS !== null ? `${c.elapsedS}s` : 'en conveyor';
+  const timeTxt = c.cycleTimeS !== null
+    ? `${c.cycleTimeS}s (${tr('cafiCycleUnit')})`
+    : c.cycleStartS !== null ? `${c.elapsedS}s` : tr('cafiOnConveyor');
 
   return (
     <div style={{
@@ -110,17 +115,19 @@ function CafiWindow({ c, t }: { c: CafiTrack; t: ScadaTokens }) {
         }}>#{c.id}</span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 14.5, fontWeight: 800, color, lineHeight: 1.2 }}>{c.label}</div>
-          <div style={{ fontSize: 10.5, color: t.muted, fontFamily: MONO }}>{c.active ? 'EN PROCESO' : 'COMPLETADO'} · {timeTxt}</div>
+          <div style={{ fontSize: 10.5, color: t.muted, fontFamily: MONO }}>
+            {c.active ? tr('cafiInProcessStatus') : tr('cafiCompletedStatus')} · {timeTxt}
+          </div>
         </div>
         {c.verdict && (
           <span style={{ fontSize: 10, fontWeight: 800, fontFamily: MONO, color: c.verdict === 'PASS' ? t.success : t.danger, border: `1px solid ${(c.verdict === 'PASS' ? t.success : t.danger)}66`, borderRadius: 7, padding: '3px 8px' }}>
-            {c.verdict === 'PASS' ? 'ACEPTADO' : 'RECHAZADO'}
+            {c.verdict === 'PASS' ? tr('cafiAcceptedStatus') : tr('cafiRejectedStatus')}
           </span>
         )}
       </div>
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: t.muted, marginBottom: 3 }}>
-          <span>Progreso</span><span style={{ fontFamily: MONO }}>{c.step}/10</span>
+          <span>{tr('cafiProgress')}</span><span style={{ fontFamily: MONO }}>{c.step}/10</span>
         </div>
         <div style={{ height: 7, background: t.surfaceSoft, borderRadius: 5, overflow: 'hidden', border: `1px solid ${t.border}` }}>
           <div style={{ height: '100%', width: `${pct}%`, background: color, transition: 'width 300ms' }} />

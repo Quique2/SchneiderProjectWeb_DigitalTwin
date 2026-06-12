@@ -85,7 +85,7 @@ export default function ScadaIoPanel({ tiles, mode, title, subtitle, labels }: S
 
       {/* Grid responsive de tiles */}
       {shown.length === 0 ? (
-        <div style={{ fontSize: 13, color: t.dim, padding: '14px 0' }}>Sin señales en esta categoría.</div>
+        <div style={{ fontSize: 13, color: t.dim, padding: '14px 0' }}>{labels?.empty ?? 'No signals in this category.'}</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 268px), 1fr))', gap: 12 }}>
           {shown.map((d) => <ScadaSignalTile key={d.signalKey} data={d} labels={labels?.tile} />)}

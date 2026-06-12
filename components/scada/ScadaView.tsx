@@ -365,6 +365,13 @@ function IoMatrix({ s }: { s: ScadaSnapshot }) {
       subtitle={connected > 0
         ? t('ioSubConnected').replace('{n}', String(connected))
         : t('ioSubDisconnected')}
+      labels={{
+        input: t('ioInputs'),
+        output: t('ioOutputs'),
+        legacy: t('ioLegacy'),
+        empty: t('ioNoSignals'),
+        tile: { notWired: t('tileNotWired') },
+      }}
     />
   );
 }

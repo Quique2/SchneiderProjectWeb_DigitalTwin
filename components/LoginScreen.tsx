@@ -10,7 +10,7 @@ const SANS =
 export default function LoginScreen() {
   const { T, isDark, toggle } = useThemeCtx();
   const { login } = useAuth();
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, t } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,7 +19,7 @@ export default function LoginScreen() {
     e.preventDefault();
     setError('');
     const ok = login(email.trim(), password);
-    if (!ok) setError('Credenciales incorrectas / Wrong credentials');
+    if (!ok) setError(t('login.error'));
   };
 
   const inputStyle: React.CSSProperties = {
@@ -118,7 +118,7 @@ export default function LoginScreen() {
             </div>
           </div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>
-            Ingrese sus credenciales para continuar
+            {t('login.subtitle')}
           </div>
         </div>
 
@@ -126,7 +126,7 @@ export default function LoginScreen() {
         <form onSubmit={handleSubmit} style={{ padding: '24px 36px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={{ display: 'block', fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700, color: T.muted, marginBottom: 7 }}>
-              Correo electrónico
+              {t('login.email')}
             </label>
             <input
               type="email"
@@ -143,7 +143,7 @@ export default function LoginScreen() {
 
           <div>
             <label style={{ display: 'block', fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700, color: T.muted, marginBottom: 7 }}>
-              Contraseña
+              {t('login.password')}
             </label>
             <input
               type="password"
@@ -178,7 +178,7 @@ export default function LoginScreen() {
             onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.88')}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
-            Ingresar
+            {t('login.submit')}
           </button>
         </form>
       </div>

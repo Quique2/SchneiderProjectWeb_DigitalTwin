@@ -363,6 +363,11 @@ const es = {
       errApplyingShutter: 'Aplicando obturación…', errNoTelemetry: 'Sin telemetría de joints para guardar.',
       wsError: 'WebSocket cerrado — ¿gateway activo?',
     },
+    login: {
+      email: 'Correo electrónico', password: 'Contraseña', submit: 'Ingresar',
+      subtitle: 'Ingrese sus credenciales para continuar',
+      error: 'Credenciales incorrectas',
+    },
     cell3d: {
       camera: 'Cámara', cafiSupply: 'Suministro CAFI', accepted: 'Aceptado', rejected: 'Rechazado',
       controller: 'Controlador · PLC', calibration: 'CALIBRACIÓN · Pick conveyor (offset X)',
@@ -719,6 +724,11 @@ const en: typeof es = {
       errCameraBusy: 'Camera is busy, wait a few seconds.',
       errApplyingShutter: 'Applying shutter…', errNoTelemetry: 'No joint telemetry to save.',
       wsError: 'WebSocket closed — is gateway active?',
+    },
+    login: {
+      email: 'Email address', password: 'Password', submit: 'Log in',
+      subtitle: 'Enter your credentials to continue',
+      error: 'Wrong credentials',
     },
     cell3d: {
       camera: 'Camera', cafiSupply: 'CAFI Supply', accepted: 'Accepted', rejected: 'Rejected',
@@ -1077,6 +1087,11 @@ const de: typeof es = {
       errApplyingShutter: 'Belichtungszeit wird gesetzt…', errNoTelemetry: 'Keine Achstelemetrie zum Speichern.',
       wsError: 'WebSocket geschlossen — ist das Gateway aktiv?',
     },
+    login: {
+      email: 'E-Mail-Adresse', password: 'Passwort', submit: 'Anmelden',
+      subtitle: 'Geben Sie Ihre Anmeldedaten ein',
+      error: 'Falsche Anmeldedaten',
+    },
     cell3d: {
       camera: 'Kamera', cafiSupply: 'CAFI-Zufuhr', accepted: 'Akzeptiert', rejected: 'Abgelehnt',
       controller: 'Steuerung · SPS', calibration: 'KALIBRIERUNG · Pick Förderband (Offset X)',
@@ -1433,6 +1448,11 @@ const pt: typeof es = {
       errCameraBusy: 'Câmera ocupada, aguarde alguns segundos.',
       errApplyingShutter: 'Aplicando obturação…', errNoTelemetry: 'Sem telemetria de joints para salvar.',
       wsError: 'WebSocket fechado — o gateway está ativo?',
+    },
+    login: {
+      email: 'Endereço de e-mail', password: 'Senha', submit: 'Entrar',
+      subtitle: 'Insira suas credenciais para continuar',
+      error: 'Credenciais incorretas',
     },
     cell3d: {
       camera: 'Câmera', cafiSupply: 'Suprimento CAFI', accepted: 'Aceito', rejected: 'Rejeitado',
@@ -1791,6 +1811,11 @@ const it: typeof es = {
       errApplyingShutter: 'Applicazione otturazione…', errNoTelemetry: 'Nessuna telemetria dei joints da salvare.',
       wsError: 'WebSocket chiuso — il gateway è attivo?',
     },
+    login: {
+      email: 'Indirizzo e-mail', password: 'Password', submit: 'Accedi',
+      subtitle: 'Inserisci le tue credenziali per continuare',
+      error: 'Credenziali errate',
+    },
     cell3d: {
       camera: 'Telecamera', cafiSupply: 'Fornitura CAFI', accepted: 'Accettato', rejected: 'Rifiutato',
       controller: 'Controllore · PLC', calibration: 'CALIBRAZIONE · Pick nastro (offset X)',
@@ -2147,6 +2172,11 @@ const fr: typeof es = {
       errCameraBusy: 'Caméra occupée, attendez quelques secondes.',
       errApplyingShutter: "Application de l'obturateur…", errNoTelemetry: 'Pas de télémétrie des joints à sauvegarder.',
       wsError: 'WebSocket fermé — la passerelle est-elle active ?',
+    },
+    login: {
+      email: 'Adresse e-mail', password: 'Mot de passe', submit: 'Se connecter',
+      subtitle: 'Entrez vos identifiants pour continuer',
+      error: 'Identifiants incorrects',
     },
     cell3d: {
       camera: 'Caméra', cafiSupply: 'Alimentation CAFI', accepted: 'Accepté', rejected: 'Rejeté',

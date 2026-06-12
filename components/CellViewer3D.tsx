@@ -15,6 +15,7 @@ import URDFLoader from 'urdf-loader';
 import type { URDFRobot } from 'urdf-loader';
 import OperatorHMI from './OperatorHMI';
 import { useCellSimulation, type UseCellSimulation } from './useCellSimulation';
+import { usePublishCellSnapshot } from './scadaSimLocal/usePublishCellSnapshot';
 import type { CafiEntity, CobotTask } from './cellStateTypes';
 import type { CellStateMachine } from './cellStateMachine';
 
@@ -4556,6 +4557,7 @@ export default function CellViewer3D() {
       placeVision: 120, pickVision: 120, placeBin: 120, recoverySlow: 120,
     },
   });
+  usePublishCellSnapshot(cellSim.snapshot);
   const gripperRef = useRef<number>(GRIPPER_OPEN_M);        // target
   const gripperLiveRef = useRef<number>(GRIPPER_OPEN_M);    // animated
   const gripperWorldRef = useRef<[number, number, number]>([0, 0, 0]);

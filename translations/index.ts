@@ -25,7 +25,7 @@ const es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Inicio', wiring: 'Cableado', cell3d: 'Celda 3D',
-      cobotLive: 'Cobot en Vivo', logic: 'Lógica', scada: 'SCADA',
+      cobotLive: 'Cobot en Vivo', logic: 'Lógica', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Light', themeDark: 'Dark',
   },
@@ -382,7 +382,7 @@ const en: typeof es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Home', wiring: 'Wiring', cell3d: '3D Cell',
-      cobotLive: 'Live Cobot', logic: 'Logic', scada: 'SCADA',
+      cobotLive: 'Live Cobot', logic: 'Logic', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Light', themeDark: 'Dark',
   },
@@ -739,7 +739,7 @@ const de: typeof es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Start', wiring: 'Verkabelung', cell3d: '3D-Zelle',
-      cobotLive: 'Cobot Live', logic: 'Logik', scada: 'SCADA',
+      cobotLive: 'Cobot Live', logic: 'Logik', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Hell', themeDark: 'Dunkel',
   },
@@ -1096,7 +1096,7 @@ const pt: typeof es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Início', wiring: 'Cabeamento', cell3d: 'Célula 3D',
-      cobotLive: 'Cobot Ao Vivo', logic: 'Lógica', scada: 'SCADA',
+      cobotLive: 'Cobot Ao Vivo', logic: 'Lógica', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Claro', themeDark: 'Escuro',
   },
@@ -1453,7 +1453,7 @@ const it: typeof es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Inizio', wiring: 'Cablaggio', cell3d: 'Cella 3D',
-      cobotLive: 'Cobot Live', logic: 'Logica', scada: 'SCADA',
+      cobotLive: 'Cobot Live', logic: 'Logica', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Chiaro', themeDark: 'Scuro',
   },
@@ -1810,7 +1810,7 @@ const fr: typeof es = {
     challenge: 'ITESM × Schneider Challenge 3.0',
     tabs: {
       home: 'Accueil', wiring: 'Câblage', cell3d: 'Cellule 3D',
-      cobotLive: 'Cobot en Direct', logic: 'Logique', scada: 'SCADA',
+      cobotLive: 'Cobot en Direct', logic: 'Logique', scada: 'SCADA', scadaSim: 'SCADA SIM',
     },
     themeLight: 'Clair', themeDark: 'Sombre',
   },

@@ -86,6 +86,12 @@ export interface CafiEntity {
   poseKey: string;
   createdAt: number;
   updatedAt: number;
+  sensorAt?: number | null;
+  doneAt?: number | null;
+  placedFixtureAt?: number | null;
+  rivetedAt?: number | null;
+  atCameraAt?: number | null;
+  stateMs?: Partial<Record<CafiState, number>>;
 }
 
 // ── Bloque mesa del snapshot ─────────────────────────────────────────────────
@@ -147,6 +153,46 @@ export interface CountsSnapshot {
   inProcess: number; // CAFIs vivos que no están en bin/done
 }
 
+// ── Métricas de tiempo de ciclo ──────────────────────────────────────────────
+export interface InProcessCycle {
+  id: number;
+  elapsedMs: number;
+}
+export interface CafiCycleBreakdown {
+  id: number;
+  cycleMs: number;
+  verdict: Verdict | null;
+  detectToFixtureMs: number;
+  fixtureToRivetedMs: number;
+  rivetedToCameraMs: number;
+  cameraToBinMs: number;
+  waitPickConveyorMs: number;
+  cobotCarryMs: number;
+  waitTableMs: number;
+  rivetZoneMs: number;
+  waitPickRivetedMs: number;
+  inCameraMs: number;
+  waitPickInspectedMs: number;
+}
+export interface CycleStatsSnapshot {
+  currentCafiId: number | null;
+  currentCycleMs: number;
+  averageCycleMs: number;
+  lastCycleMs: number;
+  completed: number;
+  cobotIdlePct: number;
+  cobotBusyMs: number;
+  runningMs: number;
+  waitCameraMs: number;
+  waitTableMs: number;
+  waitRivetMs: number;
+  waitOtherMs: number;
+  inProcessCycles: InProcessCycle[];
+  lastCycle: CafiCycleBreakdown | null;
+  last5AvgMs: number;
+  last5Count: number;
+}
+
 // ── Snapshot completo que consumen HMI y escena 3D ───────────────────────────
 export interface CellSnapshot {
   mode: SimMode;
@@ -183,6 +229,7 @@ export interface CellSnapshot {
   verdict: Verdict | null;
 
   counts: CountsSnapshot;
+  cycleStats?: CycleStatsSnapshot;
   cleaningPending: boolean; // CLEANING_REQUIRED y aún hay sensores ocupados
   finalizing: boolean;      // FINALIZAR pulsado: drenando trabajo en proceso antes de HOME/IDLE
 

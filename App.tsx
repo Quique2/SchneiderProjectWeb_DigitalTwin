@@ -5,6 +5,7 @@ import CobotLiveView from './components/CobotLiveView';
 import WiringDiagram from './components/WiringDiagram';
 import LogicaPlanta from './components/LogicaPlanta';
 import ScadaView from './components/scada/ScadaView';
+import ScadaSimView from './components/scadaSimLocal/ScadaSimView';
 import ArchitectureDiagram from './components/ArchitectureDiagram';
 import SpecsGrid from './components/SpecsGrid';
 import Footer from './components/Footer';
@@ -12,27 +13,34 @@ import { ThemeProvider, useThemeCtx } from './context/ThemeContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { LANG_LABELS, Lang } from './translations';
 
-type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic' | 'scada';
+type TabId = 'inicio' | 'wiring' | 'cell' | 'live' | 'logic' | 'scada' | 'scadasim';
 interface TabDef { id: TabId; labelKey: string }
 
 const TABS: TabDef[] = [
-  { id: 'inicio', labelKey: 'app.tabs.home' },
-  { id: 'wiring', labelKey: 'app.tabs.wiring' },
-  { id: 'cell',   labelKey: 'app.tabs.cell3d' },
-  { id: 'live',   labelKey: 'app.tabs.cobotLive' },
-  { id: 'logic',  labelKey: 'app.tabs.logic' },
-  { id: 'scada',  labelKey: 'app.tabs.scada' },
+  { id: 'inicio',    labelKey: 'app.tabs.home' },
+  { id: 'wiring',   labelKey: 'app.tabs.wiring' },
+  { id: 'cell',     labelKey: 'app.tabs.cell3d' },
+  { id: 'live',     labelKey: 'app.tabs.cobotLive' },
+  { id: 'logic',    labelKey: 'app.tabs.logic' },
+  { id: 'scada',    labelKey: 'app.tabs.scada' },
+  { id: 'scadasim', labelKey: 'app.tabs.scadaSim' },
 ];
+
+const EXTERNAL_TABS = new Set<TabId>(['scada', 'scadasim']);
 
 const TOPBAR_HEIGHT = 60;
 
-function readScadaStandalone(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.location.hash === '#scada' || window.location.search.includes('scada');
+function readStandalone(): 'scada' | 'scada-sim' | null {
+  if (typeof window === 'undefined') return null;
+  const h = window.location.hash;
+  if (h === '#scada-sim' || window.location.search.includes('scada-sim')) return 'scada-sim';
+  if (h === '#scada'     || window.location.search.includes('scada'))     return 'scada';
+  return null;
 }
 
-function openScadaPage(): void {
-  window.open('https://digitaltwinwebordo-production.up.railway.app/#scada', '_blank', 'noopener');
+function openHashPage(hash: string): void {
+  const { origin, pathname } = window.location;
+  window.open(`${origin}${pathname}#${hash}`, '_blank', 'noopener');
 }
 
 const SANS_FONT =
@@ -41,8 +49,9 @@ const MONO_FONT =
   '"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Courier New", monospace';
 
 export default function App() {
-  const [standalone] = useState(readScadaStandalone);
-  if (standalone) return <ScadaView />;
+  const [standalone] = useState(readStandalone);
+  if (standalone === 'scada')     return <ScadaView />;
+  if (standalone === 'scada-sim') return <ScadaSimView />;
   return (
     <ThemeProvider>
       <LanguageProvider>
@@ -129,7 +138,7 @@ function AppShell() {
             const active = tabDef.id === tab;
             return (
               <button key={tabDef.id}
-                onClick={() => { if (tabDef.id === 'scada') openScadaPage(); else setTab(tabDef.id); }}
+                onClick={() => { if (EXTERNAL_TABS.has(tabDef.id)) openHashPage(tabDef.id === 'scadasim' ? 'scada-sim' : tabDef.id); else setTab(tabDef.id); }}
                 style={{
                   position: 'relative',
                   background: active ? 'rgba(184,115,51,0.12)' : 'transparent',
@@ -147,7 +156,7 @@ function AppShell() {
                 }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget.style.color = T.text); }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget.style.color = T.muted); }}>
-                {t(tabDef.labelKey)}{tabDef.id === 'scada' ? ' ↗' : ''}
+                {t(tabDef.labelKey)}{EXTERNAL_TABS.has(tabDef.id) ? ' ↗' : ''}
                 {active && (
                   <div style={{
                     position: 'absolute', left: 12, right: 12, bottom: 0, height: 2,

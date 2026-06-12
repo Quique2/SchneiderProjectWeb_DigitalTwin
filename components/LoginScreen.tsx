@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useThemeCtx } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
+import { LANG_LABELS, Lang } from '../translations';
 
 const SANS =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif';
 
 export default function LoginScreen() {
-  const { T } = useThemeCtx();
+  const { T, isDark, toggle } = useThemeCtx();
   const { login } = useAuth();
+  const { lang, setLang } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -38,6 +41,55 @@ export default function LoginScreen() {
         backgroundSize: '48px 48px',
       }} />
 
+      {/* Top-right controls */}
+      <div style={{
+        position: 'absolute', top: 16, right: 20,
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        {/* Language selector */}
+        <select
+          value={lang}
+          onChange={(e) => setLang(e.target.value as Lang)}
+          style={{
+            background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
+            color: T.text, fontSize: 11, fontWeight: 600, padding: '5px 6px',
+            cursor: 'pointer', fontFamily: SANS, outline: 'none',
+          }}
+        >
+          {(Object.keys(LANG_LABELS) as Lang[]).map((l) => (
+            <option key={l} value={l}>{LANG_LABELS[l]}</option>
+          ))}
+        </select>
+
+        {/* Light / Dark toggle */}
+        <div style={{
+          display: 'flex', gap: 2,
+          background: T.panel2, border: `1px solid ${T.border}`,
+          borderRadius: 6, padding: 2,
+        }}>
+          <button
+            onClick={() => isDark && toggle()}
+            style={{
+              padding: '4px 10px', borderRadius: 4, border: 'none', cursor: 'pointer',
+              fontSize: 11, fontWeight: 600, fontFamily: SANS,
+              background: !isDark ? '#3b82f6' : 'transparent',
+              color: !isDark ? '#fff' : T.muted,
+              transition: 'all 0.15s',
+            }}
+          >☀ Light</button>
+          <button
+            onClick={() => !isDark && toggle()}
+            style={{
+              padding: '4px 10px', borderRadius: 4, border: 'none', cursor: 'pointer',
+              fontSize: 11, fontWeight: 600, fontFamily: SANS,
+              background: isDark ? T.panel : 'transparent',
+              color: isDark ? '#7ab4f0' : T.muted,
+              transition: 'all 0.15s',
+            }}
+          >☽ Dark</button>
+        </div>
+      </div>
+
       <div style={{
         position: 'relative', width: '100%', maxWidth: 400,
         background: T.panel, border: `1px solid ${T.border}`,
@@ -58,7 +110,7 @@ export default function LoginScreen() {
             }}>SE</div>
             <div>
               <div style={{ fontSize: 9, letterSpacing: 3, color: '#22c55e', textTransform: 'uppercase', fontWeight: 700 }}>
-                Schneider Electric · Challenge 2025
+                Schneider Electric · Challenge 2026
               </div>
               <div style={{ fontSize: 19, fontWeight: 700, color: T.text, letterSpacing: -0.3, lineHeight: 1.2 }}>
                 Digital Twin
